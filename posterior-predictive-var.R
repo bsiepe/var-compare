@@ -98,8 +98,11 @@ df_pdist %>%
 
 
 # to just approximate it, do I even need the posterior?
-# or can I just compute the mean and the variance of the samples from the posterior distribution
-
+# or can I just compute the mean and the variance of the samples from the posterior distribution? 
+#  as per Gelman & Hill p.143, I also need the covariance matrix 
+# of regression coefficients
+# can I just obtain im from the posterior samples???
+#  maybe this helps? https://github.com/danheck/multinomineq/blob/master/R/posterior_predictive.R
 
 
 
