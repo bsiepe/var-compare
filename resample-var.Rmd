@@ -1,0 +1,249 @@
+---
+title: "var-resample"
+author: "Björn Siepe"
+date: "2022-11-10"
+output: html_document
+---
+# Background
+Goal is to compare if two VAR models $A$ and $B$ are really different from another. We use resampling to do this.
+## Idea: 
+1. Fit $A$ and $B$ to their respective data. 
+2. Using parameters of $A$, generate $n$ new time series.
+3. Refit $A$ and $B$ on each of the $n$ time series.
+4. Obtain measure of fit, such as $MSE$. 
+5. Compare error distributions, either by cutoff or something like a Divergence. 
+(6. Maybe repeat the other way around, so sampling from $B$?)
+
+
+## Possible Issues:
+We lose uncertainty in step 2 if we resample from a time series without accounting for the uncertainty in the parameter estimates, so maybe we could resample from the posterior? Then it would just be posterior predictive distribution, right?
+
+
+# Two models, same data
+If we fit two models on the same data, they should be almost identical.
+We do not regularize here at first. 
+So our distribution of resampled MSEs should be very similar. 
+```{r preparations, include = FALSE}
+
+library(tidyverse)
+library(graphicalVAR)
+library(doParallel)
+library(mgm)
+library(mlVAR)
+library(BGGM)
+library(reshape2)
+library(mvtnorm)
+```
+
+GraphicalVAR is a bit tricky because it does not have a "predict" function
+yet. 
+```{r}
+# set.seed(2022)
+# graph <- randomGVARmodel(Nvar = 6, probKappaEdge = .5, probBetaEdge = .5)
+# dat <- graphicalVARsim(200, beta = graph$beta, kappa = graph$kappa)
+# 
+# # Fit model twice 
+# model_a <- graphicalVAR(dat, 
+#                    gamma = 0,    # use BIC
+#                    lambda_beta = 0,
+#                    lambda_kapp = 0)    
+# model_b <- graphicalVAR(dat, 
+#                    gamma = 0,    # use BIC
+#                    lambda_beta = 0,
+#                    lambda_kappa = 0)    
+# 
+# ntime_a <- model_a$N+1
+# beta_mat_a <- model_a$beta[,-1]  # delete intercept
+# kappa_mat_a <- model_a$kappa
+
+
+
+```
+
+Instead, I will just use mgm and mlVAR for model fitting and simulating now. 
+```{r}
+# Ground truth model is still generated with graphicalVAR 
+# without and contemporaneous connections
+
+graph <- randomGVARmodel(Nvar = 6, probKappaEdge = 0, probBetaEdge = .5)
+dat <- graphicalVARsim(200, beta = graph$beta, kappa = graph$kappa)
+
+# Fit VAR models
+set.seed(2022)
+model_a <- mgm::mvar(data = dat,
+                     type = rep("g", 6),
+                     level = rep(1,6),
+                     lambdaSel = "EBIC",
+                     lambdaGam = 0,
+                     lags = 1,
+                     consec = 1:nrow(dat),
+                     threshold = "none", 
+                     scale = TRUE)
+
+
+model_b <- mgm::mvar(data = dat,
+                     type = rep("g", 6),
+                     level = rep(1,6),
+                     lambdaSel = "EBIC",
+                     lambdaGam = 0,
+                     lags = 1,
+                     consec = 1:nrow(dat),
+                     threshold = "none", 
+                     scale = TRUE)
+
+ntime_a <- length(model_a$call$data_lagged$included)
+pars_a <- model_a$wadj[,,1]
+int_a <- unlist(model_a$intercepts)
+
+# the intercepts are so small that the data afterwards becomes weird
+# so I manually set the intercepts
+int_a <- c(-0.3, 0.1, 0.05, -0.25, 0.4, 0.01)
+
+```
+
+
+
+
+Now we simulate 100 models from the parameters of $A$. 
+```{r}
+# setup parallelization
+ncores = parallel::detectCores() - 4
+cl = makeCluster(ncores)
+registerDoParallel(cl)
+
+# somehow, the following gives me insanely weird data, basically everything is almost zero
+l_dat <- foreach(i = 1:100, .packages = "mlVAR") %dopar% {
+  mod <- simulateVAR(pars = pars_a,
+                     means = 0,
+                     Nt = ntime_a,
+                     residuals = 1)     # need to check if I should provide residual covariance matrix here
+  mod
+  
+}
+
+
+# fit model A to the data 100 times
+l_res_a <- foreach(i = 1:100, .packages = "mgm") %dopar% {
+  res <- predict(object = model_a, 
+                 data = l_dat[[i]])
+  errors <- res$errors
+}
+
+# slightly change model B and fit to the data again
+for(i in 1:nrow(model_b$wadj[,,1])){
+  for(j in 1:ncol(model_b$wadj[,,1])){
+    if(model_b$wadj[,,1][i,j]>0.0001 | model_b$wadj[,,1][i,j] < -0.0001){
+      model_b$wadj[,,1][i,j] <- model_b$wadj[,,1][i,j] + rnorm (n = 1,mean = 0.05, sd = 0.01)
+    }
+  }
+}
+
+l_res_b <- foreach(i = 1:100, .packages = "mgm") %dopar% {
+  res <- predict(object = model_b, 
+                 data = l_dat[[i]])
+  errors <- res$errors
+}
+
+
+stopCluster(cl)
+```
+
+This does not give a nice distribution with uncertainty.
+It also gives me negative R² values, which is really weird, probably
+due to the insanely small variance?
+Maybe I should resample from the VAR model using the uncertainty
+in $\beta$ and then compare distributions. 
+
+
+
+# Bayesian approach
+Idea: Use the posterior distribution to obtain a variance-covariance
+matrix of the parameters, then sample 100 different datasets from these parameters?
+```{r}
+# Fit the model
+dat <- as.data.frame(dat)
+bay_res <- var_estimate(dat)
+```
+Then obtain characteristics of the posterior: 
+```{r}
+beta_posterior <- bay_res$fit$beta
+# delete warm-up samples
+beta_posterior <- beta_posterior[,,51:5050]
+
+# get mean and SD of posterior estimates
+beta_mu <- round(apply(beta_posterior,1:2,mean), digits = 3)
+beta_sd <- round(apply(beta_posterior,1:2,sd), digits = 3)
+
+# obtain the covariance matrix of estimates
+dimnames(beta_posterior)[[1]] <- c("V1", "V2", "V3", "V4", "V5", "V6")
+dimnames(beta_posterior)[[2]] <- c("V1", "V2", "V3", "V4", "V5", "V6")
+
+# convert array to list
+l_beta_posterior <- lapply(seq(dim(beta_posterior)[3]), function(x) beta_posterior[,,x])
+
+ldf_beta_posterior <- lapply(l_beta_posterior, function(x){melt(as.matrix(x))})
+
+# keep sample index
+df_beta_posterior <- map_dfr(ldf_beta_posterior, .f = rbind, .id = "index")
+
+# pivot wider to obtain cov-matrix of predictors across posterior samples
+vcov_beta <- df_beta_posterior %>% 
+  pivot_wider(id_cols = index,
+              names_from = c(Var1, Var2)) %>% 
+  select(-index) %>% 
+  cov()
+```
+
+Try simulating from this matrix. 
+```{r}
+ppd <- mvtnorm::rmvnorm(100, mean = beta_mu, sigma = vcov_beta)
+
+# attach names from vcov_beta
+
+
+```
+
+
+
+## Directly use posterior samples
+Do I even need to sample from the posterior samples again? A bit confusing.
+Maybe I just take the first 100 samples from the posterior. 
+```{r}
+dgp <- beta_posterior[,,1:100]
+
+# setup foreach for data generation
+ncores = parallel::detectCores() - 4
+cl = makeCluster(ncores)
+registerDoParallel(cl)
+
+l_dat <- foreach(i = 1:100, .packages = "mlVAR") %dopar% {
+  mod <- simulateVAR(pars = dgp[,,i],
+                     means = 0,
+                     Nt = 200,
+                     residuals = 1)     # need to check if I should provide residual covariance matrix here
+  mod
+  
+}
+
+
+# compute prediction error for refitting the model
+# where are the intercepts in the var_estimate output? They are missing!
+predict_bggm <- function(x){
+  
+  
+}
+
+
+
+
+
+
+
+
+stopCluster(cl)
+
+```
+
+
+
+
