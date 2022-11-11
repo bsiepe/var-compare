@@ -63,13 +63,12 @@ yet.
 Instead, I will just use mgm and mlVAR for model fitting and simulating now. 
 ```{r}
 # Ground truth model is still generated with graphicalVAR 
-# without and contemporaneous connections
-
-graph <- randomGVARmodel(Nvar = 6, probKappaEdge = 0, probBetaEdge = .5)
+set.seed(2022)
+graph <- randomGVARmodel(Nvar = 6, probKappaEdge = 0.1, probBetaEdge = .5)
 dat <- graphicalVARsim(200, beta = graph$beta, kappa = graph$kappa)
 
 # Fit VAR models
-set.seed(2022)
+
 model_a <- mgm::mvar(data = dat,
                      type = rep("g", 6),
                      level = rep(1,6),
@@ -190,7 +189,7 @@ df_beta_posterior <- map_dfr(ldf_beta_posterior, .f = rbind, .id = "index")
 vcov_beta <- df_beta_posterior %>% 
   pivot_wider(id_cols = index,
               names_from = c(Var1, Var2)) %>% 
-  select(-index) %>% 
+  dplyr::select(!index) %>% 
   cov()
 ```
 
@@ -216,6 +215,8 @@ ncores = parallel::detectCores() - 4
 cl = makeCluster(ncores)
 registerDoParallel(cl)
 
+# TODO: maybe use own function to simulateVAR model, this gives me weird results
+
 l_dat <- foreach(i = 1:100, .packages = "mlVAR") %dopar% {
   mod <- simulateVAR(pars = dgp[,,i],
                      means = 0,
@@ -225,24 +226,58 @@ l_dat <- foreach(i = 1:100, .packages = "mlVAR") %dopar% {
   
 }
 
+stopCluster(cl)
 
-# compute prediction error for refitting the model
-# where are the intercepts in the var_estimate output? They are missing!
-predict_bggm <- function(x){
+# Convert data to BGGM format
+source("aux_funs.R")
+l_dat <- lapply(l_dat, format_bggm)
+```
+
+
+Refit the model to all 100 datasets. Use the internal function by Williams, modified by me.
+
+Do I even need the intercept when all time series are standardized? He seems
+to ignore them
+
+```{r}
+
+ncores = parallel::detectCores() - 4
+cl = makeCluster(ncores)
+registerDoParallel(cl)
+l_refit <- foreach(i = 1:100) %dopar% {
+  source("aux_funs.R")
+  ref <- predict(object = bay_res,
+                 data = l_dat[[i]])
   
-  
-}
-
-
-
-
-
-
+} 
 
 
 stopCluster(cl)
 
 ```
+
+Next, I need to write a function to evaluate the resulst.
+Maybe use Bayesian R², or just plain old MSE?
+```{r}
+mse <- function(...){
+  
+  mse <- sum((y-yhat)^2)
+  
+}
+
+
+
+eval_refit <- function(object,
+                       data){
+  
+  
+  
+}
+```
+
+
+
+
 
 
 
