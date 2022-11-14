@@ -35,32 +35,8 @@ library(reshape2)
 library(mvtnorm)
 ```
 
-GraphicalVAR is a bit tricky because it does not have a "predict" function
-yet. 
-```{r}
-# set.seed(2022)
-# graph <- randomGVARmodel(Nvar = 6, probKappaEdge = .5, probBetaEdge = .5)
-# dat <- graphicalVARsim(200, beta = graph$beta, kappa = graph$kappa)
-# 
-# # Fit model twice 
-# model_a <- graphicalVAR(dat, 
-#                    gamma = 0,    # use BIC
-#                    lambda_beta = 0,
-#                    lambda_kapp = 0)    
-# model_b <- graphicalVAR(dat, 
-#                    gamma = 0,    # use BIC
-#                    lambda_beta = 0,
-#                    lambda_kappa = 0)    
-# 
-# ntime_a <- model_a$N+1
-# beta_mat_a <- model_a$beta[,-1]  # delete intercept
-# kappa_mat_a <- model_a$kappa
 
-
-
-```
-
-Instead, I will just use mgm and mlVAR for model fitting and simulating now. 
+I will just use mgm and mlVAR for model fitting and simulating now. 
 ```{r}
 # Ground truth model is still generated with graphicalVAR 
 set.seed(2022)
@@ -238,8 +214,27 @@ write_rds(l_dat, "l_dat_simvar.RDS")
 Refit the model to all 100 datasets. Use the internal function by Williams, modified by me.
 
 Do I even need the intercept when all time series are standardized? He seems
-to ignore them
+to ignore them. I also still need to understand what the 'predict' function does here
+and if it is even useful for me.
+The predict function uses the posterior samples to predict fitted values, so it even
+contains the foundation for the new simulated datasets? Not sure if this makes sense.
+```{r}
+# 
+# ncores = parallel::detectCores() - 4
+# cl = makeCluster(ncores)
+# registerDoParallel(cl)
+# l_refit <- foreach(i = 1:100) %dopar% {
+#   source("aux_funs.R")
+#   ref <- predict(object = bay_res,
+#                  data = l_dat[[i]])
+#   
+# } 
+# 
+# 
+# stopCluster(cl)
+```
 
+However, the previous method uses posterior samples to evaluate predictions. Here we are however interested in the comparison of the graph that will actually be plotted, so just use the posterior mean of the beta coefficients for prediction.
 ```{r}
 
 ncores = parallel::detectCores() - 4
@@ -247,65 +242,69 @@ cl = makeCluster(ncores)
 registerDoParallel(cl)
 l_refit <- foreach(i = 1:100) %dopar% {
   source("aux_funs.R")
-  ref <- predict(object = bay_res,
+  ref <- predict_pmu.var_estimate(object = bay_res,
+                 data = l_dat[[i]])
+
+}
+
+
+stopCluster(cl)
+```
+
+
+
+
+
+
+
+Next, I need to write a function to evaluate the results.
+Here we use RMSE, but could also use Bayesian $R^2$ or similar stuff. 
+As we get credible intervals for the predictions, we could also do something
+with structure recovery, so see which edges were included and which weren't.
+```{r}
+source("aux_funs.R")
+# Get Prediction errors across all datasets
+df_mse <- data.frame(iter = 1:length(l_dat),
+                    mse = rep(NA, length(l_dat)))
+for(i in 1:length(l_dat)){
+  df_mse[i,"mse"] <- f_eval_refit(data = l_dat[[i]], refit = l_refit[[i]])
+}
+```
+
+Now plot the error distribution:
+```{r}
+plot_error_dist(df_mse)
+```
+
+
+## Compare error distribution to slightly different model
+Add small random noise to the coefficients of the "true" model and refit to data.
+This is not trivial, because the "predict" function uses posterior samples
+to evaluate the prediction and not just the posterior mean. Maybe I should rewrite the function so that just the mean is used to obtain predictions.
+```{r}
+# slightly change model B and fit to the data again
+# only change nonzero coefs
+bay_res_b <- bay_res
+for(i in 1:nrow(bay_res_b$beta_mu)){
+  for(j in 1:ncol(bay_res_b$beta_mu)){
+    if(bay_res_b$beta_mu[i,j]!=0){
+      bay_res_b$beta_mu[i,j] <- bay_res_b$beta_mu[i,j]+rnorm(1, mean = 0, sd = 0.25)
+    }
+  }
+}
+
+ncores = parallel::detectCores() - 4
+cl = makeCluster(ncores)
+registerDoParallel(cl)
+l_refit <- foreach(i = 1:100) %dopar% {
+  source("aux_funs.R")
+  ref <- predict(object = bay_res_b,
                  data = l_dat[[i]])
   
 } 
 
 
 stopCluster(cl)
-
-```
-
-Next, I need to write a function to evaluate the results.
-Maybe use Bayesian R², or just plain old MSE?
-As we get credible intervals for the predictions, we could also do something
-with structure recovery, so see which edges were included and which weren't.
-```{r-functions}
-# Function to get yhat and actual data into the same dataframe
-# data = data object
-# refit = predict.var_estimate object
-f_merge_pred <- function(data, refit){
-  y_pred <- array(NA, dim = c(dim(refit)[1],dim(refit)[3]))
-  # loop over number of variables in refit object
-  for(p in 1:dim(refit)[3]){
-    y_pred[,p] <- refit[,,p][,"Post.mean"]
-    dimnames(y_pred) <- list(NULL, paste0("V",1:6,"_pred"))
-  }
-  res <- cbind(data$Y, y_pred)
-  return(res)
-}
-
-test <- f_merge_pred(data = l_dat[[1]], refit = l_refit[[1]])
-
-
-# Function for obtaining Root Mean Squared Error
-# everything should be standardized
-f_rmse <- function(res){
-  # loop through the merged results
-  # 1st column with 7th, 2nd column with 8th etc.
-  ncol <- dim(res)[2]/2
-  res_rmse <- array(NA, dim = c(1, ncol))
-  for(j in 1:ncol){
-    res_rmse[,j] <- sqrt(sum((res[,j]-res[,j+ncol])^2))
-  }
-  colnames(res_rmse)[1:ncol] <- paste0(colnames(res)[1:ncol],"_rmse")
-  return(res_rmse)
-}
-
-
-# Test it once
-test <- f_merge_pred(data = l_dat[[1]], refit = l_refit[[1]])
-
-
-# function that combines everything
-f_eval_refit <- function(data,
-                       refit){
-  comb <- f_merge_pred(data = data, refit = refit)
-  fit_stat <- f_rmse(comb)
-  mean_rmse <- rowMeans(fit_stat)
-  
-}
 ```
 
 
