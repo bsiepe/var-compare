@@ -42,92 +42,8 @@ I will just use mgm and mlVAR for model fitting and simulating now.
 set.seed(2022)
 graph <- randomGVARmodel(Nvar = 6, probKappaEdge = 0.1, probBetaEdge = .5)
 dat <- graphicalVARsim(200, beta = graph$beta, kappa = graph$kappa)
-
-# Fit VAR models
-
-model_a <- mgm::mvar(data = dat,
-                     type = rep("g", 6),
-                     level = rep(1,6),
-                     lambdaSel = "EBIC",
-                     lambdaGam = 0,
-                     lags = 1,
-                     consec = 1:nrow(dat),
-                     threshold = "none", 
-                     scale = TRUE)
-
-
-model_b <- mgm::mvar(data = dat,
-                     type = rep("g", 6),
-                     level = rep(1,6),
-                     lambdaSel = "EBIC",
-                     lambdaGam = 0,
-                     lags = 1,
-                     consec = 1:nrow(dat),
-                     threshold = "none", 
-                     scale = TRUE)
-
-ntime_a <- length(model_a$call$data_lagged$included)
-pars_a <- model_a$wadj[,,1]
-int_a <- unlist(model_a$intercepts)
-
-# the intercepts are so small that the data afterwards becomes weird
-# so I manually set the intercepts
-int_a <- c(-0.3, 0.1, 0.05, -0.25, 0.4, 0.01)
-
 ```
 
-
-
-
-Now we simulate 100 models from the parameters of $A$. 
-```{r}
-# setup parallelization
-ncores = parallel::detectCores() - 4
-cl = makeCluster(ncores)
-registerDoParallel(cl)
-
-# somehow, the following gives me insanely weird data, basically everything is almost zero
-l_dat <- foreach(i = 1:100, .packages = "mlVAR") %dopar% {
-  mod <- simulateVAR(pars = pars_a,
-                     means = 0,
-                     Nt = ntime_a,
-                     residuals = 1)     # need to check if I should provide residual covariance matrix here
-  mod
-  
-}
-
-
-# fit model A to the data 100 times
-l_res_a <- foreach(i = 1:100, .packages = "mgm") %dopar% {
-  res <- predict(object = model_a, 
-                 data = l_dat[[i]])
-  errors <- res$errors
-}
-
-# slightly change model B and fit to the data again
-for(i in 1:nrow(model_b$wadj[,,1])){
-  for(j in 1:ncol(model_b$wadj[,,1])){
-    if(model_b$wadj[,,1][i,j]>0.0001 | model_b$wadj[,,1][i,j] < -0.0001){
-      model_b$wadj[,,1][i,j] <- model_b$wadj[,,1][i,j] + rnorm (n = 1,mean = 0.05, sd = 0.01)
-    }
-  }
-}
-
-l_res_b <- foreach(i = 1:100, .packages = "mgm") %dopar% {
-  res <- predict(object = model_b, 
-                 data = l_dat[[i]])
-  errors <- res$errors
-}
-
-
-stopCluster(cl)
-```
-
-This does not give a nice distribution with uncertainty.
-It also gives me negative R² values, which is really weird, probably
-due to the insanely small variance?
-Maybe I should resample from the VAR model using the uncertainty
-in $\beta$ and then compare distributions. 
 
 
 
@@ -141,43 +57,17 @@ bay_res <- var_estimate(dat)
 ```
 Then obtain characteristics of the posterior: 
 ```{r}
-beta_posterior <- bay_res$fit$beta
-# delete warm-up samples
-beta_posterior <- beta_posterior[,,51:5050]
+vcov_beta <- f_postcov(bay_res)
 
-# get mean and SD of posterior estimates
-beta_mu <- round(apply(beta_posterior,1:2,mean), digits = 3)
-beta_sd <- round(apply(beta_posterior,1:2,sd), digits = 3)
-
-# obtain the covariance matrix of estimates
-dimnames(beta_posterior)[[1]] <- c("V1", "V2", "V3", "V4", "V5", "V6")
-dimnames(beta_posterior)[[2]] <- c("V1", "V2", "V3", "V4", "V5", "V6")
-
-# convert array to list
-l_beta_posterior <- lapply(seq(dim(beta_posterior)[3]), function(x) beta_posterior[,,x])
-
-ldf_beta_posterior <- lapply(l_beta_posterior, function(x){melt(as.matrix(x))})
-
-# keep sample index
-df_beta_posterior <- map_dfr(ldf_beta_posterior, .f = rbind, .id = "index")
-
-# pivot wider to obtain cov-matrix of predictors across posterior samples
-vcov_beta <- df_beta_posterior %>% 
+# Plot posterior
+df_beta_posterior %>% 
   pivot_wider(id_cols = index,
               names_from = c(Var1, Var2)) %>% 
   dplyr::select(!index) %>% 
-  cov()
-```
-
-Try simulating from this matrix. 
-```{r}
-ppd <- mvtnorm::rmvnorm(100, mean = beta_mu, sigma = vcov_beta)
-
-# attach names from vcov_beta
-
+  ggplot(aes(x = V1_V1)) +
+  geom_histogram(binwidth = 0.005)
 
 ```
-
 
 
 ## Directly use posterior samples
@@ -256,7 +146,6 @@ stopCluster(cl)
 
 
 
-
 Next, I need to write a function to evaluate the results.
 Here we use RMSE, but could also use Bayesian $R^2$ or similar stuff. 
 As we get credible intervals for the predictions, we could also do something
@@ -277,35 +166,123 @@ plot_error_dist(df_mse)
 ```
 
 
-## Compare error distribution to slightly different model
-Add small random noise to the coefficients of the "true" model and refit to data.
-This is not trivial, because the "predict" function uses posterior samples
-to evaluate the prediction and not just the posterior mean. Maybe I should rewrite the function so that just the mean is used to obtain predictions.
-```{r}
-# slightly change model B and fit to the data again
-# only change nonzero coefs
-bay_res_b <- bay_res
-for(i in 1:nrow(bay_res_b$beta_mu)){
-  for(j in 1:ncol(bay_res_b$beta_mu)){
-    if(bay_res_b$beta_mu[i,j]!=0){
-      bay_res_b$beta_mu[i,j] <- bay_res_b$beta_mu[i,j]+rnorm(1, mean = 0, sd = 0.25)
-    }
-  }
+
+
+This is still TODO! 
+
+
+# Reliability estimation from posterior samples
+Compare variance within a person (across posterior samples) to variation
+across individuals
+
+What do I need?
+- Multiple people
+- Variance-Covariance Matrix of Posterior samples for each person
+- Mean vector of posterior estimates
+
+```{r data-simulation}
+# Use one ground-truth model and simulate from it (assuming homogeneity)
+set.seed(2022)
+graph <- randomGVARmodel(Nvar = 6, probKappaEdge = 0.1, probBetaEdge = .5)
+
+# simulate 50 data sets
+l_sims <- list()
+for(i in 1:50){
+  l_sims[[i]] <- graphicalVAR::graphicalVARsim(nTime = 200,
+                                          beta = graph$beta,
+                                          kappa = graph$kappa)
 }
 
+```
+
+Now we fit the bayesian VAR model again. 
+```{r}
+l_est <- list()
+l_sims <- lapply(l_sims, as.data.frame)
+for(i in 1:50){
+  l_est[[i]] <- BGGM::var_estimate(l_sims[[i]],
+                                   seed = 2022)
+}
+
+
+```
+
+Obtain variance-covariance matrices for posterior sampling distributions:
+I still have to understand what the order means, so what is lagged on what. 
+```{r}
 ncores = parallel::detectCores() - 4
 cl = makeCluster(ncores)
 registerDoParallel(cl)
-l_refit <- foreach(i = 1:100) %dopar% {
-  source("aux_funs.R")
-  ref <- predict(object = bay_res_b,
-                 data = l_dat[[i]])
-  
-} 
+l_cov <- foreach(i = 1:50) %dopar% {
+  covres <- f_postcov(l_est[[i]]) 
+  covres
+}
 
 
 stopCluster(cl)
 ```
+
+Save mean betas and covariances for each individual:
+```{r}
+l_beta <- list()
+for(i in 1:50){
+  beta <- melt(as.matrix(l_est[[i]]$beta_mu))
+  beta$est <- paste(beta$Var1, beta$Var2, sep = "_")
+  beta$id <- i
+  beta <- subset(beta, select = -c(Var1, Var2))
+  l_beta[[i]] <- beta
+}
+df_beta <- do.call(rbind, l_beta)
+
+# Variance-covariance in long format
+l_cov_long <- list()
+for(i in 1:50){
+  cov <- melt(as.matrix(l_cov[[i]]))
+  cov$cov <- paste(cov$Var1, cov$Var2, sep = "_")
+  cov$id <- i
+  cov <- subset(cov, select = -c(Var1, Var2))
+  l_cov_long[[i]] <- cov
+}
+df_cov <- do.call(rbind, l_cov_long)
+
+# Only use variances for now
+pars <- unique(df_beta$est)
+variance <- paste(pars, pars, sep = "_")  # covariance of parameters with themselves, so variances
+
+# filter for variance parameters, rename to remove redundancy
+df_var <- df_cov %>% 
+  filter(cov %in% variance) %>% 
+  mutate(cov = stringr::str_sub(cov, 1, 8))
+  
+
+```
+
+Compute reliability as within deviation over between deviation: 
+```{r}
+# variance of betas across individuals
+var_bw <- df_beta %>% 
+  group_by(est) %>% 
+  summarize(var_beta = var(value)) %>% 
+  summarize(mean_var_beta = mean(var_beta)) %>% 
+  pull(mean_var_beta)
+
+# mean variance of betas within individuals
+var_wi <- df_var %>% 
+  group_by(cov) %>% 
+  summarize(var_cov = mean(value)) %>% 
+  summarize(mean_var_cov = mean(var_cov)) %>% 
+  pull(mean_var_cov)
+
+rel <- (var_bw-var_wi)/(var_bw)
+# This is a bad result  lol. A large part of the variance is attributed
+# to the between-person level, although it should just be sampling noise
+
+
+
+```
+
+
+
 
 
 
