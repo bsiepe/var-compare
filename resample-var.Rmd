@@ -4,25 +4,19 @@ author: "Björn Siepe"
 date: "2022-11-10"
 output: html_document
 ---
-# Background
-Goal is to compare if two VAR models $A$ and $B$ are really different from another. We use resampling to do this.
-## Idea: 
-1. Fit $A$ and $B$ to their respective data. 
-2. Using parameters of $A$, generate $n$ new time series.
-3. Refit $A$ and $B$ on each of the $n$ time series.
-4. Obtain measure of fit, such as $MSE$. 
-5. Compare error distributions, either by cutoff or something like a Divergence. 
-(6. Maybe repeat the other way around, so sampling from $B$?)
 
+# Background
+
+Goal is to compare if two VAR models $A$ and $B$ are really different from another. We use resampling to do this. \## Idea: 1. Fit $A$ and $B$ to their respective data. 2. Using parameters of $A$, generate $n$ new time series. 3. Refit $A$ and $B$ on each of the $n$ time series. 4. Obtain measure of fit, such as $MSE$. 5. Compare error distributions, either by cutoff or something like a Divergence. (6. Maybe repeat the other way around, so sampling from $B$?)
 
 ## Possible Issues:
+
 We lose uncertainty in step 2 if we resample from a time series without accounting for the uncertainty in the parameter estimates, so maybe we could resample from the posterior? Then it would just be posterior predictive distribution, right?
 
-
 # Two models, same data
-If we fit two models on the same data, they should be almost identical.
-We do not regularize here at first. 
-So our distribution of resampled MSEs should be very similar. 
+
+If we fit two models on the same data, they should be almost identical. We do not regularize here at first. So our distribution of resampled MSEs should be very similar.
+
 ```{r preparations, include = FALSE}
 
 library(tidyverse)
@@ -31,50 +25,60 @@ library(doParallel)
 library(mgm)
 library(mlVAR)
 library(BGGM)
-library(reshape2)
-library(mvtnorm)
+library(reshape2)      # Data manipulation
+library(mvtnorm)       # Sim from posterior
+library(stats)         # KS-Test
+library(philentropy)   # divergence measures
+library(todor)         # keep on track with stuff to do
 ```
 
+I will just use mgm and mlVAR for model fitting and simulating now.
 
-I will just use mgm and mlVAR for model fitting and simulating now. 
 ```{r}
 # Ground truth model is still generated with graphicalVAR 
 set.seed(2022)
 graph <- randomGVARmodel(Nvar = 6, probKappaEdge = 0.1, probBetaEdge = .5)
 dat <- graphicalVARsim(200, beta = graph$beta, kappa = graph$kappa)
+dat2 <- graphicalVARsim(200, beta = graph$beta, kappa = graph$kappa)
+
+# Do this 100 times
+l_raw <- list()L
+l_raw <- for(i in 1:100){
+  
+  
+}
+
+
+
+# use different dgp for dat3
+set.seed(2022)
+graph3 <- randomGVARmodel(Nvar = 6, probKappaEdge = 0.1, probBetaEdge = .3)
+dat3 <- graphicalVARsim(200, beta = graph3$beta, kappa = graph$kappa)
+
+
+
+
 ```
 
-
-
-
 # Bayesian approach
-Idea: Use the posterior distribution to obtain a variance-covariance
-matrix of the parameters, then sample 100 different datasets from these parameters?
+
+Idea: Use the posterior distribution to obtain a variance-covariance matrix of the parameters, then sample 100 different datasets from these parameters?
+
 ```{r}
 # Fit the model
 dat <- as.data.frame(dat)
+dat2 <- as.data.frame(dat2)
+dat3 <- as.data.frame(dat3)
 bay_res <- var_estimate(dat)
+bay_res2 <- var_estimate(dat2)
+bay_res3 <- var_estimate(dat3)
 ```
-Then obtain characteristics of the posterior: 
-```{r}
-vcov_beta <- f_postcov(bay_res)
-
-# Plot posterior
-df_beta_posterior %>% 
-  pivot_wider(id_cols = index,
-              names_from = c(Var1, Var2)) %>% 
-  dplyr::select(!index) %>% 
-  ggplot(aes(x = V1_V1)) +
-  geom_histogram(binwidth = 0.005)
-
-```
-
 
 ## Directly use posterior samples
-Do I even need to sample from the posterior samples again? A bit confusing.
-Maybe I just take the first 100 samples from the posterior. 
+
+Take the first 100 samples from the posterior (after deleting warmup samples).
 ```{r}
-dgp <- beta_posterior[,,1:100]
+dgp <- bay_res$fit$beta[,,51:151]
 
 # setup foreach for data generation
 ncores = parallel::detectCores() - 4
@@ -82,6 +86,7 @@ cl = makeCluster(ncores)
 registerDoParallel(cl)
 
 # TODO: maybe use own function to simulateVAR model, this gives me weird results
+# Could also use sth. inspired by here: https://github.com/jmbh/ARVAR/blob/master/aux_functions.R
 
 l_dat <- foreach(i = 1:100, .packages = "mlVAR") %dopar% {
   mod <- simulateVAR(pars = dgp[,,i],
@@ -100,39 +105,30 @@ l_dat <- lapply(l_dat, format_bggm)
 write_rds(l_dat, "l_dat_simvar.RDS")
 ```
 
+Refit both models to all 100 datasets. Use the internal function by Williams, modified by me.
 
-Refit the model to all 100 datasets. Use the internal function by Williams, modified by me.
+Do I even need the intercept when all time series are standardized? He seems to ignore them. I also still need to understand what the 'predict' function does here and if it is even useful for me. The predict function uses the posterior samples to predict fitted values, so it even contains the foundation for the new simulated datasets? Not sure if this makes sense. Here we are however interested in the comparison of the graph that will actually be plotted, so just use the posterior mean of the beta coefficients for prediction.
 
-Do I even need the intercept when all time series are standardized? He seems
-to ignore them. I also still need to understand what the 'predict' function does here
-and if it is even useful for me.
-The predict function uses the posterior samples to predict fitted values, so it even
-contains the foundation for the new simulated datasets? Not sure if this makes sense.
-```{r}
-# 
-# ncores = parallel::detectCores() - 4
-# cl = makeCluster(ncores)
-# registerDoParallel(cl)
-# l_refit <- foreach(i = 1:100) %dopar% {
-#   source("aux_funs.R")
-#   ref <- predict(object = bay_res,
-#                  data = l_dat[[i]])
-#   
-# } 
-# 
-# 
-# stopCluster(cl)
-```
-
-However, the previous method uses posterior samples to evaluate predictions. Here we are however interested in the comparison of the graph that will actually be plotted, so just use the posterior mean of the beta coefficients for prediction.
 ```{r}
 
 ncores = parallel::detectCores() - 4
 cl = makeCluster(ncores)
 registerDoParallel(cl)
 l_refit <- foreach(i = 1:100) %dopar% {
-  source("aux_funs.R")
   ref <- predict_pmu.var_estimate(object = bay_res,
+                 data = l_dat[[i]])
+
+}
+
+
+l_refit2 <- foreach(i = 1:100) %dopar% {
+  ref <- predict_pmu.var_estimate(object = bay_res2,
+                 data = l_dat[[i]])
+
+}
+
+l_refit3 <- foreach(i = 1:100) %dopar% {
+  ref <- predict_pmu.var_estimate(object = bay_res3,
                  data = l_dat[[i]])
 
 }
@@ -141,44 +137,108 @@ l_refit <- foreach(i = 1:100) %dopar% {
 stopCluster(cl)
 ```
 
+We use RMSE to evaluate the fit, but could also use Bayesian $R^2$ or similar stuff (maybe even the likelihood). As we get credible intervals for the predictions, we could also do something with structure recovery, so see which edges were included and which weren't.
 
-
-
-
-
-Next, I need to write a function to evaluate the results.
-Here we use RMSE, but could also use Bayesian $R^2$ or similar stuff. 
-As we get credible intervals for the predictions, we could also do something
-with structure recovery, so see which edges were included and which weren't.
 ```{r}
 source("aux_funs.R")
 # Get Prediction errors across all datasets
-df_mse <- data.frame(iter = 1:length(l_dat),
-                    mse = rep(NA, length(l_dat)))
+df_rmse <- data.frame(iter = 1:length(l_dat),
+                    rmse = rep(NA, length(l_dat)),
+                    model = rep(1, length(l_dat)))
 for(i in 1:length(l_dat)){
-  df_mse[i,"mse"] <- f_eval_refit(data = l_dat[[i]], refit = l_refit[[i]])
+  df_rmse[i,"rmse"] <- f_eval_refit(data = l_dat[[i]], refit = l_refit[[i]])
 }
 ```
-
-Now plot the error distribution:
+Get the fit of the second model (TODO rewrite as one loop):
 ```{r}
-plot_error_dist(df_mse)
+# Get Prediction errors across all datasets
+df_rmse2 <- data.frame(iter = 1:length(l_dat),
+                    rmse = rep(NA, length(l_dat)),
+                    model = rep(2, length(l_dat)))
+for(i in 1:length(l_dat)){
+  df_rmse2[i,"rmse"] <- f_eval_refit(data = l_dat[[i]], refit = l_refit2[[i]])
+}
+
+
+
+```
+Third dataset:
+```{r}
+df_rmse3 <- data.frame(iter = 1:length(l_dat),
+                    rmse = rep(NA, length(l_dat)),
+                    model = rep(3, length(l_dat)))
+for(i in 1:length(l_dat)){
+  df_rmse3[i,"rmse"] <- f_eval_refit(data = l_dat[[i]], refit = l_refit3[[i]])
+}
+df_errors <- rbind(df_rmse, df_rmse2, df_rmse3)
 ```
 
 
 
 
-This is still TODO! 
+Plot the error distribution:
+```{r}
+ggplot(df_errors, aes(x = rmse, group = as.factor(model),fill = as.factor(model), col = as.factor(model)))+
+  ggdist::stat_halfeye(alpha = 0.7)+
+  theme_minimal()+
+  ggokabeito::scale_fill_okabe_ito()+
+  ggokabeito::scale_color_okabe_ito()
+
+```
+
+Two ways of numerical comparison: First, treat as empirical distribution and use Kolmogorow-Smirnow. P-Values can be computed exactly or with Monte Carlo Sampling, I need to check which one makes the most sense. Apparently, the KS test (and similar tests) assume independence between the curves under consideration. 
+```{r}
+err1 <- df_errors$rmse[df_errors$model == 1]
+err2 <- df_errors$rmse[df_errors$model == 2]
+err3 <- df_errors$rmse[df_errors$model == 3]
+
+stats::ks.test(x = err1, 
+               y = err2,
+               alternative = "less") # test one sided if first model is better
+
+stats::ks.test(x = err1,
+               y = err3) # interesting case on why we should not use one-sided testing: other model predicts better!
+
+
+
+```
+
+Second, estimate density, treat as empirical distribution and calculate Jenson-Shannon-Divergence (which is symmetrical, KL-Divergence is not?).
+The exact method for estimating the density should not matter too much, as the distribution of errors should roughly follow a normal distribution. For now, just use the density approach in the `stats` package with a Gaussian kernel.
+```{r}
+dens1 <- density(err1)
+dens1 <- data.frame(x = dens1$x,
+                       y = dens1$y)
+dens2 <- density(err2)
+dens2 <- data.frame(x = dens2$x,
+                    y = dens2$y)
+
+ggplot()+
+  geom_line(data = dens1, aes(x = x, y = y))+
+  geom_line(data = dens2, aes(x = x, y = y), lty = 2)
+
+
+test <- rbind(dens1$y, dens2$y)
+philentropy::KL(test)
+# does not work because the rows do not sum to 1
+# I need to integrate first 
+# or I just use ecdf() to generate empirical distribution from the raw data without estimating density first...
+# TODO still
+
+```
+
+
+Third, for later, just obtain the likelihoods of each model directly and then compare these across samples. 
+```{r}
+
+```
+
 
 
 # Reliability estimation from posterior samples
-Compare variance within a person (across posterior samples) to variation
-across individuals
 
-What do I need?
-- Multiple people
-- Variance-Covariance Matrix of Posterior samples for each person
-- Mean vector of posterior estimates
+Compare variance within a person (across posterior samples) to variation across individuals
+
 
 ```{r data-simulation}
 # Use one ground-truth model and simulate from it (assuming homogeneity)
@@ -195,7 +255,8 @@ for(i in 1:50){
 
 ```
 
-Now we fit the bayesian VAR model again. 
+Now we fit the bayesian VAR model again.
+
 ```{r}
 l_est <- list()
 l_sims <- lapply(l_sims, as.data.frame)
@@ -207,8 +268,8 @@ for(i in 1:50){
 
 ```
 
-Obtain variance-covariance matrices for posterior sampling distributions:
-I still have to understand what the order means, so what is lagged on what. 
+Obtain variance-covariance matrices for posterior sampling distributions: I still have to understand what the order means, so what is lagged on what.
+
 ```{r}
 ncores = parallel::detectCores() - 4
 cl = makeCluster(ncores)
@@ -223,6 +284,7 @@ stopCluster(cl)
 ```
 
 Save mean betas and covariances for each individual:
+
 ```{r}
 l_beta <- list()
 for(i in 1:50){
@@ -257,7 +319,10 @@ df_var <- df_cov %>%
 
 ```
 
-Compute reliability as within deviation over between deviation: 
+
+
+Compute reliability as within deviation over between deviation:
+
 ```{r}
 # variance of betas across individuals
 var_bw <- df_beta %>% 
@@ -274,16 +339,26 @@ var_wi <- df_var %>%
   pull(mean_var_cov)
 
 rel <- (var_bw-var_wi)/(var_bw)
-# This is a bad result  lol. A large part of the variance is attributed
+# This is a bad result. A large part of the variance is attributed
 # to the between-person level, although it should just be sampling noise
 
-
+var_bw/var_wi
 
 ```
 
 
+Other idea:
 
+-means per var per person, variance between means between persons
+-draw 10 values per person, compute SD
 
+for each person: descriptive mean and sampling error, true mean should be the same
+- then we can test if the formula works well
+
+simulate one regression per person
+- 2 predictors, but predictors are multicollinear
+- this affects standard errors, maybe this formula does not work here
+- 
 
 
 

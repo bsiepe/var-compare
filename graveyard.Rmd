@@ -7,34 +7,34 @@ output: html_document
 
 # Fit VAR models
 ```{r}
-model_a <- mgm::mvar(data = dat,
-                     type = rep("g", 6),
-                     level = rep(1,6),
-                     lambdaSel = "EBIC",
-                     lambdaGam = 0,
-                     lags = 1,
-                     consec = 1:nrow(dat),
-                     threshold = "none", 
-                     scale = TRUE)
-
-
-model_b <- mgm::mvar(data = dat,
-                     type = rep("g", 6),
-                     level = rep(1,6),
-                     lambdaSel = "EBIC",
-                     lambdaGam = 0,
-                     lags = 1,
-                     consec = 1:nrow(dat),
-                     threshold = "none", 
-                     scale = TRUE)
-
-ntime_a <- length(model_a$call$data_lagged$included)
-pars_a <- model_a$wadj[,,1]
-int_a <- unlist(model_a$intercepts)
-
-# the intercepts are so small that the data afterwards becomes weird
-# so I manually set the intercepts
-int_a <- c(-0.3, 0.1, 0.05, -0.25, 0.4, 0.01)
+# model_a <- mgm::mvar(data = dat,
+#                      type = rep("g", 6),
+#                      level = rep(1,6),
+#                      lambdaSel = "EBIC",
+#                      lambdaGam = 0,
+#                      lags = 1,
+#                      consec = 1:nrow(dat),
+#                      threshold = "none", 
+#                      scale = TRUE)
+# 
+# 
+# model_b <- mgm::mvar(data = dat,
+#                      type = rep("g", 6),
+#                      level = rep(1,6),
+#                      lambdaSel = "EBIC",
+#                      lambdaGam = 0,
+#                      lags = 1,
+#                      consec = 1:nrow(dat),
+#                      threshold = "none", 
+#                      scale = TRUE)
+# 
+# ntime_a <- length(model_a$call$data_lagged$included)
+# pars_a <- model_a$wadj[,,1]
+# int_a <- unlist(model_a$intercepts)
+# 
+# # the intercepts are so small that the data afterwards becomes weird
+# # so I manually set the intercepts
+# int_a <- c(-0.3, 0.1, 0.05, -0.25, 0.4, 0.01)
 
 ```
 
@@ -42,46 +42,47 @@ int_a <- c(-0.3, 0.1, 0.05, -0.25, 0.4, 0.01)
 
 Now we simulate 100 models from the parameters of $A$. 
 ```{r}
-# setup parallelization
-ncores = parallel::detectCores() - 4
-cl = makeCluster(ncores)
-registerDoParallel(cl)
+# # setup parallelization
+# ncores = parallel::detectCores() - 4
+# cl = makeCluster(ncores)
+# registerDoParallel(cl)
+# 
+# # somehow, the following gives me insanely weird data, basically everything is almost zero
+# l_dat <- foreach(i = 1:100, .packages = "mlVAR") %dopar% {
+#   mod <- simulateVAR(pars = pars_a,
+#                      means = 0,
+#                      Nt = ntime_a,
+#                      residuals = 1)     # need to check if I should provide residual covariance matrix here
+#   mod
+#   
+# }
+# 
+# 
+# # fit model A to the data 100 times
+# l_res_a <- foreach(i = 1:100, .packages = "mgm") %dopar% {
+#   res <- predict(object = model_a, 
+#                  data = l_dat[[i]])
+#   errors <- res$errors
+# }
+# 
+# # slightly change model B and fit to the data again
+# for(i in 1:nrow(model_b$wadj[,,1])){
+#   for(j in 1:ncol(model_b$wadj[,,1])){
+#     if(model_b$wadj[,,1][i,j]>0.0001 | model_b$wadj[,,1][i,j] < -0.0001){
+#       model_b$wadj[,,1][i,j] <- model_b$wadj[,,1][i,j] + rnorm (n = 1,mean = 0.05, sd = 0.01)
+#     }
+#   }
+# }
+# 
+# l_res_b <- foreach(i = 1:100, .packages = "mgm") %dopar% {
+#   res <- predict(object = model_b, 
+#                  data = l_dat[[i]])
+#   errors <- res$errors
+# }
+# 
+# 
+# stopCluster(cl)
 
-# somehow, the following gives me insanely weird data, basically everything is almost zero
-l_dat <- foreach(i = 1:100, .packages = "mlVAR") %dopar% {
-  mod <- simulateVAR(pars = pars_a,
-                     means = 0,
-                     Nt = ntime_a,
-                     residuals = 1)     # need to check if I should provide residual covariance matrix here
-  mod
-  
-}
-
-
-# fit model A to the data 100 times
-l_res_a <- foreach(i = 1:100, .packages = "mgm") %dopar% {
-  res <- predict(object = model_a, 
-                 data = l_dat[[i]])
-  errors <- res$errors
-}
-
-# slightly change model B and fit to the data again
-for(i in 1:nrow(model_b$wadj[,,1])){
-  for(j in 1:ncol(model_b$wadj[,,1])){
-    if(model_b$wadj[,,1][i,j]>0.0001 | model_b$wadj[,,1][i,j] < -0.0001){
-      model_b$wadj[,,1][i,j] <- model_b$wadj[,,1][i,j] + rnorm (n = 1,mean = 0.05, sd = 0.01)
-    }
-  }
-}
-
-l_res_b <- foreach(i = 1:100, .packages = "mgm") %dopar% {
-  res <- predict(object = model_b, 
-                 data = l_dat[[i]])
-  errors <- res$errors
-}
-
-
-stopCluster(cl)
 ```
 
 This does not give a nice distribution with uncertainty.
@@ -122,3 +123,4 @@ to evaluate the prediction and not just the posterior mean. Maybe I should rewri
 # 
 # stopCluster(cl)
 ```
+

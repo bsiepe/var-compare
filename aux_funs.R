@@ -1,5 +1,5 @@
 # Find ToDos --------------------------------------------------------------
-todor::todor(c("TODO"))
+# todor::todor(c("TODO"))
 
 
 
@@ -109,7 +109,7 @@ predict.var_estimate <- function(object,
 
 
 # Predict with posterior mean ---------------------------------------------
-# TODO: add option to manually provide a beta matrix with posterior means
+# IDEA: add option to manually provide a beta matrix with posterior means
 # instead of building the mean of the posterior samples
 
 # Change the function above to only use posterior mean for prediction
@@ -154,7 +154,7 @@ predict_pmu.var_estimate <- function(object,
   post_samps_b <- post_samps[,post_names]
   colnames(post_samps_b) <- post_names
   post_samps_mu <- matrix(colMeans(post_samps_b), ncol = 6)
-  # TODO very important: Do I need to do byrow TRUE or not?
+  # Very important: Do I need to do byrow TRUE or not?
   # I don't think so, because it is done variable-wise
   # so the first 6 values are the the coefficients on V1
   
@@ -245,14 +245,13 @@ f_merge_pred <- function(data, refit){
   y_pred <- array(NA, dim = c(dim(refit)[1],dim(refit)[3]))
   # loop over number of variables in refit object
   for(p in 1:dim(refit)[3]){
-    y_pred[,p] <- refit[,,p][,"Post.mean"]
+    y_pred[,p] <- refit[,,p]
     dimnames(y_pred) <- list(NULL, paste0("V",1:6,"_pred"))
   }
   res <- cbind(data$Y, y_pred)
   return(res)
 }
 
-test <- f_merge_pred(data = l_dat[[1]], refit = l_refit[[1]])
 
 
 # Compute RMSE ------------------------------------------------------------
@@ -284,6 +283,7 @@ f_eval_refit <- function(data,
 
 
 
+
 # Plot error distribution -------------------------------------------------
 plot_error_dist <- function(dat, errorcol = mse){
   ggplot(dat, aes(x = {{errorcol}}))+
@@ -296,38 +296,55 @@ plot_error_dist <- function(dat, errorcol = mse){
 
 # Posterior sampmles covariance matrix ------------------------------------
 # res = results of var_estimate
+# SOMETHING DOES NOT WORK HERE
+# 
+# f_postcov <- function(res){
+#   beta_posterior <- res$fit$beta
+#   # delete warm-up samples
+#   beta_posterior <- beta_posterior[,,51:5050]
+#   
+#   # get mean and SD of posterior estimates
+#   beta_mu <- round(apply(beta_posterior,1:2,mean), digits = 3)
+#   beta_sd <- round(apply(beta_posterior,1:2,sd), digits = 3)
+#   
+#   # obtain the covariance matrix of estimates
+#   dimnames(beta_posterior)[[1]] <- c("V1.l1", "V2.l1", "V3.l1", "V4.l1", "V5.l1", "V6.l1")
+#   dimnames(beta_posterior)[[2]] <- c("V1", "V2", "V3", "V4", "V5", "V6")
+#   
+#   # convert array to list
+#   l_beta_posterior <- lapply(seq(dim(beta_posterior)[3]), function(x) beta_posterior[,,x])
+#   
+#   ldf_beta_posterior <- lapply(l_beta_posterior, function(x){reshape2::melt(as.matrix(x))})
+#   
+#   # keep sample index
+#   df_beta_posterior <- purrr::map_dfr(ldf_beta_posterior, .f = rbind, .id = "index")
+#   
+#   # pivot wider to obtain cov-matrix of predictors across posterior samples
+#   vcov_beta <- df_beta_posterior |> 
+#     tidyr::pivot_wider(id_cols = index,
+#                 names_from = c(Var1, Var2)) |> 
+#     dplyr::select(!index) |> 
+#     stats::cov()
+#   return(vcov_beta)
+# }
+# 
 
-f_postcov <- function(res){
-  beta_posterior <- res$fit$beta
-  # delete warm-up samples
-  beta_posterior <- beta_posterior[,,51:5050]
+
+
+
+
+
+# Get Beta Variance -------------------------------------------------------
+# Input: fit object res
+# iter: number of iterations
+f_betavar <- function(res){
+  iter <- res$iter
+  beta_var <- apply(res$fit$beta[,,51:(res$iter+50)], 1:2, var)   # delete first 50 samples
+  beta_var
   
-  # get mean and SD of posterior estimates
-  beta_mu <- round(apply(beta_posterior,1:2,mean), digits = 3)
-  beta_sd <- round(apply(beta_posterior,1:2,sd), digits = 3)
-  
-  # obtain the covariance matrix of estimates
-  dimnames(beta_posterior)[[1]] <- c("V1.l1", "V2.l1", "V3.l1", "V4.l1", "V5.l1", "V6.l1")
-  dimnames(beta_posterior)[[2]] <- c("V1", "V2", "V3", "V4", "V5", "V6")
-  
-  # convert array to list
-  l_beta_posterior <- lapply(seq(dim(beta_posterior)[3]), function(x) beta_posterior[,,x])
-  
-  ldf_beta_posterior <- lapply(l_beta_posterior, function(x){reshape2::melt(as.matrix(x))})
-  
-  # keep sample index
-  df_beta_posterior <- purrr::map_dfr(ldf_beta_posterior, .f = rbind, .id = "index")
-  
-  # pivot wider to obtain cov-matrix of predictors across posterior samples
-  vcov_beta <- df_beta_posterior |> 
-    tidyr::pivot_wider(id_cols = index,
-                names_from = c(Var1, Var2)) |> 
-    dplyr::select(!index) |> 
-    stats::cov()
-  return(vcov_beta)
 }
-
-
+  
+  
 
 # Compute reliability -----------------------------------------------------
 # Input: Vector of beta weights and posterior samples covariance matrix
