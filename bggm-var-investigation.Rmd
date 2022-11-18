@@ -1,0 +1,37 @@
+---
+title: "bggm-var-investigation"
+author: "Björn Siepe"
+date: "2022-11-18"
+output: html_document
+---
+In this file, I investigate some of the properties of BGGM var_estimate. 
+Does it actually work well? If so, the following should be true.
+1. It should perform regularization as it says.
+2. It should recover roughly the same estimate as, e.g., graphicalVAR. 
+
+
+# Test regularization
+```{r}
+set.seed(2022)
+graph <- randomGVARmodel(Nvar = 6, probKappaEdge = 0.1, probBetaEdge = .5)
+dat <- as.data.frame(graphicalVARsim(200, beta = graph$beta, kappa = graph$kappa))
+res <- BGGM::var_estimate(dat,
+                          beta_sd = 1)
+res2 <- BGGM::var_estimate(dat,
+                           beta_sd = 0.1)
+
+
+```
+
+# Compare with GraphicalVAR
+The results seem suffciently similar. 
+```{r}
+res_gvar <- graphicalVAR(data = dat,
+                         lambda_beta = 0,
+                         lambda_kappa = 0)
+
+
+```
+
+
+

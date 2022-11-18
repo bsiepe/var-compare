@@ -32,7 +32,7 @@ library(philentropy)   # divergence measures
 library(todor)         # keep on track with stuff to do
 ```
 
-I will just use mgm and mlVAR for model fitting and simulating now.
+Another idea would be to use empirical graphs as basis, e.g. from Hoekstra paper. 
 
 ```{r}
 # Ground truth model is still generated with graphicalVAR 
@@ -41,9 +41,13 @@ graph <- randomGVARmodel(Nvar = 6, probKappaEdge = 0.1, probBetaEdge = .5)
 dat <- graphicalVARsim(200, beta = graph$beta, kappa = graph$kappa)
 dat2 <- graphicalVARsim(200, beta = graph$beta, kappa = graph$kappa)
 
-# Do this 100 times
-l_raw <- list()L
-l_raw <- for(i in 1:100){
+# Do this m times
+l_raw <- list()
+n_mod <- 100   # number of models to create
+for(i in 1:n_mod){
+  l_raw[[i]] <- as.data.frame(graphicalVAR::graphicalVARsim(nTime = 200,
+                                beta = graph$beta,
+                                kappa = graph$kappa))
   
   
 }
@@ -66,19 +70,31 @@ Idea: Use the posterior distribution to obtain a variance-covariance matrix of t
 
 ```{r}
 # Fit the model
-dat <- as.data.frame(dat)
-dat2 <- as.data.frame(dat2)
-dat3 <- as.data.frame(dat3)
-bay_res <- var_estimate(dat)
-bay_res2 <- var_estimate(dat2)
-bay_res3 <- var_estimate(dat3)
+rho_sd <- 0.5
+beta_sd <- 1
+seed <- 2022
+n_iter <- 5000
+
+l_res <- list()
+for(i in seq(n_mod)){
+  l_res[[i]] <- BGGM::var_estimate(l_raw[[i]],
+                                   rho_sd = rho_sd,
+                                   beta_sd = beta_sd,
+                                   iter = n_iter,
+                                   progress = FALSE,
+                                   seed = seed)
+  
+}
+
+
 ```
 
 ## Directly use posterior samples
 
-Take the first 100 samples from the posterior (after deleting warmup samples).
+Take the first 100 samples from the posterior of the first model (after deleting warmup samples).
 ```{r}
-dgp <- bay_res$fit$beta[,,51:151]
+# posterior sapmles
+ps <- l_res[[1]]$fit$beta[,,51:5050]
 
 # setup foreach for data generation
 ncores = parallel::detectCores() - 4
@@ -88,8 +104,10 @@ registerDoParallel(cl)
 # TODO: maybe use own function to simulateVAR model, this gives me weird results
 # Could also use sth. inspired by here: https://github.com/jmbh/ARVAR/blob/master/aux_functions.R
 
-l_dat <- foreach(i = 1:100, .packages = "mlVAR") %dopar% {
-  mod <- simulateVAR(pars = dgp[,,i],
+# number of samples to create
+n = 100
+l_dat <- foreach(i = seq(n), .packages = "mlVAR") %dopar% {
+  mod <- simulateVAR(pars = ps[,,i],
                      means = 0,
                      Nt = 200,
                      residuals = 1)     # need to check if I should provide residual covariance matrix here
@@ -105,7 +123,7 @@ l_dat <- lapply(l_dat, format_bggm)
 write_rds(l_dat, "l_dat_simvar.RDS")
 ```
 
-Refit both models to all 100 datasets. Use the internal function by Williams, modified by me.
+Refit all models to all 100 datasets. Use the internal function by Williams, modified by me.
 
 Do I even need the intercept when all time series are standardized? He seems to ignore them. I also still need to understand what the 'predict' function does here and if it is even useful for me. The predict function uses the posterior samples to predict fitted values, so it even contains the foundation for the new simulated datasets? Not sure if this makes sense. Here we are however interested in the comparison of the graph that will actually be plotted, so just use the posterior mean of the beta coefficients for prediction.
 
@@ -114,63 +132,42 @@ Do I even need the intercept when all time series are standardized? He seems to 
 ncores = parallel::detectCores() - 4
 cl = makeCluster(ncores)
 registerDoParallel(cl)
-l_refit <- foreach(i = 1:100) %dopar% {
-  ref <- predict_pmu.var_estimate(object = bay_res,
-                 data = l_dat[[i]])
 
-}
+l_refit <- foreach(i = seq(n_mod), .export = c("predict_pmu.var_estimate"))  %dopar% { # each model
+  l_m_ref <- list()  # store for each model
+  for(j in 1:n){   # each simulated dataset
+    l_m_ref[[j]] <- predict_pmu.var_estimate(object = l_res[[i]],
+                             data = l_dat[[j]])
+  }
+  return(l_m_ref)
+} 
 
-
-l_refit2 <- foreach(i = 1:100) %dopar% {
-  ref <- predict_pmu.var_estimate(object = bay_res2,
-                 data = l_dat[[i]])
-
-}
-
-l_refit3 <- foreach(i = 1:100) %dopar% {
-  ref <- predict_pmu.var_estimate(object = bay_res3,
-                 data = l_dat[[i]])
-
-}
 
 
 stopCluster(cl)
 ```
 
-We use RMSE to evaluate the fit, but could also use Bayesian $R^2$ or similar stuff (maybe even the likelihood). As we get credible intervals for the predictions, we could also do something with structure recovery, so see which edges were included and which weren't.
+We use RMSE to evaluate the fit, but could also use Bayesian $R^2$ or similar stuff (maybe even the likelihood). As we get credible intervals for the predictions, we could also do something with structure recovery, so see which edges were included and which weren't if we opt for some kind of sparsity. 
 
 ```{r}
-source("aux_funs.R")
-# Get Prediction errors across all datasets
-df_rmse <- data.frame(iter = 1:length(l_dat),
-                    rmse = rep(NA, length(l_dat)),
-                    model = rep(1, length(l_dat)))
-for(i in 1:length(l_dat)){
-  df_rmse[i,"rmse"] <- f_eval_refit(data = l_dat[[i]], refit = l_refit[[i]])
-}
-```
-Get the fit of the second model (TODO rewrite as one loop):
-```{r}
-# Get Prediction errors across all datasets
-df_rmse2 <- data.frame(iter = 1:length(l_dat),
-                    rmse = rep(NA, length(l_dat)),
-                    model = rep(2, length(l_dat)))
-for(i in 1:length(l_dat)){
-  df_rmse2[i,"rmse"] <- f_eval_refit(data = l_dat[[i]], refit = l_refit2[[i]])
+l_rmse <- list()
+ncores = parallel::detectCores() - 4
+cl = makeCluster(ncores)
+registerDoParallel(cl)
+l_rmse <- foreach(i = seq(n_mod)) %dopar% {  # for every model 
+  df_rmse <- data.frame(iter = 1:n,
+                    rmse = rep(NA, n),
+                    model = rep(i, n))
+  for(j in 1:n){      # for every dataset
+    df_rmse[j,"rmse"] <- f_eval_refit(data = l_dat[[j]],
+               refit = l_refit[[i]][[j]])
+  }
+  return(df_rmse)
 }
 
-
-
-```
-Third dataset:
-```{r}
-df_rmse3 <- data.frame(iter = 1:length(l_dat),
-                    rmse = rep(NA, length(l_dat)),
-                    model = rep(3, length(l_dat)))
-for(i in 1:length(l_dat)){
-  df_rmse3[i,"rmse"] <- f_eval_refit(data = l_dat[[i]], refit = l_refit3[[i]])
-}
-df_errors <- rbind(df_rmse, df_rmse2, df_rmse3)
+stopCluster(cl)
+df_errors <- do.call(rbind, l_rmse)
+write_rds(df_errors, "df_errors.Rds")
 ```
 
 
@@ -178,7 +175,12 @@ df_errors <- rbind(df_rmse, df_rmse2, df_rmse3)
 
 Plot the error distribution:
 ```{r}
-ggplot(df_errors, aes(x = rmse, group = as.factor(model),fill = as.factor(model), col = as.factor(model)))+
+df_errors %>% 
+  mutate(reference = case_when(model == 1 ~ "Reference",
+                               TRUE ~ "Comparison")) %>% 
+  mutate(reference = as.factor(reference)) %>% 
+  filter(model < 10) %>% 
+  ggplot(aes(x = rmse, group = reference , fill = as.factor(model), col = as.factor(model)))+
   ggdist::stat_halfeye(alpha = 0.7)+
   theme_minimal()+
   ggokabeito::scale_fill_okabe_ito()+
@@ -198,6 +200,27 @@ stats::ks.test(x = err1,
 
 stats::ks.test(x = err1,
                y = err3) # interesting case on why we should not use one-sided testing: other model predicts better!
+
+
+# Loop over test statistics
+# Baseline is model 1
+err1 <- df_errors$rmse[df_errors$model == 1]
+df_ks_res <- data.frame(model = rep(NA, n_mod),
+                        statistic = rep(NA, n_mod),
+                        pval = rep(NA, n_mod))
+options(scipen=999)
+for(m in 2:n_mod){
+  err_alt <- df_errors$rmse[df_errors$model == m]
+  tmp <- stats::ks.test(x = err1,
+                 y = err_alt)
+  df_ks_res[m,"model"] <- m
+  df_ks_res[m, "statistic"] <- tmp$statistic[[1]]
+  df_ks_res[m, "pval"] <- round(tmp$p.value, 5)
+
+}
+
+# Still too many false positives
+sum(df_ks_res$pval < 0.001, na.rm = TRUE)
 
 
 
@@ -227,11 +250,18 @@ philentropy::KL(test)
 
 ```
 
-
-Third, for later, just obtain the likelihoods of each model directly and then compare these across samples. 
+Another idea: use a commonly understandable metric. As we have paired error statistics (two models on the same data), we can just compute the probability that a given model fits as good or better as the reference model. This does not say anything about the magnitude of the difference, which is why models that fit slightly worse might fare badly in this approach.
 ```{r}
 
 ```
+
+
+
+For later, obtain the likelihoods of each model directly and then compare these across samples. 
+```{r}
+
+```
+
 
 
 
@@ -260,7 +290,7 @@ Now we fit the bayesian VAR model again.
 ```{r}
 l_est <- list()
 l_sims <- lapply(l_sims, as.data.frame)
-for(i in 1:50){
+for(i in 1:250){
   l_est[[i]] <- BGGM::var_estimate(l_sims[[i]],
                                    seed = 2022)
 }
@@ -274,7 +304,8 @@ Obtain variance-covariance matrices for posterior sampling distributions: I stil
 ncores = parallel::detectCores() - 4
 cl = makeCluster(ncores)
 registerDoParallel(cl)
-l_cov <- foreach(i = 1:50) %dopar% {
+source("aux_funs.R")
+l_cov <- foreach(i = 1:250) %dopar% {
   covres <- f_postcov(l_est[[i]]) 
   covres
 }
@@ -287,7 +318,7 @@ Save mean betas and covariances for each individual:
 
 ```{r}
 l_beta <- list()
-for(i in 1:50){
+for(i in 1:250){
   beta <- melt(as.matrix(l_est[[i]]$beta_mu))
   beta$est <- paste(beta$Var1, beta$Var2, sep = "_")
   beta$id <- i
@@ -298,7 +329,7 @@ df_beta <- do.call(rbind, l_beta)
 
 # Variance-covariance in long format
 l_cov_long <- list()
-for(i in 1:50){
+for(i in 1:250){
   cov <- melt(as.matrix(l_cov[[i]]))
   cov$cov <- paste(cov$Var1, cov$Var2, sep = "_")
   cov$id <- i

@@ -296,38 +296,38 @@ plot_error_dist <- function(dat, errorcol = mse){
 
 # Posterior sampmles covariance matrix ------------------------------------
 # res = results of var_estimate
-# SOMETHING DOES NOT WORK HERE
+
 # 
-# f_postcov <- function(res){
-#   beta_posterior <- res$fit$beta
-#   # delete warm-up samples
-#   beta_posterior <- beta_posterior[,,51:5050]
-#   
-#   # get mean and SD of posterior estimates
-#   beta_mu <- round(apply(beta_posterior,1:2,mean), digits = 3)
-#   beta_sd <- round(apply(beta_posterior,1:2,sd), digits = 3)
-#   
-#   # obtain the covariance matrix of estimates
-#   dimnames(beta_posterior)[[1]] <- c("V1.l1", "V2.l1", "V3.l1", "V4.l1", "V5.l1", "V6.l1")
-#   dimnames(beta_posterior)[[2]] <- c("V1", "V2", "V3", "V4", "V5", "V6")
-#   
-#   # convert array to list
-#   l_beta_posterior <- lapply(seq(dim(beta_posterior)[3]), function(x) beta_posterior[,,x])
-#   
-#   ldf_beta_posterior <- lapply(l_beta_posterior, function(x){reshape2::melt(as.matrix(x))})
-#   
-#   # keep sample index
-#   df_beta_posterior <- purrr::map_dfr(ldf_beta_posterior, .f = rbind, .id = "index")
-#   
-#   # pivot wider to obtain cov-matrix of predictors across posterior samples
-#   vcov_beta <- df_beta_posterior |> 
-#     tidyr::pivot_wider(id_cols = index,
-#                 names_from = c(Var1, Var2)) |> 
-#     dplyr::select(!index) |> 
-#     stats::cov()
-#   return(vcov_beta)
-# }
-# 
+f_postcov <- function(res){
+  beta_posterior <- res$fit$beta
+  # delete warm-up samples
+  beta_posterior <- beta_posterior[,,51:5050]
+
+  # get mean and SD of posterior estimates
+  beta_mu <- round(apply(beta_posterior,1:2,mean), digits = 3)
+  beta_sd <- round(apply(beta_posterior,1:2,sd), digits = 3)
+
+  # obtain the covariance matrix of estimates
+  dimnames(beta_posterior)[[1]] <- c("V1.l1", "V2.l1", "V3.l1", "V4.l1", "V5.l1", "V6.l1")
+  dimnames(beta_posterior)[[2]] <- c("V1", "V2", "V3", "V4", "V5", "V6")
+
+  # convert array to list
+  l_beta_posterior <- lapply(seq(dim(beta_posterior)[3]), function(x) beta_posterior[,,x])
+
+  ldf_beta_posterior <- lapply(l_beta_posterior, function(x){reshape2::melt(as.matrix(x))})
+
+  # keep sample index
+  df_beta_posterior <- purrr::map_dfr(ldf_beta_posterior, .f = rbind, .id = "index")
+
+  # pivot wider to obtain cov-matrix of predictors across posterior samples
+  vcov_beta <- df_beta_posterior |>
+    tidyr::pivot_wider(id_cols = index,
+                names_from = c(Var1, Var2)) |>
+    dplyr::select(!index) |>
+    stats::cov()
+  return(vcov_beta)
+}
+
 
 
 
