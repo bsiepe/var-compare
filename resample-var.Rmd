@@ -277,7 +277,7 @@ graph <- randomGVARmodel(Nvar = 6, probKappaEdge = 0.1, probBetaEdge = .5)
 
 # simulate 50 data sets
 l_sims <- list()
-for(i in 1:50){
+for(i in 1:250){
   l_sims[[i]] <- graphicalVAR::graphicalVARsim(nTime = 200,
                                           beta = graph$beta,
                                           kappa = graph$kappa)
@@ -291,8 +291,9 @@ Now we fit the bayesian VAR model again.
 l_est <- list()
 l_sims <- lapply(l_sims, as.data.frame)
 for(i in 1:250){
-  l_est[[i]] <- BGGM::var_estimate(l_sims[[i]],
-                                   seed = 2022)
+  l_est[[i]] <- try(BGGM::var_estimate(l_sims[[i]],
+                                   seed = 2022,
+                                   progress = FALSE))
 }
 
 
@@ -306,7 +307,7 @@ cl = makeCluster(ncores)
 registerDoParallel(cl)
 source("aux_funs.R")
 l_cov <- foreach(i = 1:250) %dopar% {
-  covres <- f_postcov(l_est[[i]]) 
+  covres <- try(f_postcov(l_est[[i]])) 
   covres
 }
 
@@ -390,6 +391,7 @@ simulate one regression per person
 - 2 predictors, but predictors are multicollinear
 - this affects standard errors, maybe this formula does not work here
 - 
+show Ricci stuff
 
 
 
