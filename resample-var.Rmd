@@ -41,23 +41,23 @@ graph <- randomGVARmodel(Nvar = 6, probKappaEdge = 0.1, probBetaEdge = .5)
 dat <- graphicalVARsim(200, beta = graph$beta, kappa = graph$kappa)
 dat2 <- graphicalVARsim(200, beta = graph$beta, kappa = graph$kappa)
 
-# Do this m times
-l_raw <- list()
-n_mod <- 100   # number of models to create
-for(i in 1:n_mod){
-  l_raw[[i]] <- as.data.frame(graphicalVAR::graphicalVARsim(nTime = 200,
-                                beta = graph$beta,
-                                kappa = graph$kappa))
-  
-  
-}
-
-
-
-# use different dgp for dat3
-set.seed(2022)
-graph3 <- randomGVARmodel(Nvar = 6, probKappaEdge = 0.1, probBetaEdge = .3)
-dat3 <- graphicalVARsim(200, beta = graph3$beta, kappa = graph$kappa)
+# # Do this m times
+# l_raw <- list()
+# n_mod <- 100   # number of models to create
+# for(i in 1:n_mod){
+#   l_raw[[i]] <- as.data.frame(graphicalVAR::graphicalVARsim(nTime = 200,
+#                                 beta = graph$beta,
+#                                 kappa = graph$kappa))
+#   
+#   
+# }
+# 
+# 
+# 
+# # use different dgp for dat3
+# set.seed(2022)
+# graph3 <- randomGVARmodel(Nvar = 6, probKappaEdge = 0.1, probBetaEdge = .3)
+# dat3 <- graphicalVARsim(200, beta = graph3$beta, kappa = graph$kappa)
 
 
 
@@ -83,7 +83,7 @@ for(i in seq(n_mod)){
                                    iter = n_iter,
                                    progress = FALSE,
                                    seed = seed)
-  
+
 }
 
 
@@ -118,6 +118,9 @@ l_dat <- foreach(i = seq(n), .packages = "mlVAR") %dopar% {
 stopCluster(cl)
 
 # Convert data to BGGM format
+# TODO Something here does not work? The last Y value gets cut off because 
+# we insert NA for the lagged value matrix
+# Need to think about whether I keep it this way to comply with Williams or I change it
 source("aux_funs.R")
 l_dat <- lapply(l_dat, format_bggm)
 write_rds(l_dat, "l_dat_simvar.RDS")
@@ -171,16 +174,11 @@ write_rds(df_errors, "df_errors.Rds")
 ```
 
 
-
-
 Plot the error distribution:
 ```{r}
 df_errors %>% 
-  mutate(reference = case_when(model == 1 ~ "Reference",
-                               TRUE ~ "Comparison")) %>% 
-  mutate(reference = as.factor(reference)) %>% 
   filter(model < 10) %>% 
-  ggplot(aes(x = rmse, group = reference , fill = as.factor(model), col = as.factor(model)))+
+  ggplot(aes(x = rmse, group = model , fill = as.factor(model), col = as.factor(model)))+
   ggdist::stat_halfeye(alpha = 0.7)+
   theme_minimal()+
   ggokabeito::scale_fill_okabe_ito()+
@@ -219,8 +217,8 @@ for(m in 2:n_mod){
 
 }
 
-# Still too many false positives
-sum(df_ks_res$pval < 0.001, na.rm = TRUE)
+# Still too many false positives?
+sum(df_ks_res$pval < 0.01, na.rm = TRUE)
 
 
 
@@ -246,11 +244,26 @@ philentropy::KL(test)
 # does not work because the rows do not sum to 1
 # I need to integrate first 
 # or I just use ecdf() to generate empirical distribution from the raw data without estimating density first...
-# TODO still
+ecdf1 <- stats::ecdf(err1)
+p1 <- ecdf1(err1)
+ecdf2 <- stats::ecdf(err2)
+p2 <- ecdf2(err2)
+x <- rbind(p1,p2)
+
+# compute similarity between distributions
+1-philentropy::JSD(x)
+
+
+# compute for whole dataset
+jsd_res <- f_comp_jsd()
+
 
 ```
 
-Another idea: use a commonly understandable metric. As we have paired error statistics (two models on the same data), we can just compute the probability that a given model fits as good or better as the reference model. This does not say anything about the magnitude of the difference, which is why models that fit slightly worse might fare badly in this approach.
+Another idea: use a commonly understandable metric. As we have paired error statistics (two models on the same data), we can just compute the probability that a given model fits as good or better as the reference model. This does not say anything about the magnitude of the difference, which is why models that fit slightly worse might fare badly in this approach. I don't think this is a good idea anymore. 
+
+Another idea: compute something like absolute difference between network results, as van Borkulo et al. did it. 
+
 ```{r}
 
 ```
@@ -261,6 +274,58 @@ For later, obtain the likelihoods of each model directly and then compare these 
 ```{r}
 
 ```
+
+
+
+
+# Concatenating Time Series
+Another idea is based on Williams & Mulder (2020). Instead of comparing the posterior predictive estimations of two datasets directly, we could concatenate two time series under the null hypothesis that they originate from the same data-generating process. We could then compare the posterior predictive results from these concatenated time series to either a distribution from an individual time series or just a single test statistic. This is also comparable to Zhang, Templin & Mintz (2022). 
+
+```{r concatenate-ts}
+# time series need to be standardized before concatenation
+# we also need to assume stationarity 
+# first just take the first two time series here
+conc_12 <- rbind(l_dat[[1]]$Y, l_dat[[2]]$Y)
+
+# delete first entry of second time series to create gap
+conc_12[nrow(conc_12)/2+1,] <- c(NA, NA, NA, NA, NA, NA)
+
+# Estimate new model on concatenated dataset
+# Fit the model
+rho_sd <- 0.5
+beta_sd <- 1
+seed <- 2022
+n_iter <- 5000
+
+# estimate model on concatenated dataset
+res_conc12 <- BGGM::var_estimate(conc_12,
+                                   rho_sd = rho_sd,
+                                   beta_sd = beta_sd,
+                                   iter = n_iter,
+                                   progress = FALSE,
+                                   seed = seed)
+
+# results are very different compared to just one model
+
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

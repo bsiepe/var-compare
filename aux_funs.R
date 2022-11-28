@@ -221,6 +221,9 @@ predict_pmu.var_estimate <- function(object,
 # External data needs to have two objects
 # Y: response data
 # X: lagged response data
+# TODO Something here does not work? The last Y value gets cut off because 
+# we insert NA for the lagged value matrix
+# Need to think about whether I keep it this way to comply with Williams or I change it
 format_bggm <- function(Y){
   Y <- scale(na.omit(Y))
   p <- ncol(Y)
@@ -290,6 +293,44 @@ plot_error_dist <- function(dat, errorcol = mse){
   ggdist::stat_dist_halfeye(fill = ggokabeito::palette_okabe_ito()[2],
                             color = "black")+
   theme_minimal()
+}
+
+
+
+
+# JSD between reference and other error distributions ---------------------
+# ref_model = number of model for reference
+# n = number of generated datasets
+f_comp_jsd <- function(df = df_errors, ref_model = 1, n = 100){
+  # create storage
+  l_err <- list()
+  l_ecdf <- list()
+  df_jsd <- data.frame(model = rep(NA, n),
+                       jsd = rep(NA, n))
+  
+  
+  # setup loop
+  for(i in seq(n)){
+    # obtain RMSEs
+    l_err[[i]] <- subset(df_errors, model == i, select = rmse)
+    l_err[[i]] <- l_err[[i]]$rmse
+    
+    # obtain ECDFs
+    f_ecdf <- stats::ecdf(l_err[[i]])
+    l_ecdf[[i]] <- f_ecdf(l_err[[i]])
+    
+    # compute JSD to reference distribution
+    v_ecdf <- rbind(l_ecdf[[ref_model]], l_ecdf[[i]])
+    jsd <- philentropy::JSD(v_ecdf)
+    
+    # store values
+    df_jsd[i,"model"] <- i
+    df_jsd[i, "jsd"] <- jsd
+    
+    
+  }
+  
+  return(df_jsd)
 }
 
 
