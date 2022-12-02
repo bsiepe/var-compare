@@ -37,27 +37,28 @@ Another idea would be to use empirical graphs as basis, e.g. from Hoekstra paper
 ```{r}
 # Ground truth model is still generated with graphicalVAR 
 set.seed(2022)
-graph <- randomGVARmodel(Nvar = 6, probKappaEdge = 0.1, probBetaEdge = .5)
+graph <- randomGVARmodel(Nvar = 6, probKappaEdge = 0.1, probBetaEdge = .85)
 dat <- graphicalVARsim(200, beta = graph$beta, kappa = graph$kappa)
 dat2 <- graphicalVARsim(200, beta = graph$beta, kappa = graph$kappa)
 
-# # Do this m times
-# l_raw <- list()
-# n_mod <- 100   # number of models to create
-# for(i in 1:n_mod){
-#   l_raw[[i]] <- as.data.frame(graphicalVAR::graphicalVARsim(nTime = 200,
-#                                 beta = graph$beta,
-#                                 kappa = graph$kappa))
-#   
-#   
-# }
-# 
-# 
-# 
-# # use different dgp for dat3
-# set.seed(2022)
-# graph3 <- randomGVARmodel(Nvar = 6, probKappaEdge = 0.1, probBetaEdge = .3)
-# dat3 <- graphicalVARsim(200, beta = graph3$beta, kappa = graph$kappa)
+# Do this m times
+l_raw <- list()
+n_mod <- 100   # number of models to create
+for(i in 1:n_mod){
+  l_raw[[i]] <- as.data.frame(graphicalVAR::graphicalVARsim(nTime = 200,
+                                beta = graph$beta,
+                                kappa = graph$kappa,
+                                mean = 0))
+
+
+}
+
+
+
+# use different dgp for dat3
+set.seed(2022)
+graph3 <- randomGVARmodel(Nvar = 6, probKappaEdge = 0.1, probBetaEdge = .3)
+dat3 <- graphicalVARsim(200, beta = graph3$beta, kappa = graph$kappa)
 
 
 
@@ -74,17 +75,21 @@ rho_sd <- 0.5
 beta_sd <- 1
 seed <- 2022
 n_iter <- 5000
+n_mod <- 100   # number of models to create
 
 l_res <- list()
 for(i in seq(n_mod)){
-  l_res[[i]] <- BGGM::var_estimate(l_raw[[i]],
+  l_res[[i]] <- try(BGGM::var_estimate(l_raw[[i]],
                                    rho_sd = rho_sd,
                                    beta_sd = beta_sd,
                                    iter = n_iter,
                                    progress = FALSE,
-                                   seed = seed)
+                                   seed = seed))
 
 }
+
+
+
 
 
 ```
@@ -105,12 +110,13 @@ registerDoParallel(cl)
 # Could also use sth. inspired by here: https://github.com/jmbh/ARVAR/blob/master/aux_functions.R
 
 # number of samples to create
+# have used residuals  = 1 before
 n = 100
 l_dat <- foreach(i = seq(n), .packages = "mlVAR") %dopar% {
   mod <- simulateVAR(pars = ps[,,i],
                      means = 0,
                      Nt = 200,
-                     residuals = 1)     # need to check if I should provide residual covariance matrix here
+                     residuals = .1)     # need to check if I should provide residual covariance matrix here
   mod
   
 }
@@ -131,7 +137,6 @@ Refit all models to all 100 datasets. Use the internal function by Williams, mod
 Do I even need the intercept when all time series are standardized? He seems to ignore them. I also still need to understand what the 'predict' function does here and if it is even useful for me. The predict function uses the posterior samples to predict fitted values, so it even contains the foundation for the new simulated datasets? Not sure if this makes sense. Here we are however interested in the comparison of the graph that will actually be plotted, so just use the posterior mean of the beta coefficients for prediction.
 
 ```{r}
-
 ncores = parallel::detectCores() - 4
 cl = makeCluster(ncores)
 registerDoParallel(cl)
@@ -218,7 +223,7 @@ for(m in 2:n_mod){
 }
 
 # Still too many false positives?
-sum(df_ks_res$pval < 0.01, na.rm = TRUE)
+sum(df_ks_res$pval < 0.05, na.rm = TRUE)
 
 
 
@@ -240,7 +245,7 @@ ggplot()+
 
 
 test <- rbind(dens1$y, dens2$y)
-philentropy::KL(test)
+
 # does not work because the rows do not sum to 1
 # I need to integrate first 
 # or I just use ecdf() to generate empirical distribution from the raw data without estimating density first...
@@ -268,6 +273,133 @@ Another idea: compute something like absolute difference between network results
 
 ```
 
+Another idea: Compute Frobenius norm between models on resampled datasets compared to reference model and then compare to actual difference between two models. 
+```{r}
+# goal: write function that subtracts matrices from each other, takes the abs and squares it elementwise
+# serves as null distribution
+# abs(mat1-mat2)^2
+# Fit the model to posterior data samples
+rho_sd <- 0.5
+beta_sd <- 1
+seed <- 2022
+n_iter <- 5000
+
+
+l_res_postpred <- list()
+for(i in seq(n_mod)){
+  l_res_postpred[[i]] <- try(BGGM::var_estimate(l_dat[[i]]$Y,
+                                   rho_sd = rho_sd,
+                                   beta_sd = beta_sd,
+                                   iter = n_iter,
+                                   progress = FALSE,
+                                   seed = seed))
+
+}
+
+# For now, just filter unsuccesful attempts
+l_res_postpred <- l_res_postpred %>%
+  discard(~!is.list(.))
+
+l_res <- l_res %>% 
+  discard(~!is.list(.))
+
+# obtain Frobenius norm to actual dataset
+frob_null <- unlist(lapply(l_res_postpred, function(x){norm(l_res[[1]]$beta_mu-x$beta_mu, type = "F")}))
+
+# compare with frobenius norm of all initial models to reference
+frob_emp <- unlist(lapply(l_res, function(x){norm(l_res[[1]]$beta_mu-x$beta_mu, type = "F")}))
+# ok, this works well-sih, but the Frobenius values seem to be quite large
+
+
+# for which difference does the Frobenius norm get "significant"?
+# seems to need quite a lot of deviation to actually become significant...
+m1 <- l_res[[1]]$beta_mu+rnorm(36, sd = .35)
+
+norm(l_res[[1]]$beta_mu-m1, type = "F")
+
+
+# just change largest edge by 25%
+ind_largeedge<- which.max(l_res[[1]]$beta_mu)
+m2 <-l_res[[1]]$beta_mu
+m2[ind_largeedge] <- m2[ind_largeedge]*1.75
+
+norm(l_res[[1]]$beta_mu-m2, type = "F")
+
+
+
+
+
+```
+
+
+
+Another idea: for each posterior sample, generate two new datasets and obtain Frobenius norm between the two regression matrices for each sample as Null distribution. 
+```{r}
+# takes as input one posterior sample
+# generates two new datasets, reestimates the model and then 
+# computes frobenius norm between resulting estimates
+f_post_frob <- function(sample, seed = 2022,
+                        rho_sd = 0.5, beta_sd = 1){
+  set.seed = seed
+  
+  # Simulate
+  d1 <- mlVAR::simulateVAR(pars = sample,
+                     means = 0,
+                     Nt = 200,
+                     residuals = .1)
+  d2 <- mlVAR::simulateVAR(pars = sample,
+                     means = 0,
+                     Nt = 200,
+                     residuals = .1)
+  # Estimate
+  m1 <- try(BGGM::var_estimate(d1,
+                     rho_sd = rho_sd,
+                     beta_sd = beta_sd,
+                     iter = n_iter,
+                     progress = FALSE,
+                     seed = seed))
+  m2 <- try(BGGM::var_estimate(d2,
+                     rho_sd = rho_sd,
+                     beta_sd = beta_sd,
+                     iter = n_iter,
+                     progress = FALSE,
+                     seed = seed))
+  
+  # Compute Frobenius Norm
+  if(is.list(m1) & is.list(m2)){
+    frob_norm <- norm(m1$beta_mu - m2$beta_mu, type = "F")
+    return(frob_norm)
+    
+  }
+  else return(NA)
+  
+  
+}
+
+frob_res <- c(rep(NA, 1000))
+for(i in 51:1051){
+  frob_res[i] <- f_post_frob(l_res[[1]]$fit$beta[,,i])
+}
+
+df_frob_res <- as.data.frame(frob_res)
+df_frob_res <- na.omit(df_frob_res)
+df_frob_emp <- as.data.frame(frob_emp)
+df_frob_emp <- na.omit(df_frob_emp)
+
+
+
+df_frob_res %>% 
+  filter(!is.na(frob_res)) %>% 
+  ggplot(aes(x = frob_res))+
+  geom_density()+
+  geom_vline(aes(xintercept = quantile(frob_res, 0.95), col = "red"))+
+  geom_point(data = df_frob_emp, aes(x = frob_emp, y = 0), col = "blue")+
+  theme_minimal()
+
+
+```
+
+
 
 
 For later, obtain the likelihoods of each model directly and then compare these across samples. 
@@ -288,7 +420,10 @@ Another idea is based on Williams & Mulder (2020). Instead of comparing the post
 conc_12 <- rbind(l_dat[[1]]$Y, l_dat[[2]]$Y)
 
 # delete first entry of second time series to create gap
-conc_12[nrow(conc_12)/2+1,] <- c(NA, NA, NA, NA, NA, NA)
+# conc_12[nrow(conc_12)/2+1,] <- c(NA, NA, NA, NA, NA, NA)
+
+# delete multiple entries in the middle of the time series to create gap
+conc_12[197:201,] <- c(rep(NA, 6))
 
 # Estimate new model on concatenated dataset
 # Fit the model
@@ -306,7 +441,10 @@ res_conc12 <- BGGM::var_estimate(conc_12,
                                    seed = seed)
 
 # results are very different compared to just one model
-
+res_conc12$beta_mu
+l_res[[1]]$beta_mu
+l_res[[2]]$beta_mu
+t(graph$beta)
 
 
 ```
@@ -315,7 +453,19 @@ res_conc12 <- BGGM::var_estimate(conc_12,
 
 
 
+Just a quick check on how well parameters are recovered: 
+```{r}
+test <- list()
+for(i in 1:length(l_res)){
+  test[[i]] <- l_res[[i]]$beta_mu
+}
+a_test <- array(unlist(test), c(6,6,100))
 
+# means across refit samples
+rowMeans(a_test, dims = 2)
+# comparison with ground truth
+t(graph$beta)
+```
 
 
 
@@ -438,7 +588,6 @@ var_wi <- df_var %>%
 rel <- (var_bw-var_wi)/(var_bw)
 # This is a bad result. A large part of the variance is attributed
 # to the between-person level, although it should just be sampling noise
-
 var_bw/var_wi
 
 ```
