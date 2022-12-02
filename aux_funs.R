@@ -108,6 +108,7 @@ predict.var_estimate <- function(object,
 
 
 
+
 # Predict with posterior mean ---------------------------------------------
 # IDEA: add option to manually provide a beta matrix with posterior means
 # instead of building the mean of the posterior samples
@@ -217,6 +218,7 @@ predict_pmu.var_estimate <- function(object,
 
 
 
+
 # External data to BGGM format --------------------------------------------
 # External data needs to have two objects
 # Y: response data
@@ -240,6 +242,11 @@ format_bggm <- function(Y){
 }
 
 
+
+
+
+
+
 # Combine y and yhat ------------------------------------------------------
 # Function to get yhat and actual data into the same dataframe
 # data = data object
@@ -254,6 +261,7 @@ f_merge_pred <- function(data, refit){
   res <- cbind(data$Y, y_pred)
   return(res)
 }
+
 
 
 
@@ -274,6 +282,7 @@ f_rmse <- function(res){
 
 
 
+
 # Evaluate refit ----------------------------------------------------------
 # function that combines everything
 f_eval_refit <- function(data,
@@ -283,6 +292,7 @@ f_eval_refit <- function(data,
   mean_rmse <- rowMeans(fit_stat)
   
 }
+
 
 
 
@@ -298,10 +308,11 @@ plot_error_dist <- function(dat, errorcol = mse){
 
 
 
+
 # JSD between reference and other error distributions ---------------------
 # ref_model = number of model for reference
 # n = number of generated datasets
-f_comp_jsd <- function(df = df_errors, ref_model = 1, n = 100){
+f_comp_jsd <- function(df = df_errors, ref_model = 1, n){
   # create storage
   l_err <- list()
   l_ecdf <- list()
@@ -309,25 +320,37 @@ f_comp_jsd <- function(df = df_errors, ref_model = 1, n = 100){
                        jsd = rep(NA, n))
   
   
+  # Obtain characteristics of reference model
+  # obtain RMSEs
+  tmp <- subset(df_errors, model == ref_model, select = rmse)
+  rmse_refmod <- tmp$rmse
+  
+  # obtain ECDFs
+  f_ecdf_ref <- stats::ecdf(rmse_refmod)
+  ecdf_refmod <- f_ecdf_ref(rmse_refmod)
+  
   # setup loop
   for(i in seq(n)){
-    # obtain RMSEs
-    l_err[[i]] <- subset(df_errors, model == i, select = rmse)
-    l_err[[i]] <- l_err[[i]]$rmse
-    
-    # obtain ECDFs
-    f_ecdf <- stats::ecdf(l_err[[i]])
-    l_ecdf[[i]] <- f_ecdf(l_err[[i]])
-    
-    # compute JSD to reference distribution
-    v_ecdf <- rbind(l_ecdf[[ref_model]], l_ecdf[[i]])
-    jsd <- philentropy::JSD(v_ecdf)
-    
-    # store values
-    df_jsd[i,"model"] <- i
-    df_jsd[i, "jsd"] <- jsd
-    
-    
+    # if model has errors stored
+    if(nrow(subset(df_errors, model == i, select = rmse)) > 0){
+      # obtain RMSEs
+      tmp <- subset(df_errors, model == i, select = rmse)
+      rmse_mod <- tmp$rmse
+      
+      # obtain ECDFs
+      f_ecdf <- stats::ecdf(rmse_mod)
+      ecdf_mod <- f_ecdf(rmse_mod)
+      
+      # compute JSD to reference distribution
+      v_ecdf <- rbind(ecdf_refmod, ecdf_mod)
+      jsd <- philentropy::JSD(v_ecdf)
+      
+      # store values
+      df_jsd[i,"model"] <- i
+      df_jsd[i, "jsd"] <- jsd
+    }
+
+   
   }
   
   return(df_jsd)
@@ -335,10 +358,52 @@ f_comp_jsd <- function(df = df_errors, ref_model = 1, n = 100){
 
 
 
+
+
+# Frobenius norm two datasets from each posterior sample ------------------
+f_post_frob <- function(sample, seed = 2022,
+                        rho_sd = 0.5, beta_sd = 1){
+  set.seed = seed
+  
+  # Simulate
+  d1 <- mlVAR::simulateVAR(pars = sample,
+                           means = 0,
+                           Nt = 200,
+                           residuals = .1)
+  d2 <- mlVAR::simulateVAR(pars = sample,
+                           means = 0,
+                           Nt = 200,
+                           residuals = .1)
+  # Estimate
+  m1 <- try(BGGM::var_estimate(d1,
+                               rho_sd = rho_sd,
+                               beta_sd = beta_sd,
+                               iter = n_iter,
+                               progress = FALSE,
+                               seed = seed))
+  m2 <- try(BGGM::var_estimate(d2,
+                               rho_sd = rho_sd,
+                               beta_sd = beta_sd,
+                               iter = n_iter,
+                               progress = FALSE,
+                               seed = seed))
+  
+  # Compute Frobenius Norm
+  if(is.list(m1) & is.list(m2)){
+    frob_norm <- norm(m1$beta_mu - m2$beta_mu, type = "F")
+    return(frob_norm)
+    
+  }
+  else return(NA)
+  
+  
+}
+
+
+
+
 # Posterior sampmles covariance matrix ------------------------------------
 # res = results of var_estimate
-
-# 
 f_postcov <- function(res){
   beta_posterior <- res$fit$beta
   # delete warm-up samples
@@ -370,11 +435,6 @@ f_postcov <- function(res){
 }
 
 
-
-
-
-
-
 # Get Beta Variance -------------------------------------------------------
 # Input: fit object res
 # iter: number of iterations
@@ -386,6 +446,7 @@ f_betavar <- function(res){
 }
   
   
+
 
 # Compute reliability -----------------------------------------------------
 # Input: Vector of beta weights and posterior samples covariance matrix
