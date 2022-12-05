@@ -243,6 +243,16 @@ format_bggm <- function(Y){
 
 
 
+# External data from nested list to BGGM format ---------------------------
+# same as format_bggm, but has nested list as input
+format_bggm_list <- function(listname){
+  l_out <- lapply(listname, format_bggm)
+  l_out
+}
+
+
+
+
 
 
 
@@ -355,6 +365,127 @@ f_comp_jsd <- function(df = df_errors, ref_model = 1, n){
   
   return(df_jsd)
 }
+
+
+
+
+
+# Cross compare two models with posterior ---------------------------------
+#' Cross-compare two models with their posterior
+#'
+#' @param l_postdata_a List of data sampled from posterior of model/person A.
+#' @param l_postdata_b List of data sampled from posterior of model/person B.
+#' @param l_fitres List of model results for each participant.  
+#' @param mod_a Numerical indicator of model/person A. 
+#' @param mod_b Numerical indicator of model/person B. 
+#' @param n_postds Number of datasets sampled from posterior. 
+#' @param normtype Which type of norm to use. 
+#' @param ... Currently ignored. 
+#'
+#' @return Dataframe with null distributions for Frobenius norm of both models under the Null and empirical Frobenius norm between both models 
+#' @export
+#'
+#' 
+cross_compare <- function(l_postdata_a = l_dat_bggm,
+                          l_postdata_b = l_dat_bggm,
+                          l_fitres = l_res,
+                          mod_a = 1, 
+                          mod_b = 2,
+                          n_postds = 100,
+                          normtype = "F",
+                          ...){
+  if(!is.numeric(mod_a) | !is.numeric(mod_b)){
+    stop("Error: Model needs to have numerical index")
+  }
+  # Refit to posterior samples of each model
+  l_res_postpred_a <- list()
+  for(i in seq(n_postds)){
+    l_res_postpred_a[[i]] <- BGGM::var_estimate(l_postdata_a[[mod_a]][[i]]$Y,
+                                                rho_sd = rho_sd,
+                                                beta_sd = beta_sd,
+                                                iter = n_iter,
+                                                progress = FALSE,
+                                                seed = 2022)
+    
+  }
+  l_res_postpred_b <- list()
+  for(i in seq(n_postds)){
+    l_res_postpred_b[[i]] <- BGGM::var_estimate(l_postdata_b[[mod_b]][[i]]$Y,
+                                                rho_sd = rho_sd,
+                                                beta_sd = beta_sd,
+                                                iter = n_iter,
+                                                progress = FALSE,
+                                                seed = 2022)
+    
+  }
+  
+  # Compute Distance of empirical beta to posterior samples beta
+  frob_null_a <- unlist(lapply(l_res_postpred_a, 
+                               function(x){norm(l_res[[mod_a]]$beta_mu-x$beta_mu, type = normtype)}))
+  frob_null_b <- unlist(lapply(l_res_postpred_b, 
+                               function(x){norm(l_res[[mod_b]]$beta_mu-x$beta_mu, type = normtype)}))
+  
+  # Compute Distance of empirical betas between a and b
+  frob_emp <- norm(l_res[[mod_a]]$beta_mu - l_res[[mod_b]]$beta_mu)
+  
+  cc_res <- data.frame(model_ind = c(rep(mod_a, n_postds), rep(mod_b, n_postds)),
+                       frob_null = c(frob_null_a, frob_null_b),
+                       frob_emp = rep(frob_emp, n_postds*2))
+  cc_res
+  
+}
+
+
+
+
+
+
+# Evaluate Cross-Comparison with Matrix Norm ------------------------------
+#' Evaluate Cross-Comparison with Matrix Norm
+#'
+#' @param df_res Dataframe with posterior predictive and empirical distance measures. 
+#' @param plot Should results be plotted with densities? Defaults to FALSE.
+#'
+#' @return List with number of posterior predictive differences that were smaller than empirical difference. 
+#' @export
+#'
+#' 
+cross_compare_eval <- function(df_res,
+                               plot = FALSE){
+  
+  # Obtain model indexes
+  model_ind_a <- unique(df_res$model_ind)[1]
+  model_ind_b <- unique(df_res$model_ind)[2]
+  
+  # Number of posterior difference > empirical difference
+  teststat_a <- sum(df_res$frob_null[df_res$mod_ind == model_ind_a] > frob_emp)
+  teststat_b <- sum(df_res$frob_null[df_res$mod_ind == model_ind_b] > frob_emp)
+  
+  
+  
+  if(plot == TRUE){
+    print(
+      df_res %>% 
+        mutate(model_ind = as.factor(model_ind)) %>% 
+        ggplot(aes(x = frob_null, fill = model_ind))+
+        geom_density() +
+        theme_minimal()+
+        geom_vline(aes(xintercept = max(frob_emp)), col = "black",
+                   linetype = "dashed")+
+        geom_label(aes(x = max(frob_emp), y = 1),
+                   label = "Emp. Norm", show.legend = FALSE)+
+        labs(fill = "Model",
+             x = "Frobenius Norm",
+             y = "Density")
+    )
+    
+    
+  }
+  testres <- list(res_a = teststat_a,
+                  res_b = teststat_b)
+  testres
+}
+
 
 
 
