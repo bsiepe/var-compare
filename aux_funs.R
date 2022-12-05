@@ -367,28 +367,139 @@ f_comp_jsd <- function(df = df_errors, ref_model = 1, n){
 }
 
 
+# Compute likelihood ------------------------------------------------------
+# https://github.com/cran/graphicalVAR/blob/master/R/graphicalVAR.R
+# starting with line 158
+# kappa = precision matrix of residuals
+# sigma = unconstrained covariance matrix of residuals
 
+logll <- function(kappa, sigma, n){
+  lik1 <- determinant(kappa)$modulus[1]
+  lik2 <- sum(diag(kappa %*% sigma))
+  
+  llk <- (n/2)*(lik1-lik2)
+  llk
+}
 
 
 # Cross compare two models with posterior ---------------------------------
 #' Cross-compare two models with their posterior
 #'
-#' @param l_postdata_a List of data sampled from posterior of model/person A.
-#' @param l_postdata_b List of data sampled from posterior of model/person B.
-#' @param l_fitres List of model results for each participant.  
+#' @param postdata_a List of data sampled from posterior of model/person A.
+#' @param postdata_b List of data sampled from posterior of model/person B.
+#' @param fitres_a List of model results for each participant under specific DGP.
+#' @param fitres_b List of model results for each participant under specific DGP.
 #' @param mod_a Numerical indicator of model/person A. 
 #' @param mod_b Numerical indicator of model/person B. 
 #' @param n_postds Number of datasets sampled from posterior. 
-#' @param normtype Which type of norm to use. 
+#' @param comparison Which comparison to use. "Frob" for Frobenius-Norm, "maxdiff" for maximum edge difference. 
 #' @param ... Currently ignored. 
 #'
 #' @return Dataframe with null distributions for Frobenius norm of both models under the Null and empirical Frobenius norm between both models 
 #' @export
 #'
 #' 
-cross_compare <- function(l_postdata_a = l_dat_bggm,
-                          l_postdata_b = l_dat_bggm,
-                          l_fitres = l_res,
+cross_compare_emp <- function(postdata_a = l_dat_bggm,
+                          postdata_b = l_dat_bggm,
+                          fitres_a = l_res,
+                          fitres_b = l_res,
+                          mod_a = 1, 
+                          mod_b = 2,
+                          n_postds = 100,
+                          comparison = "frob",
+                          ...){
+  if(!is.numeric(mod_a) | !is.numeric(mod_b)){
+    stop("Error: Model needs to have numerical index")
+  }
+  # Refit to posterior samples of each model
+  l_postpred_a <- list()
+  for(i in seq(n_postds)){
+    l_postpred_a[[i]] <- try(BGGM::var_estimate(postdata_a[[mod_a]][[i]]$Y,
+                                                rho_sd = rho_sd,
+                                                beta_sd = beta_sd,
+                                                iter = n_iter,
+                                                progress = FALSE,
+                                                seed = 2022))
+    
+  }
+  l_postpred_b <- list()
+  for(i in seq(n_postds)){
+    l_postpred_b[[i]] <- try(BGGM::var_estimate(postdata_b[[mod_b]][[i]]$Y,
+                                                rho_sd = rho_sd,
+                                                beta_sd = beta_sd,
+                                                iter = n_iter,
+                                                progress = FALSE,
+                                                seed = 2022))
+    
+  }
+  
+  if(comparison == "frob"){
+    # Compute Distance of empirical beta to posterior samples beta
+    frob_null_a <- unlist(lapply(l_postpred_a, 
+                                 function(x){
+                                   if(!is.list(x))
+                                     {NA}
+                                   else 
+                                     {norm(fitres_a[[mod_a]]$beta_mu-x$beta_mu, type = comparison)}}))
+    frob_null_b <- unlist(lapply(l_postpred_b, 
+                                 function(x){
+                                   if(!is.list(x))
+                                    {NA}
+                                   else
+                                   {norm(fitres_b[[mod_b]]$beta_mu-x$beta_mu, type = comparison)}}))
+
+    
+    # Compute Distance of empirical betas between a and b
+    frob_emp <- norm(fitres_a[[mod_a]]$beta_mu - fitres_b[[mod_b]]$beta_mu)
+    
+    cc_res <- data.frame(model_ind = c(rep(mod_a, n_postds), rep(mod_b, n_postds)),
+                         frob_null = c(frob_null_a, frob_null_b),
+                         frob_emp = rep(frob_emp, n_postds*2))
+    cc_res
+    
+  }
+  if(comparison == "maxdiff"){
+    # Compute maximum distance of empirical beta to posterior samples beta
+    maxdiff_a <- unlist(lapply(l_postpred_a, 
+                                 function(x){
+                                   if(!is.list(x))
+                                     {NA}
+                                   else 
+                                     {max(abs(fitres_a[[mod_a]]$beta_mu-x$beta_mu))}}))
+    maxdiff_b <- unlist(lapply(l_postpred_b, 
+                                 function(x){
+                                   if(!is.list(x))
+                                     {NA}
+                                 else
+                                   {max(abs(fitres_b[[mod_b]]$beta_mu-x$beta_mu))}})) 
+    # Compute maxdiff of empirical betas between a and b
+    maxdiff_emp <- max(abs(fitres_a[[mod_a]]$beta_mu - fitres_b[[mod_b]]$beta_mu))
+    
+    cc_res <- data.frame(model_ind = c(rep(mod_a, n_postds), rep(mod_b, n_postds)),
+                         maxdiff_null = c(maxdiff_a, maxdiff_b),
+                         maxdiff_emp = rep(maxdiff_emp, n_postds*2))
+
+    } # end maxdiff
+
+  } # end function
+
+  
+
+
+
+
+
+
+
+
+
+
+# Cross-compare all posterior samples -------------------------------------
+# Don't look at empirical distance, but distances between 100 resamples
+cross_compare_post <- function(postdata_a = l_dat_bggm,
+                          postdata_b = l_dat_bggm,
+                          fitres_a = l_res,
+                          fitres_b = l_res,
                           mod_a = 1, 
                           mod_b = 2,
                           n_postds = 100,
@@ -398,44 +509,54 @@ cross_compare <- function(l_postdata_a = l_dat_bggm,
     stop("Error: Model needs to have numerical index")
   }
   # Refit to posterior samples of each model
-  l_res_postpred_a <- list()
+  l_postpred_a <- list()
   for(i in seq(n_postds)){
-    l_res_postpred_a[[i]] <- BGGM::var_estimate(l_postdata_a[[mod_a]][[i]]$Y,
-                                                rho_sd = rho_sd,
-                                                beta_sd = beta_sd,
-                                                iter = n_iter,
-                                                progress = FALSE,
-                                                seed = 2022)
+    l_postpred_a[[i]] <- try(BGGM::var_estimate(postdata_a[[mod_a]][[i]]$Y,
+                                                    rho_sd = rho_sd,
+                                                    beta_sd = beta_sd,
+                                                    iter = n_iter,
+                                                    progress = FALSE,
+                                                    seed = 2022))
     
   }
-  l_res_postpred_b <- list()
+  l_postpred_b <- list()
   for(i in seq(n_postds)){
-    l_res_postpred_b[[i]] <- BGGM::var_estimate(l_postdata_b[[mod_b]][[i]]$Y,
-                                                rho_sd = rho_sd,
-                                                beta_sd = beta_sd,
-                                                iter = n_iter,
-                                                progress = FALSE,
-                                                seed = 2022)
+    l_postpred_b[[i]] <- try(BGGM::var_estimate(postdata_b[[mod_b]][[i]]$Y,
+                                                    rho_sd = rho_sd,
+                                                    beta_sd = beta_sd,
+                                                    iter = n_iter,
+                                                    progress = FALSE,
+                                                    seed = 2022))
     
   }
+  
+
   
   # Compute Distance of empirical beta to posterior samples beta
-  frob_null_a <- unlist(lapply(l_res_postpred_a, 
-                               function(x){norm(l_res[[mod_a]]$beta_mu-x$beta_mu, type = normtype)}))
-  frob_null_b <- unlist(lapply(l_res_postpred_b, 
-                               function(x){norm(l_res[[mod_b]]$beta_mu-x$beta_mu, type = normtype)}))
+  frob_null_a <- unlist(lapply(l_postpred_a, 
+                               function(x){
+                                 if(!is.list(x)){NA}
+                                 else 
+                                   norm(fitres_a[[mod_a]]$beta_mu-x$beta_mu, type = normtype)}))
+  frob_null_b <- unlist(lapply(l_postpred_b, 
+                               function(x)
+                                 if(!is.list(x)){NA}
+                               else{norm(fitres_b[[mod_b]]$beta_mu-x$beta_mu, type = normtype)}))
+  
+  # Compute distance between posterior samples
+  frob_emp_post <- mapply(function(x,y){if(!is.list(x) | !is.list(y)){NA} else norm(x$beta_mu-y$beta_mu, type = normtype)} , l_postpred_a, l_postpred_b)
+  
   
   # Compute Distance of empirical betas between a and b
-  frob_emp <- norm(l_res[[mod_a]]$beta_mu - l_res[[mod_b]]$beta_mu)
+  frob_emp <- norm(fitres_a[[mod_a]]$beta_mu - fitres_b[[mod_b]]$beta_mu)
   
-  cc_res <- data.frame(model_ind = c(rep(mod_a, n_postds), rep(mod_b, n_postds)),
-                       frob_null = c(frob_null_a, frob_null_b),
-                       frob_emp = rep(frob_emp, n_postds*2))
+  cc_res <- data.frame(model_ind = c(rep(paste0("null_", mod_a), n_postds), 
+                                     rep(paste0("null", mod_b), n_postds),
+                                     rep(paste0("post_", mod_a,"-", mod_b), n_postds)),
+                       frob = c(frob_null_a, frob_null_b, frob_emp_post))
   cc_res
   
 }
-
-
 
 
 
@@ -458,8 +579,8 @@ cross_compare_eval <- function(df_res,
   model_ind_b <- unique(df_res$model_ind)[2]
   
   # Number of posterior difference > empirical difference
-  teststat_a <- sum(df_res$frob_null[df_res$mod_ind == model_ind_a] > frob_emp)
-  teststat_b <- sum(df_res$frob_null[df_res$mod_ind == model_ind_b] > frob_emp)
+  teststat_a <- sum(df_res$frob_null[df_res$model_ind == model_ind_a] > df_res$frob_emp[df_res$model_ind == model_ind_a])
+  teststat_b <- sum(df_res$frob_null[df_res$model_ind == model_ind_b] > df_res$frob_emp[df_res$model_ind == model_ind_b])
   
   
   

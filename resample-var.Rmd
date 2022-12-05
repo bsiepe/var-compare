@@ -41,9 +41,15 @@ Dataset overview:
 set.seed(2022)    # does NOT help here with model creation! need to write own function
 graph <- randomGVARmodel(Nvar = 6, probKappaEdge = 0.5, probBetaEdge = 0.3)
 
+
+
+
+
+
+
 # add slight change of one model parameter to the list
 graph2 <- graph
-graph2$beta[which.max(graph2$beta)] <- graph2$beta[which.max(graph2$beta)]*-1
+graph2$beta[which.max(graph2$beta)] <- graph2$beta[which.max(graph2$beta)]*1.5
   
 l_graph <- list()
 
@@ -51,8 +57,8 @@ l_graph <- list()
 # but just simulate 500 and then subsample from it. Then datasets are matched.
 l_raw <- list()
 n_ind <- 100   # number of individuals (so models to create)
-n_tp <-  200     # number of timepoints per time series
-n_postds <-  100     # number of posterior datasets to create 
+n_tp <- 200     # number of timepoints per time series
+n_postds <- 100     # number of posterior datasets to create 
 
 
 # TODO Here: add seed to each simulation condition
@@ -80,6 +86,31 @@ for(i in 1:n_ind){
 }
 
 
+# Simulate raw data from fixed graph 
+sim_raw_data <- function(dgp,
+                         n,
+                         tp,
+                         means){
+  
+  raw_data <- as.data.frame(graphicalVAR::graphicalVARsim(nTime = tp,
+                                beta = dgp$beta,
+                                kappa = dgp$kappa,
+                                mean = means))
+  # Standardize all data
+  raw_data <- apply(raw_data, 2, scale)
+  
+  # TODO: Add information about dgp to data
+  
+}
+
+
+
+# Subsample data
+# maybe DON'T DO THIS! If I standardize these data again when estimating a VAR
+# model, the data changes. 
+l_raw_sub <- lapply(l_raw, function(x) x[-c(101:200),])
+l_raw2_sub <- lapply(l_raw2, function(x) x[-c(101:200),])
+
 
 
 ```
@@ -97,7 +128,7 @@ n_iter <- 5000
 
 l_res <- list()
 for(i in seq(n_ind)){
-  l_res[[i]] <- try(BGGM::var_estimate(l_raw[[i]],
+  l_res[[i]] <- try(BGGM::var_estimate(l_raw_sub[[i]],
                                    rho_sd = rho_sd,
                                    beta_sd = beta_sd,
                                    iter = n_iter,
@@ -111,7 +142,7 @@ for(i in seq(n_ind)){
 
 l_res2 <- list()
 for(i in seq(n_ind)){
-  l_res2[[i]] <- try(BGGM::var_estimate(l_raw2[[i]],
+  l_res2[[i]] <- try(BGGM::var_estimate(l_raw2_sub[[i]],
                                    rho_sd = rho_sd,
                                    beta_sd = beta_sd,
                                    iter = n_iter,
@@ -130,15 +161,15 @@ for(i in seq(n_ind)){
 
 Compare results with graphicalVAR estimation.
 ```{r}
-l_res_gvar <- list()
-for(i in seq(n_ind)){
-  l_res_gvar[[i]] <- try(graphicalVAR(l_raw[[i]],
-                                   gamma = 0, 
-                                   lambda_beta = 0,
-                                   lambda_kappa = 0,
-                                   verbose = FALSE))
-
-}
+# l_res_gvar <- list()
+# for(i in seq(n_ind)){
+#   l_res_gvar[[i]] <- try(graphicalVAR(l_raw[[i]],
+#                                    gamma = 0, 
+#                                    lambda_beta = 0,
+#                                    lambda_kappa = 0,
+#                                    verbose = FALSE))
+# 
+# }
 
 
 ```
@@ -366,19 +397,34 @@ seed <- 2022
 n_iter <- 5000
 
 
-
-
-
-
-
-test <- cross_compare()
+test <- cross_compare_emp()
+test_maxdiff <- cross_compare_emp(comparison = "maxdiff")
+test2 <- cross_compare_emp(postdata_b = l_dat2_bggm, fitres_b = l_res2)
 cross_compare_eval(test, plot = TRUE)
+cross_compare_eval(test2, plot = TRUE)
 
 
+# Compare full posterior
+test_post <- cross_compare_post(postdata_b = l_dat2_bggm, fitres_b = l_res2)
 
+test_post %>% 
+  mutate(model_ind = as.factor(model_ind)) %>% 
+  ggplot(aes(x = frob, color = model_ind, fill = model_ind))+
+  geom_density()+
+  theme_minimal()
 
-
-
+test_maxdiff %>% 
+        mutate(model_ind = as.factor(model_ind)) %>% 
+        ggplot(aes(x = maxdiff_null, fill = model_ind))+
+        geom_density() +
+        theme_minimal()+
+        geom_vline(aes(xintercept = max(maxdiff_emp)), col = "black",
+                   linetype = "dashed")+
+        geom_label(aes(x = max(maxdiff_emp), y = 1),
+                   label = "Emp. Maxdiff", show.legend = FALSE)+
+        labs(fill = "Model",
+             x = "Maxdiff",
+             y = "Density")
 
 ```
 
