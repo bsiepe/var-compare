@@ -34,16 +34,42 @@ Dataset overview:
 - l_params: Contains posterior beta and kappa matrices for each fitted model in l_res.
 - 
 
+Get ground truth model from empirical data: 
+```{r}
 
-```{r generate-data}
+
+
+```
+
+
+
+
+```{r generate-graph}
 # Ground truth model is still generated with graphicalVAR 
 # could also use empirical data with varying sparsity
 set.seed(2022)    # does NOT help here with model creation! need to write own function
-graph <- randomGVARmodel(Nvar = 6, probKappaEdge = 0.5, probBetaEdge = 0.3)
+og_graph <- randomGVARmodel(Nvar = 6, probKappaEdge = 0.5, probBetaEdge = 0.3)
 
+beta <- as.matrix(read.table(header = FALSE, colClasses = "numeric", text = "
+ 0.2266407 0.0000000  0.0000000 -0.2668593  0.0000000 0.0000000
+-0.7380388 0.2266407  0.0000000  0.0000000 -0.9288327 0.0000000
+ 0.0000000 0.0000000  0.2266407  0.9571318  0.2409225 0.5543485
+ 0.0000000 0.0000000  0.0000000  0.2266407 -0.7438448 0.0000000
+ 0.5214148 0.0000000  0.0000000  0.0000000  0.2266407 0.0000000
+ 0.0000000 0.0000000 -0.8903007  0.0000000  0.0000000 0.2266407"))
 
-
-
+kappa <- as.matrix(read.table(header = FALSE, colClasses = "numeric", text = "
+ 1.0000000  0.0000000  0.0000000 0.0000000  0.4018933 0.3717013
+ 0.0000000  1.0000000  0.2266407 0.5527593 -0.2654634 0.2593779
+ 0.0000000  0.2266407  1.0000000 0.0000000 -0.3318945 0.3175423
+ 0.0000000  0.5527593  0.0000000 1.0000000  0.0000000 0.0000000
+ 0.4018933 -0.2654634 -0.3318945 0.0000000  1.0000000 0.0000000
+ 0.3717013  0.2593779  0.3175423 0.0000000  0.0000000 1.0000000"))
+graph <- list()
+graph$beta <- beta
+graph$kappa <- kappa
+dimnames(graph$beta) <- NULL
+dimnames(graph$kappa) <- NULL
 
 
 
@@ -51,69 +77,57 @@ graph <- randomGVARmodel(Nvar = 6, probKappaEdge = 0.5, probBetaEdge = 0.3)
 graph2 <- graph
 graph2$beta[which.max(graph2$beta)] <- graph2$beta[which.max(graph2$beta)]*1.5
   
-l_graph <- list()
+l_graph <- list(graph = graph, 
+                graph2 = graph2)
+
+
+
+
+
+
+
+
 
 # Idea for the future: don't simulate (50, 100, 300, 500) observations,
 # but just simulate 500 and then subsample from it. Then datasets are matched.
+# # maybe DON'T DO THIS! If I standardize these data again when estimating a VAR
+# # model, the data changes. 
+
+
+
+```
+
+
+```{r generate-rawdata}
+# Storage
 l_raw <- list()
+
+# Simulation conditions
 n_ind <- 100   # number of individuals (so models to create)
 n_tp <- 200     # number of timepoints per time series
 n_postds <- 100     # number of posterior datasets to create 
 
 
-# TODO Here: add seed to each simulation condition
-for(i in 1:n_ind){
-  l_raw[[i]] <- as.data.frame(graphicalVAR::graphicalVARsim(nTime = 200,
-                                beta = graph$beta,
-                                kappa = graph$kappa,
-                                mean = 0))
-  # Standardize data
-  l_raw[[i]] <- apply(l_raw[[i]], 2, scale)
+l_raw <- list()
+
+# Think about if I actually need to standardize here
+# because everything will be standardized by var_estimate anway
+
+ncores = parallel::detectCores() - 2
+cl = makeCluster(ncores)
+registerDoParallel(cl)
 
 
-}
+l_raw$graph <- sim_raw_parallel(dgp = graph, n = n_ind, 
+                                tp = n_tp, means = 0,
+                                standardize = TRUE)
+l_raw$graph2 <- sim_raw_parallel(dgp = graph2, n = n_ind, 
+                                 tp = n_tp, means = 0,
+                                 standardize = TRUE)
 
-l_raw2 <- list()
-for(i in 1:n_ind){
-  l_raw2[[i]] <- as.data.frame(graphicalVAR::graphicalVARsim(nTime = 200,
-                                beta = graph2$beta,
-                                kappa = graph2$kappa,
-                                mean = 0))
-  # Standardize data
-  l_raw2[[i]] <- apply(l_raw2[[i]], 2, scale)
-
-
-}
-
-
-# Simulate raw data from fixed graph 
-sim_raw_data <- function(dgp,
-                         n,
-                         tp,
-                         means){
-  
-  raw_data <- as.data.frame(graphicalVAR::graphicalVARsim(nTime = tp,
-                                beta = dgp$beta,
-                                kappa = dgp$kappa,
-                                mean = means))
-  # Standardize all data
-  raw_data <- apply(raw_data, 2, scale)
-  
-  # TODO: Add information about dgp to data
-  
-}
-
-
-
-# Subsample data
-# maybe DON'T DO THIS! If I standardize these data again when estimating a VAR
-# model, the data changes. 
-l_raw_sub <- lapply(l_raw, function(x) x[-c(101:200),])
-l_raw2_sub <- lapply(l_raw2, function(x) x[-c(101:200),])
-
-
-
+stopCluster(cl)
 ```
+
 
 # Bayesian approach
 
@@ -126,34 +140,94 @@ beta_sd <- 1
 seed <- 2022
 n_iter <- 5000
 
+# l_res <- list()
+# for(i in seq(n_ind)){
+#   l_res[[i]] <- try(BGGM::var_estimate(l_raw_sub[[i]],
+#                                    rho_sd = rho_sd,
+#                                    beta_sd = beta_sd,
+#                                    iter = n_iter,
+#                                    progress = FALSE,
+#                                    seed = seed))
+#   # Invert covariance matrix of residuals to obtain precision matrix
+#   l_res[[i]]$fit$kappa <- array(apply(l_res[[i]]$fit$Sigma, 3, solve), 
+#                                 dim = dim(l_res[[i]]$fit$Sigma))
+# 
+# }
+# 
+# l_res2 <- list()
+# for(i in seq(n_ind)){
+#   l_res2[[i]] <- try(BGGM::var_estimate(l_raw2_sub[[i]],
+#                                    rho_sd = rho_sd,
+#                                    beta_sd = beta_sd,
+#                                    iter = n_iter,
+#                                    progress = FALSE,
+#                                    seed = seed))
+#   # Invert covariance matrix of residuals to obtain precision matrix
+#   l_res2[[i]]$fit$kappa <- array(apply(l_res2[[i]]$fit$Sigma, 3, solve), 
+#                                 dim = dim(l_res2[[i]]$fit$Sigma))
+# }
+
+# TODO add saving of function arguments
+# TODO needs different options for different provided data formats
+# because $data does not work for posterior samples data
+fit_var_parallel <- function(data, 
+                             n,
+                             rho_prior, 
+                             beta_prior,
+                             seed,
+                             iterations,
+                             get_kappa = TRUE){
+  # warning if n does not match the number of available data frames
+  if(n != length(data)){
+    warning("The n provided does not match the number of available data frames")
+  }
+  
+  # Setup parallelization - moved to outside of function
+  # ncores = parallel::detectCores() - 2
+  # cl = makeCluster(ncores)
+  # registerDoParallel(cl)
+  fit <- foreach(i = seq(n), .packages = "BGGM") %dopar% {
+    fit_ind <- list()
+    fit_ind <- try(BGGM::var_estimate(data[[i]]$data,
+                                   rho_sd = rho_prior,
+                                   beta_sd = beta_prior,
+                                   iter = iterations,
+                                   progress = FALSE,
+                                   seed = seed))
+    if(get_kappa == TRUE){
+      # Invert covariance matrix of residuals to obtain precision matrix
+      fit_ind$fit$kappa <- array(apply(fit_ind$fit$Sigma, 3, solve), 
+                                dim = dim(fit_ind$fit$Sigma))
+      
+    }
+
+    
+
+   fit_ind  
+  }
+  return(fit)
+  # stopCluster(cl)
+  
+  
+  
+}
+
 l_res <- list()
-for(i in seq(n_ind)){
-  l_res[[i]] <- try(BGGM::var_estimate(l_raw_sub[[i]],
-                                   rho_sd = rho_sd,
-                                   beta_sd = beta_sd,
-                                   iter = n_iter,
-                                   progress = FALSE,
-                                   seed = seed))
-  # Invert covariance matrix of residuals to obtain precision matrix
-  l_res[[i]]$fit$kappa <- array(apply(l_res[[i]]$fit$Sigma, 3, solve), 
-                                dim = dim(l_res[[i]]$fit$Sigma))
-
-}
-
 l_res2 <- list()
-for(i in seq(n_ind)){
-  l_res2[[i]] <- try(BGGM::var_estimate(l_raw2_sub[[i]],
-                                   rho_sd = rho_sd,
-                                   beta_sd = beta_sd,
-                                   iter = n_iter,
-                                   progress = FALSE,
-                                   seed = seed))
-  # Invert covariance matrix of residuals to obtain precision matrix
-  l_res2[[i]]$fit$kappa <- array(apply(l_res2[[i]]$fit$Sigma, 3, solve), 
-                                dim = dim(l_res2[[i]]$fit$Sigma))
-}
+ncores = parallel::detectCores() - 2
+cl = makeCluster(ncores)
+registerDoParallel(cl)
+
+l_res <- fit_var_parallel(data = l_raw$graph, n = 100, 
+                 rho_prior = rho_sd, beta_prior = beta_sd, seed = seed, 
+                 iterations = n_iter)
 
 
+l_res2 <- fit_var_parallel(data = l_raw$graph2, n = 100, 
+                 rho_prior = rho_sd, beta_prior = beta_sd, seed = seed, 
+                 iterations = n_iter)
+
+stopCluster(cl)
 
 
 
@@ -207,6 +281,12 @@ ncores = parallel::detectCores() - 4
 cl = makeCluster(ncores)
 registerDoParallel(cl)
 
+l_data <- list()
+l_data <- sim_from_post_parallel(fitobj = l_res, n = n_ind, n_datasets = n_postds, tp = n_tp,
+                       iterations = n_iter, means = 0, convert_bggm = TRUE)
+
+
+
 # TODO: maybe use own function to simulateVAR model, this gives me weird results
 # Could also use sth. inspired by here: https://github.com/jmbh/ARVAR/blob/master/aux_functions.R
 # Simulate new data from fitted reference model
@@ -219,44 +299,53 @@ registerDoParallel(cl)
 # IMPORTANT! KAPPA IS NOT EQUAL TO PCOR MATRIX. KAPPA = PRECISION MATRIX
 
 
-l_dat <- foreach(i = seq(n_ind), .packages = "graphicalVAR") %dopar% {
-  dat <- list()
-  # Loop over number of datasets to create from posterior
-  for(j in seq(n_postds)){
-    dat[[j]] <- try(as.data.frame(graphicalVAR::graphicalVARsim(nTime = n_tp,
-                                beta = t(l_params[[i]]$beta[,,j]),
-                                kappa = l_params[[i]]$kappa[,,j],
-                                mean = 0))) 
-    
-  }
-      
-  dat
-  
-}
-
-l_dat2 <- foreach(i = seq(n_ds), .packages = "graphicalVAR") %dopar% {
-  dat2 <- list()
-  for(j in seq(n_postds)){
-    dat2[[j]] <- try(as.data.frame(graphicalVAR::graphicalVARsim(nTime = n_tp,
-                                beta = t(l_params2[[i]]$beta[,,j]),
-                                kappa = l_params2[[i]]$kappa[,,j],
-                                mean = 0)))  
-    
-  }
-   
-  dat2
-  
-}
-
+# l_dat <- foreach(i = seq(n_ind), .packages = "graphicalVAR") %dopar% {
+#   dat <- list()
+#   # Loop over number of datasets to create from posterior
+#   for(j in seq(n_postds)){
+#     # get random posterior sample
+#     smp <- sample(n_iter, size = 1)
+#     dat[[j]] <- try(as.data.frame(graphicalVAR::graphicalVARsim(nTime = n_tp,
+#                                 beta = t(l_params[[i]]$beta[,,smp]),
+#                                 kappa = l_params[[i]]$kappa[,,smp],
+#                                 mean = 0))) 
+#     
+#   }
+#       
+#   dat
+#   
+# }
+# 
+# l_dat2 <- foreach(i = seq(n_ind), .packages = "graphicalVAR") %dopar% {
+#   dat2 <- list()
+#   for(j in seq(n_postds)){
+#     # get random posterior sample
+#     smp <- sample(n_iter, size = 1)
+#     dat2[[j]] <- try(as.data.frame(graphicalVAR::graphicalVARsim(nTime = n_tp,
+#                                 beta = t(l_params2[[i]]$beta[,,smp]),
+#                                 kappa = l_params2[[i]]$kappa[,,smp],
+#                                 mean = 0)))  
+#     
+#   }
+#    
+#   dat2
+#   
+# }
+# 
 
 
 
 stopCluster(cl)
 
+
+
+
+
 # Convert data to BGGM format
-# TODO Something here does not work? The last Y value gets cut off because 
+# The last Y value gets cut off because 
 # we insert NA for the lagged value matrix
 # Need to think about whether I keep it this way to comply with Williams or I change it
+# Maybe this is correct, because the effective sample size is always n-100
 source("aux_funs.R")
 l_dat_bggm <- lapply(l_dat, format_bggm_list)
 l_dat2_bggm <- lapply(l_dat2, format_bggm_list)
@@ -264,20 +353,148 @@ l_dat2_bggm <- lapply(l_dat2, format_bggm_list)
 
 ```
 
+## Frobenius Norm Approach
+Another idea: Compute Frobenius norm between models on resampled datasets compared to reference model and then compare to actual difference between two models. 
+```{r}
+
+# Fit the model to posterior data samples
+rho_sd <- 0.5
+beta_sd <- 1
+seed <- 2022
+n_iter <- 5000
+
+# Same DGP
+# TODO: rewerite cross_compare so that we first refit models to the posterior dataset
+# then simply evaluate their difference
+# this is more useful if we want to compare many individuals
+l_postres <- list()
+l_postres[[1]] <- fit_var_parallel(data = l_data[[1]], n = 100, 
+                 rho_prior = rho_sd, beta_prior = beta_sd, seed = seed, 
+                 iterations = n_iter)
+
+
+
+
+
+
+ncores = parallel::detectCores() - 4
+cl = makeCluster(ncores)
+registerDoParallel(cl)
+
+starttime <- Sys.time()
+test <- cross_compare_emp()
+stoptime <- Sys.time()
+test_maxdiff <- cross_compare_emp(comparison = "maxdiff")
+
+
+stopCluster(cl)
+
+
+
+
+
+# Different DGp
+test2 <- cross_compare_emp(postdata_b = l_dat2_bggm, fitres_b = l_res2)
+test2_maxdiff <- cross_compare_emp(postdata_b = l_dat2_bggm, fitres_b = l_res2, comparison = "maxdiff")
+cross_compare_eval(test, plot = TRUE)
+cross_compare_eval(test2, plot = TRUE)
+
+
+# Compare full posterior
+test_post <- cross_compare_post(postdata_b = l_dat2_bggm, fitres_b = l_res2)
+
+test_post %>% 
+  mutate(model_ind = as.factor(model_ind)) %>% 
+  ggplot(aes(x = frob, color = model_ind, fill = model_ind))+
+  geom_density()+
+  theme_minimal()
+
+test_maxdiff %>% 
+        mutate(model_ind = as.factor(model_ind)) %>% 
+        ggplot(aes(x = maxdiff_null, fill = model_ind))+
+        geom_density() +
+        theme_minimal()+
+        geom_vline(aes(xintercept = max(maxdiff_emp)), col = "black",
+                   linetype = "dashed")+
+        geom_label(aes(x = max(maxdiff_emp), y = 1),
+                   label = "Emp. Maxdiff", show.legend = FALSE)+
+        labs(fill = "Model",
+             x = "Maxdiff",
+             y = "Density")+
+  ggokabeito::scale_fill_okabe_ito()
+
+```
+
+
+
+Another idea: for each posterior sample, generate two new datasets and obtain Frobenius norm between the two regression matrices for each sample as Null distribution. 
+```{r}
+# takes as input one posterior sample
+# generates two new datasets, re-estimates the model and then 
+# computes frobenius norm between resulting estimates
+# this does not work well because there is not enough error 
+
+
+frob_res <- c(rep(NA, 100))
+for(i in 51:151){
+  frob_res[i] <- f_post_frob(l_res[[1]]$fit$beta[,,i])
+}
+
+df_frob_res <- as.data.frame(frob_res)
+df_frob_res <- na.omit(df_frob_res)
+df_frob_emp <- as.data.frame(frob_emp)
+df_frob_emp <- na.omit(df_frob_emp)
+
+
+
+df_frob_res %>% 
+  filter(!is.na(frob_res)) %>% 
+  ggplot(aes(x = frob_res))+
+  geom_density()+
+  geom_vline(aes(xintercept = quantile(frob_res, 0.95), col = "red"))+
+  geom_point(data = df_frob_emp, aes(x = frob_emp, y = 0), col = "blue")+
+  theme_minimal()
+
+
+```
+
+
+
+
+For later, obtain the likelihoods of each model directly and then compare these across samples. 
+```{r}
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+# Older Stuff
 
 ## Refitting approach
 Refit all models to all 100 datasets. Use the internal function by Williams, modified by me.
 
 Do I even need the intercept when all time series are standardized? He seems to ignore them. I also still need to understand what the 'predict' function does here and if it is even useful for me. The predict function uses the posterior samples to predict fitted values, so it even contains the foundation for the new simulated datasets? Not sure if this makes sense. Here we are however interested in the comparison of the graph that will actually be plotted, so just use the posterior mean of the beta coefficients for prediction.
 
+
+This is not functioning at the moment because there is a new list layer to l_dat_bggm. 
 ```{r}
-ncores = parallel::detectCores() - 4
+ncores = parallel::detectCores() - 8
 cl = makeCluster(ncores)
 registerDoParallel(cl)
 
-l_refit <- foreach(i = seq(n_mod), .export = c("predict_pmu.var_estimate"))  %dopar% { # each model
+# change i to n_ind or so
+l_refit <- foreach(i = seq(2), .export = c("predict_pmu.var_estimate"))  %dopar% { # each model
   l_m_ref <- list()  # store for each model
-  for(j in 1:n_ds){   # each simulated dataset
+  for(j in 1:n_postds){   # each simulated dataset
     l_m_ref[[j]] <- try(predict_pmu.var_estimate(object = l_res[[i]],
                              data = l_dat_bggm[[j]]))
   }
@@ -296,11 +513,11 @@ l_rmse <- list()
 ncores = parallel::detectCores() - 4
 cl = makeCluster(ncores)
 registerDoParallel(cl)
-l_rmse <- foreach(i = seq(n_mod)) %dopar% {  # for every model 
+l_rmse <- foreach(i = seq(n_ind)) %dopar% {  # for every model 
   df_rmse <- data.frame(iter = 1:n_ds,
                     rmse = rep(NA, n_ds),
                     model = rep(i, n_ds))
-  for(j in 1:n_ds){      # for every dataset
+  for(j in 1:n_postds){      # for every dataset
     df_rmse[j,"rmse"] <- try(f_eval_refit(data = l_dat_bggm[[j]],
                refit = l_refit[[i]][[j]]))
   }
@@ -385,92 +602,6 @@ Another idea: compute something like absolute difference between network results
 ```{r}
 
 ```
-
-## Frobenius Norm Approach
-Another idea: Compute Frobenius norm between models on resampled datasets compared to reference model and then compare to actual difference between two models. 
-```{r}
-
-# Fit the model to posterior data samples
-rho_sd <- 0.5
-beta_sd <- 1
-seed <- 2022
-n_iter <- 5000
-
-
-test <- cross_compare_emp()
-test_maxdiff <- cross_compare_emp(comparison = "maxdiff")
-test2 <- cross_compare_emp(postdata_b = l_dat2_bggm, fitres_b = l_res2)
-cross_compare_eval(test, plot = TRUE)
-cross_compare_eval(test2, plot = TRUE)
-
-
-# Compare full posterior
-test_post <- cross_compare_post(postdata_b = l_dat2_bggm, fitres_b = l_res2)
-
-test_post %>% 
-  mutate(model_ind = as.factor(model_ind)) %>% 
-  ggplot(aes(x = frob, color = model_ind, fill = model_ind))+
-  geom_density()+
-  theme_minimal()
-
-test_maxdiff %>% 
-        mutate(model_ind = as.factor(model_ind)) %>% 
-        ggplot(aes(x = maxdiff_null, fill = model_ind))+
-        geom_density() +
-        theme_minimal()+
-        geom_vline(aes(xintercept = max(maxdiff_emp)), col = "black",
-                   linetype = "dashed")+
-        geom_label(aes(x = max(maxdiff_emp), y = 1),
-                   label = "Emp. Maxdiff", show.legend = FALSE)+
-        labs(fill = "Model",
-             x = "Maxdiff",
-             y = "Density")
-
-```
-
-
-
-Another idea: for each posterior sample, generate two new datasets and obtain Frobenius norm between the two regression matrices for each sample as Null distribution. 
-```{r}
-# takes as input one posterior sample
-# generates two new datasets, re-estimates the model and then 
-# computes frobenius norm between resulting estimates
-# this does not work well because there is not enough error 
-
-
-frob_res <- c(rep(NA, 100))
-for(i in 51:151){
-  frob_res[i] <- f_post_frob(l_res[[1]]$fit$beta[,,i])
-}
-
-df_frob_res <- as.data.frame(frob_res)
-df_frob_res <- na.omit(df_frob_res)
-df_frob_emp <- as.data.frame(frob_emp)
-df_frob_emp <- na.omit(df_frob_emp)
-
-
-
-df_frob_res %>% 
-  filter(!is.na(frob_res)) %>% 
-  ggplot(aes(x = frob_res))+
-  geom_density()+
-  geom_vline(aes(xintercept = quantile(frob_res, 0.95), col = "red"))+
-  geom_point(data = df_frob_emp, aes(x = frob_emp, y = 0), col = "blue")+
-  theme_minimal()
-
-
-```
-
-
-
-
-For later, obtain the likelihoods of each model directly and then compare these across samples. 
-```{r}
-
-```
-
-
-
 
 
 

@@ -1,9 +1,102 @@
 # Find ToDos --------------------------------------------------------------
 # todor::todor(c("TODO"))
 
+# Simulate raw data -------------------------------------------------------
+# 
+#' Simulate raw data
+#' Simulates raw data from fixed generating process to obtain $n$ new individuals. 
+#' Data are standardized by default. 
+#'
+#' @param dgp Graph containing beta and kappa matrix. 
+#' @param n Number of individuals to simulate
+#' @param tp Timepoints per time series.
+#' @param means Mean vector. Defaults to zero. 
+#' @param standardize Should data be z-standardized? Defaults to true. 
+#'
+#' @return List with data and function arguments. 
+#' @export
+#'
+#' 
+sim_raw_parallel <- function(dgp,
+                             n,
+                             tp,
+                             means = 0,
+                             standardize = TRUE){
+  # save function arguments in output
+  args <- as.list(environment())
+  args$dgp <- deparse(substitute(dgp))
+  
+  # ncores = parallel::detectCores() - 2
+  # cl = makeCluster(ncores)
+  # registerDoParallel(cl)
+  data <- foreach(i = seq(n), .packages = "graphicalVAR") %dopar% {
+    raw_data <- list()
+    raw_data$data <- as.data.frame(graphicalVAR::graphicalVARsim(nTime = tp,
+                                                                 beta = dgp$beta,
+                                                                 kappa = dgp$kappa,
+                                                                 mean = means))
+    if(standardize == TRUE){
+      # Standardize data
+      raw_data$data <- apply(raw_data$data, 2, scale)
+      # return name of data-generating process
+      raw_data$args <- args
+      raw_data 
+      
+    }
+
+    
+  }
+  return(data)
+  # stopCluster(cl)
+}
 
 
-
+# Sim from posterior ------------------------------------------------------
+# TODO save function arguments
+# TODO make convert_bggm work even if data generation did not work
+# TODO especially here, graphicalVARsim might be an issue? it has a slightly different model
+sim_from_post_parallel <- function(fitobj, 
+                                   n_datasets, 
+                                   n,
+                                   tp,
+                                   iterations,
+                                   means = 0,
+                                   convert_bggm = TRUE){
+  # Extract parameters from fitobject
+  # delete first 50 samples
+  l_params <- list()
+  for(i in seq(n)){
+    l_params[[i]] <- list()
+    l_params[[i]]$beta <- fitobj[[i]]$fit$beta[,,51:iterations]
+    l_params[[i]]$kappa <- fitobj[[i]]$fit$kappa[,,51:iterations]
+  }
+  
+  # Loop to create new datasets from posterior samples
+  post_data <- foreach(i = seq(n), .packages = "graphicalVAR") %dopar% {
+    dat <- list()
+    # Loop over number of datasets to create from posterior
+    for(j in seq(n_datasets)){
+      # get random posterior sample
+      smp <- sample(iterations, size = 1)
+      dat[[j]] <- try(as.data.frame(graphicalVAR::graphicalVARsim(nTime = tp,
+                                                                  beta = t(l_params[[i]]$beta[,,smp]),
+                                                                  kappa = l_params[[i]]$kappa[,,smp],
+                                                                  mean = means))) 
+      
+    }
+    
+    dat
+    
+    
+    
+  } # end parallel
+  if(convert_bggm == TRUE){
+    post_data <- lapply(post_data, format_bggm_list)
+    
+  }
+  post_data
+  
+}
 # Predict function for external data --------------------------------------
 # Taken from https://github.com/donaldRwilliams/BGGM/blob/master/R/predict.estimate.R
 # adapted for using external data for refitting of the model
@@ -223,21 +316,25 @@ predict_pmu.var_estimate <- function(object,
 # External data needs to have two objects
 # Y: response data
 # X: lagged response data
-# TODO Something here does not work? The last Y value gets cut off because 
-# we insert NA for the lagged value matrix
-# Need to think about whether I keep it this way to comply with Williams or I change it
+
 format_bggm <- function(Y){
-  Y <- scale(na.omit(Y))
-  p <- ncol(Y)
-  n <- nrow(Y)
-  Y_lag <- rbind(NA, Y)
-  colnames(Y_lag) <- paste0(colnames(Y), ".l1")
-  Y_all <- na.omit(cbind.data.frame(rbind(Y, NA), Y_lag))
-  Y <- as.matrix(Y_all[, 1:p])
-  X <- as.matrix(Y_all[, (p + 1):(p * 2)])
-  out <- list()
-  out$Y <- Y
-  out$X <- X
+  if(is.data.frame(Y)){
+    Y <- scale(na.omit(Y))
+    p <- ncol(Y)
+    n <- nrow(Y)
+    Y_lag <- rbind(NA, Y)
+    colnames(Y_lag) <- paste0(colnames(Y), ".l1")
+    Y_all <- na.omit(cbind.data.frame(rbind(Y, NA), Y_lag))
+    Y <- as.matrix(Y_all[, 1:p])
+    X <- as.matrix(Y_all[, (p + 1):(p * 2)])
+    out <- list()
+    out$Y <- Y
+    out$X <- X
+    
+    
+  }
+  else out <- NA
+  
   out
 }
 
@@ -391,62 +488,85 @@ logll <- function(kappa, sigma, n){
 #' @param fitres_b List of model results for each participant under specific DGP.
 #' @param mod_a Numerical indicator of model/person A. 
 #' @param mod_b Numerical indicator of model/person B. 
-#' @param n_postds Number of datasets sampled from posterior. 
+#' @param n_datasets Number of datasets sampled from posterior. 
 #' @param comparison Which comparison to use. "Frob" for Frobenius-Norm, "maxdiff" for maximum edge difference. 
 #' @param ... Currently ignored. 
+#' 
 #'
 #' @return Dataframe with null distributions for Frobenius norm of both models under the Null and empirical Frobenius norm between both models 
 #' @export
 #'
 #' 
-cross_compare_emp <- function(postdata_a = l_dat_bggm,
-                          postdata_b = l_dat_bggm,
+cross_compare_emp <- function(postdata_a = l_data,
+                          postdata_b = l_data,
                           fitres_a = l_res,
                           fitres_b = l_res,
                           mod_a = 1, 
                           mod_b = 2,
-                          n_postds = 100,
+                          rho_prior = rho_sd, 
+                          beta_prior = beta_sd,
+                          n_datasets = 100,
+                          iterations = n_iter, 
                           comparison = "frob",
                           ...){
   if(!is.numeric(mod_a) | !is.numeric(mod_b)){
     stop("Error: Model needs to have numerical index")
   }
-  # Refit to posterior samples of each model
-  l_postpred_a <- list()
-  for(i in seq(n_postds)){
-    l_postpred_a[[i]] <- try(BGGM::var_estimate(postdata_a[[mod_a]][[i]]$Y,
-                                                rho_sd = rho_sd,
-                                                beta_sd = beta_sd,
-                                                iter = n_iter,
-                                                progress = FALSE,
-                                                seed = 2022))
-    
-  }
-  l_postpred_b <- list()
-  for(i in seq(n_postds)){
-    l_postpred_b[[i]] <- try(BGGM::var_estimate(postdata_b[[mod_b]][[i]]$Y,
-                                                rho_sd = rho_sd,
-                                                beta_sd = beta_sd,
-                                                iter = n_iter,
-                                                progress = FALSE,
-                                                seed = 2022))
-    
-  }
   
+  # Refit to posterior datasets of each model
+
+  l_postpred_a <- foreach(i = seq(n_datasets), .packages = "BGGM") %dopar% {
+    if(is.list(postdata_a[[mod_a]][[i]])){
+      postpreda <- try(BGGM::var_estimate(postdata_a[[mod_a]][[i]]$Y,
+                                          rho_sd = rho_prior,
+                                          beta_sd = beta_prior,
+                                          iter = iterations,
+                                          progress = FALSE,
+                                          seed = 2022))
+    }
+    else 
+      postpreda <- NA
+      
+
+    postpreda
+    }
+    
+    
+  l_postpred_b <- foreach(i = seq(n_datasets), .packages = "BGGM") %dopar% {
+    if(is.list(postdata_b[[mod_b]][[i]])){
+      postpredb <- try(BGGM::var_estimate(postdata_b[[mod_b]][[i]]$Y,
+                                          rho_sd = rho_prior,
+                                          beta_sd = beta_prior,
+                                          iter = iterations,
+                                          progress = FALSE,
+                                          seed = 2022))
+      
+    }
+    else
+      postpredb <- NA
+      
+    postpredb
+  }
+    
+
+    
+
+  # Frobenius Norm Comparison 
   if(comparison == "frob"){
+    normtype = "F"
     # Compute Distance of empirical beta to posterior samples beta
     frob_null_a <- unlist(lapply(l_postpred_a, 
                                  function(x){
                                    if(!is.list(x))
                                      {NA}
                                    else 
-                                     {norm(fitres_a[[mod_a]]$beta_mu-x$beta_mu, type = comparison)}}))
+                                     {norm(fitres_a[[mod_a]]$beta_mu-x$beta_mu, type = normtype)}}))
     frob_null_b <- unlist(lapply(l_postpred_b, 
                                  function(x){
                                    if(!is.list(x))
                                     {NA}
                                    else
-                                   {norm(fitres_b[[mod_b]]$beta_mu-x$beta_mu, type = comparison)}}))
+                                   {norm(fitres_b[[mod_b]]$beta_mu-x$beta_mu, type = normtype)}}))
 
     
     # Compute Distance of empirical betas between a and b
@@ -455,9 +575,10 @@ cross_compare_emp <- function(postdata_a = l_dat_bggm,
     cc_res <- data.frame(model_ind = c(rep(mod_a, n_postds), rep(mod_b, n_postds)),
                          frob_null = c(frob_null_a, frob_null_b),
                          frob_emp = rep(frob_emp, n_postds*2))
-    cc_res
+    
     
   }
+  # Max Difference Comparison
   if(comparison == "maxdiff"){
     # Compute maximum distance of empirical beta to posterior samples beta
     maxdiff_a <- unlist(lapply(l_postpred_a, 
@@ -478,10 +599,12 @@ cross_compare_emp <- function(postdata_a = l_dat_bggm,
     cc_res <- data.frame(model_ind = c(rep(mod_a, n_postds), rep(mod_b, n_postds)),
                          maxdiff_null = c(maxdiff_a, maxdiff_b),
                          maxdiff_emp = rep(maxdiff_emp, n_postds*2))
+    
 
     } # end maxdiff
-
-  } # end function
+  
+  return(cc_res)
+} # end function
 
   
 
@@ -571,6 +694,7 @@ cross_compare_post <- function(postdata_a = l_dat_bggm,
 #' @export
 #'
 #' 
+
 cross_compare_eval <- function(df_res,
                                plot = FALSE){
   
@@ -579,8 +703,8 @@ cross_compare_eval <- function(df_res,
   model_ind_b <- unique(df_res$model_ind)[2]
   
   # Number of posterior difference > empirical difference
-  teststat_a <- sum(df_res$frob_null[df_res$model_ind == model_ind_a] > df_res$frob_emp[df_res$model_ind == model_ind_a])
-  teststat_b <- sum(df_res$frob_null[df_res$model_ind == model_ind_b] > df_res$frob_emp[df_res$model_ind == model_ind_b])
+  teststat_a <- sum(df_res$frob_null[df_res$model_ind == model_ind_a] > df_res$frob_emp[df_res$model_ind == model_ind_a], na.rm = TRUE)
+  teststat_b <- sum(df_res$frob_null[df_res$model_ind == model_ind_b] > df_res$frob_emp[df_res$model_ind == model_ind_b], na.rm = TRUE)
   
   
   
