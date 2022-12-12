@@ -51,17 +51,124 @@ sim_raw_parallel <- function(dgp,
 }
 
 
+# Fit VAR parallel --------------------------------------------------------
+# TODO add saving of function arguments
+# TODO needs different options for different provided data formats
+# because $data does not work for posterior samples data
+fit_var_parallel <- function(data, 
+                             n,
+                             rho_prior, 
+                             beta_prior,
+                             seed,
+                             iterations,
+                             get_kappa = TRUE,
+                             posteriorsamples = FALSE,
+                             pruneresults = FALSE){
+ 
+  if(n != length(data)){
+    warning("The n provided does not match the number of available data frames")
+  }
+  
+  # Setup parallelization - moved to outside of function
+  # ncores = parallel::detectCores() - 2
+  # cl = makeCluster(ncores)
+  # registerDoParallel(cl)
+  
+  # if we take simulated data in a list object
+  if(isFALSE(posteriorsamples)){
+    fit <- foreach(i = seq(n), .packages = "BGGM") %dopar% {
+      fit_ind <- list()
+      if(is.list(data[[i]]$data) | is.numeric(data[[i]]$data)){
+        fit_ind <- try(BGGM::var_estimate(data[[i]]$data,
+                                          rho_sd = rho_prior,
+                                          beta_sd = beta_prior,
+                                          iter = iterations,
+                                          progress = FALSE,
+                                          seed = seed), silent = TRUE)
+        if(isTRUE(get_kappa)){
+          # check if fitting worked
+          if(is.list(fit_ind)){
+            # Invert covariance matrix of residuals to obtain precision matrix
+            fit_ind$fit$kappa <- array(apply(fit_ind$fit$Sigma, 3, solve), 
+                                       dim = dim(fit_ind$fit$Sigma))
+           }
+
+          }
+      }
+      else fit_ind <- NA
+      
+      fit_ind  
+    }
+    
+    
+  }
+  
+  
+  # if we fit the data on samples generated from the posterior
+  if(isTRUE(posteriorsamples)){
+    print("Fitting to posterior samples")
+    fit <- foreach(i = seq(n), .packages = "BGGM") %dopar% {
+      fit_ind <- list()
+      if(is.list(data[[i]])){
+        fit_ind <- tryCatch({BGGM::var_estimate(data[[i]],
+                                          rho_sd = rho_prior,
+                                          beta_sd = beta_prior,
+                                          iter = iterations,
+                                          progress = FALSE,
+                                          seed = seed)}, error = function(e) NULL)
+        if(isTRUE(get_kappa)){
+          # check if fitting worked
+          if(is.list(fit_ind)){
+            # Invert covariance matrix of residuals to obtain precision matrix
+            fit_ind$fit$kappa <- array(apply(fit_ind$fit$Sigma, 3, solve), 
+                                       dim = dim(fit_ind$fit$Sigma))
+          }
+
+        }
+        # prune results for comparison purposes
+        if(isTRUE(pruneresults & is.list(fit_ind))){
+          beta_mu <- fit_ind$beta_mu 
+          kappa_mu <- fit_ind$kappa_mu
+          fit_ind <- list()
+          fit_ind$beta_mu <- beta_mu
+          fit_ind$kappa_mu <- kappa_mu
+          
+        } 
+        
+        
+      }
+      else fit_ind <- NA
+      
+      fit_ind  
+    }  
+
+    
+  } # end isTRUE posteriorsamples
+  
+
+  
+    return(fit)
+  # stopCluster(cl)
+  
+  
+  
+}
+
+
+
+
+
+
+
 # Sim from posterior ------------------------------------------------------
 # TODO save function arguments
-# TODO make convert_bggm work even if data generation did not work
-# TODO especially here, graphicalVARsim might be an issue? it has a slightly different model
 sim_from_post_parallel <- function(fitobj, 
                                    n_datasets, 
                                    n,
                                    tp,
                                    iterations,
                                    means = 0,
-                                   convert_bggm = TRUE){
+                                   convert_bggm = FALSE){
   # Extract parameters from fitobject
   # delete first 50 samples
   l_params <- list()
@@ -90,7 +197,7 @@ sim_from_post_parallel <- function(fitobj,
     
     
   } # end parallel
-  if(convert_bggm == TRUE){
+  if(isTRUE(convert_bggm)){
     post_data <- lapply(post_data, format_bggm_list)
     
   }
@@ -479,126 +586,132 @@ logll <- function(kappa, sigma, n){
 }
 
 
+
+
+# Compute distance metric -------------------------------------------------
+postemp_distance <- function(post,
+                             emp_a,
+                             emp_b,
+                             comp,
+                             mod_a,
+                             mod_b){
+
+  
+  
+    
+  if(comp == "frob"){
+    normtype = "F"
+    frob_beta <- 
+      if(length(post) == 0 | !is.list(post))
+        {NA} 
+      else
+        {norm(emp[[mod_a]]$beta_mu-x$beta_mu, type = normtype)}
+    
+    
+    
+  }
+  if(comp == "maxdiff"){
+    maxdiff_beta <- 
+      if(length(post) == 0 | !is.list(post))
+        {NA}
+      else
+        {max(abs(emp_b[[mod_b]]$beta_mu-x$beta_mu))}
+    
+    
+  }
+           
+  
+  
+}
+
+
+
+
+
+
+
 # Cross compare two models with posterior ---------------------------------
-#' Cross-compare two models with their posterior
+#' Cross-compare two models with their posterior for beta differences
 #'
-#' @param postdata_a List of data sampled from posterior of model/person A.
-#' @param postdata_b List of data sampled from posterior of model/person B.
-#' @param fitres_a List of model results for each participant under specific DGP.
-#' @param fitres_b List of model results for each participant under specific DGP.
 #' @param mod_a Numerical indicator of model/person A. 
 #' @param mod_b Numerical indicator of model/person B. 
 #' @param n_datasets Number of datasets sampled from posterior. 
 #' @param comparison Which comparison to use. "Frob" for Frobenius-Norm, "maxdiff" for maximum edge difference. 
 #' @param ... Currently ignored. 
-#' 
+#' @param fitpost_a Posterior fit objects for model A. 
+#' @param fitpost_b Posterior fit objects for model B.
+#' @param fitemp_a Empirical fit object for model A.
+#' @param fitemp_b Empirical fit object for model B. 
 #'
 #' @return Dataframe with null distributions for Frobenius norm of both models under the Null and empirical Frobenius norm between both models 
 #' @export
 #'
 #' 
-cross_compare_emp <- function(postdata_a = l_data,
-                          postdata_b = l_data,
-                          fitres_a = l_res,
-                          fitres_b = l_res,
+cross_compare_beta <- function(
+                          fitpost_a = l_postres,
+                          fitpost_b = l_postres,
+                          fitemp_a = l_res,
+                          fitemp_b = l_res,
                           mod_a = 1, 
                           mod_b = 2,
-                          rho_prior = rho_sd, 
-                          beta_prior = beta_sd,
                           n_datasets = 100,
-                          iterations = n_iter, 
                           comparison = "frob",
                           ...){
   if(!is.numeric(mod_a) | !is.numeric(mod_b)){
     stop("Error: Model needs to have numerical index")
   }
   
-  # Refit to posterior datasets of each model
-
-  l_postpred_a <- foreach(i = seq(n_datasets), .packages = "BGGM") %dopar% {
-    if(is.list(postdata_a[[mod_a]][[i]])){
-      postpreda <- try(BGGM::var_estimate(postdata_a[[mod_a]][[i]]$Y,
-                                          rho_sd = rho_prior,
-                                          beta_sd = beta_prior,
-                                          iter = iterations,
-                                          progress = FALSE,
-                                          seed = 2022))
-    }
-    else 
-      postpreda <- NA
-      
-
-    postpreda
-    }
-    
-    
-  l_postpred_b <- foreach(i = seq(n_datasets), .packages = "BGGM") %dopar% {
-    if(is.list(postdata_b[[mod_b]][[i]])){
-      postpredb <- try(BGGM::var_estimate(postdata_b[[mod_b]][[i]]$Y,
-                                          rho_sd = rho_prior,
-                                          beta_sd = beta_prior,
-                                          iter = iterations,
-                                          progress = FALSE,
-                                          seed = 2022))
-      
-    }
-    else
-      postpredb <- NA
-      
-    postpredb
-  }
-    
-
-    
 
   # Frobenius Norm Comparison 
   if(comparison == "frob"){
     normtype = "F"
     # Compute Distance of empirical beta to posterior samples beta
-    frob_null_a <- unlist(lapply(l_postpred_a, 
+    frob_null_a <- unlist(lapply(fitpost_a[[mod_a]], 
                                  function(x){
-                                   if(!is.list(x))
+                                   if(length(x) == 0 | !is.list(x))
                                      {NA}
                                    else 
-                                     {norm(fitres_a[[mod_a]]$beta_mu-x$beta_mu, type = normtype)}}))
-    frob_null_b <- unlist(lapply(l_postpred_b, 
+                                     {norm(fitemp_a[[mod_a]]$beta_mu-x$beta_mu, type = normtype)}}))
+    frob_null_b <- unlist(lapply(fitpost_b[[mod_b]], 
                                  function(x){
-                                   if(!is.list(x))
+                                   if(length(x) == 0 | !is.list(x))
                                     {NA}
                                    else
-                                   {norm(fitres_b[[mod_b]]$beta_mu-x$beta_mu, type = normtype)}}))
+                                   {norm(fitemp_b[[mod_b]]$beta_mu-x$beta_mu, type = normtype)}}))
 
     
     # Compute Distance of empirical betas between a and b
-    frob_emp <- norm(fitres_a[[mod_a]]$beta_mu - fitres_b[[mod_b]]$beta_mu)
+    frob_emp <- norm(fitemp_a[[mod_a]]$beta_mu - fitemp_b[[mod_b]]$beta_mu)
     
     cc_res <- data.frame(model_ind = c(rep(mod_a, n_postds), rep(mod_b, n_postds)),
-                         frob_null = c(frob_null_a, frob_null_b),
-                         frob_emp = rep(frob_emp, n_postds*2))
+                         null = c(frob_null_a, frob_null_b),
+                         emp = rep(frob_emp, n_postds*2),
+                         comp = rep("frob"), n_postds*2)
     
     
   }
   # Max Difference Comparison
   if(comparison == "maxdiff"){
     # Compute maximum distance of empirical beta to posterior samples beta
-    maxdiff_a <- unlist(lapply(l_postpred_a, 
+    maxdiff_a <- unlist(lapply(fitpost_a[[mod_a]], 
                                  function(x){
-                                   if(!is.list(x))
+                                   if(length(x) == 0 | !is.list(x))
                                      {NA}
                                    else 
-                                     {max(abs(fitres_a[[mod_a]]$beta_mu-x$beta_mu))}}))
-    maxdiff_b <- unlist(lapply(l_postpred_b, 
+                                     {max(abs(fitemp_a[[mod_a]]$beta_mu-x$beta_mu))}}))
+    maxdiff_b <- unlist(lapply(fitpost_b[[mod_b]], 
                                  function(x){
-                                   if(!is.list(x))
+                                   if(length(x) == 0 | !is.list(x))
                                      {NA}
                                  else
-                                   {max(abs(fitres_b[[mod_b]]$beta_mu-x$beta_mu))}})) 
+                                   {max(abs(fitemp_b[[mod_b]]$beta_mu-x$beta_mu))}})) 
     # Compute maxdiff of empirical betas between a and b
-    maxdiff_emp <- max(abs(fitres_a[[mod_a]]$beta_mu - fitres_b[[mod_b]]$beta_mu))
+    maxdiff_emp <- max(abs(fitemp_a[[mod_a]]$beta_mu - fitemp_b[[mod_b]]$beta_mu))
     
     cc_res <- data.frame(model_ind = c(rep(mod_a, n_postds), rep(mod_b, n_postds)),
-                         maxdiff_null = c(maxdiff_a, maxdiff_b),
-                         maxdiff_emp = rep(maxdiff_emp, n_postds*2))
+                         null = c(maxdiff_a, maxdiff_b),
+                         emp = rep(maxdiff_emp, n_postds*2),
+                         comp = rep("maxdiff", n_postds*2))
     
 
     } # end maxdiff
@@ -608,6 +721,119 @@ cross_compare_emp <- function(postdata_a = l_data,
 
   
 
+# Cross compare two models with posterior ---------------------------------
+#' Cross-compare two models with their posterior for kappa differences
+#'
+#' @param mod_a Numerical indicator of model/person A. 
+#' @param mod_b Numerical indicator of model/person B. 
+#' @param n_datasets Number of datasets sampled from posterior. 
+#' @param comparison Which comparison to use. "Frob" for Frobenius-Norm, "maxdiff" for maximum edge difference. 
+#' @param ... Currently ignored. 
+#' @param fitpost_a Posterior fit objects for model A. 
+#' @param fitpost_b Posterior fit objects for model B.
+#' @param fitemp_a Empirical fit object for model A.
+#' @param fitemp_b Empirical fit object for model B. 
+#'
+#' @return Dataframe with null distributions for Frobenius norm of both models under the Null and empirical Frobenius norm between both models 
+#' @export
+#'
+#' 
+cross_compare_beta <- function(
+    fitpost_a = l_postres,
+    fitpost_b = l_postres,
+    fitemp_a = l_res,
+    fitemp_b = l_res,
+    mod_a = 1, 
+    mod_b = 2,
+    n_datasets = 100,
+    comparison = "frob",
+    ...){
+  if(!is.numeric(mod_a) | !is.numeric(mod_b)){
+    stop("Error: Model needs to have numerical index")
+  }
+  
+  
+  # Frobenius Norm Comparison 
+  if(comparison == "frob"){
+    normtype = "F"
+    # Compute Distance of empirical beta to posterior samples beta
+    frob_null_a_beta <- unlist(lapply(fitpost_a[[mod_a]], 
+                                 function(x){
+                                   if(length(x) == 0 | !is.list(x))
+                                   {NA}
+                                   else 
+                                   {norm(fitemp_a[[mod_a]]$beta_mu-x$beta_mu, type = normtype)}}))
+    frob_null_b_beta <- unlist(lapply(fitpost_b[[mod_b]], 
+                                 function(x){
+                                   if(length(x) == 0 | !is.list(x))
+                                   {NA}
+                                   else
+                                   {norm(fitemp_b[[mod_b]]$beta_mu-x$beta_mu, type = normtype)}}))
+    
+    
+    # Compute Distance of empirical betas between a and b
+    frob_emp_beta <- norm(fitemp_a[[mod_a]]$beta_mu - fitemp_b[[mod_b]]$beta_mu)
+    
+    cc_res_beta <- data.frame(model_ind = c(rep(mod_a, n_postds), rep(mod_b, n_postds)),
+                         null = c(frob_null_a_beta, frob_null_b_beta),
+                         emp = rep(frob_emp_beta, n_postds*2),
+                         comp = rep("frob"), n_postds*2)
+    
+    
+    ### Same for kappa
+    frob_null_a_kappa <- unlist(lapply(fitpost_a[[mod_a]], 
+                                      function(x){
+                                        if(length(x) == 0 | !is.list(x))
+                                        {NA}
+                                        else 
+                                        {norm(fitemp_a[[mod_a]]$kappa_mu-x$kappa_mu, type = normtype)}}))
+    frob_null_b_kappa <- unlist(lapply(fitpost_b[[mod_b]], 
+                                      function(x){
+                                        if(length(x) == 0 | !is.list(x))
+                                        {NA}
+                                        else
+                                        {norm(fitemp_b[[mod_b]]$kappa_mu-x$kappa_mu, type = normtype)}}))
+    
+    
+    # Compute Distance of empirical kappas between a and b
+    frob_emp_kappa <- norm(fitemp_a[[mod_a]]$kappa_mu - fitemp_b[[mod_b]]$kappa_mu)
+    
+    cc_res_kappa <- data.frame(model_ind = c(rep(mod_a, n_postds), rep(mod_b, n_postds)),
+                         null = c(frob_null_a_kappa, frob_null_b_kappa),
+                         emp = rep(frob_emp_kappa, n_postds*2),
+                         comp = rep("frob"), n_postds*2)
+    
+    
+    
+  }
+  # Max Difference Comparison
+  if(comparison == "maxdiff"){
+    # Compute maximum distance of empirical beta to posterior samples beta
+    maxdiff_a_beta <- unlist(lapply(fitpost_a[[mod_a]], 
+                               function(x){
+                                 if(length(x) == 0 | !is.list(x))
+                                 {NA}
+                                 else 
+                                 {max(abs(fitemp_a[[mod_a]]$beta_mu-x$beta_mu))}}))
+    maxdiff_b_beta <- unlist(lapply(fitpost_b[[mod_b]], 
+                               function(x){
+                                 if(length(x) == 0 | !is.list(x))
+                                 {NA}
+                                 else
+                                 {max(abs(fitemp_b[[mod_b]]$beta_mu-x$beta_mu))}})) 
+    # Compute maxdiff of empirical betas between a and b
+    maxdiff_emp_beta <- max(abs(fitemp_a[[mod_a]]$beta_mu - fitemp_b[[mod_b]]$beta_mu))
+    
+    cc_res_beta <- data.frame(model_ind = c(rep(mod_a, n_postds), rep(mod_b, n_postds)),
+                         null = c(maxdiff_a_beta, maxdiff_b_beta),
+                         emp = rep(maxdiff_emp, n_postds*2),
+                         comp = rep("maxdiff", n_postds*2))
+    
+    
+  } # end maxdiff
+  
+  return(cc_res)
+} # end function
 
 
 
@@ -703,8 +929,9 @@ cross_compare_eval <- function(df_res,
   model_ind_b <- unique(df_res$model_ind)[2]
   
   # Number of posterior difference > empirical difference
-  teststat_a <- sum(df_res$frob_null[df_res$model_ind == model_ind_a] > df_res$frob_emp[df_res$model_ind == model_ind_a], na.rm = TRUE)
-  teststat_b <- sum(df_res$frob_null[df_res$model_ind == model_ind_b] > df_res$frob_emp[df_res$model_ind == model_ind_b], na.rm = TRUE)
+  teststat_a <- sum(df_res$null[df_res$model_ind == model_ind_a] > df_res$emp[df_res$model_ind == model_ind_a], na.rm = TRUE)
+  teststat_b <- sum(df_res$null[df_res$model_ind == model_ind_b] > df_res$emp[df_res$model_ind == model_ind_b], na.rm = TRUE)
+  
   
   
   
@@ -727,7 +954,8 @@ cross_compare_eval <- function(df_res,
     
   }
   testres <- list(res_a = teststat_a,
-                  res_b = teststat_b)
+                  res_b = teststat_b,
+                  comp = df_res$comp[[1]])
   testres
 }
 
@@ -774,6 +1002,34 @@ f_post_frob <- function(sample, seed = 2022,
   
   
 }
+
+
+
+
+# Expand grid unique ------------------------------------------------------
+# Adapted from GIMME
+# https://rdrr.io/cran/gimme/src/R/expand.grid.unique.R
+
+expand_grid_unique <- function(mod_a, mod_b){
+  g <- function(i){
+    z <- setdiff(mod_b, mod_a[seq_len(i - 1)])
+    if(length(z)) cbind(mod_a[i], z, deparse.level = 0)
+  }
+  comb <- do.call(rbind, lapply(seq_along(mod_a), g))
+  # delete where mod_a == mod_b 
+  comb <- comb[comb[,1] != comb[,2],]
+  comb
+}
+
+
+
+
+
+
+
+
+
+
 
 
 

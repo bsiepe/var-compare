@@ -24,6 +24,7 @@ library(mvtnorm)       # Sim from posterior
 library(stats)         # KS-Test
 library(philentropy)   # divergence measures
 library(todor)         # keep on track with stuff to do
+source("aux_funs.R")
 ```
 
 
@@ -104,7 +105,7 @@ l_raw <- list()
 
 # Simulation conditions
 n_ind <- 100   # number of individuals (so models to create)
-n_tp <- 200     # number of timepoints per time series
+n_tp <- 100     # number of timepoints per time series
 n_postds <- 100     # number of posterior datasets to create 
 
 
@@ -167,50 +168,7 @@ n_iter <- 5000
 #                                 dim = dim(l_res2[[i]]$fit$Sigma))
 # }
 
-# TODO add saving of function arguments
-# TODO needs different options for different provided data formats
-# because $data does not work for posterior samples data
-fit_var_parallel <- function(data, 
-                             n,
-                             rho_prior, 
-                             beta_prior,
-                             seed,
-                             iterations,
-                             get_kappa = TRUE){
-  # warning if n does not match the number of available data frames
-  if(n != length(data)){
-    warning("The n provided does not match the number of available data frames")
-  }
-  
-  # Setup parallelization - moved to outside of function
-  # ncores = parallel::detectCores() - 2
-  # cl = makeCluster(ncores)
-  # registerDoParallel(cl)
-  fit <- foreach(i = seq(n), .packages = "BGGM") %dopar% {
-    fit_ind <- list()
-    fit_ind <- try(BGGM::var_estimate(data[[i]]$data,
-                                   rho_sd = rho_prior,
-                                   beta_sd = beta_prior,
-                                   iter = iterations,
-                                   progress = FALSE,
-                                   seed = seed))
-    if(get_kappa == TRUE){
-      # Invert covariance matrix of residuals to obtain precision matrix
-      fit_ind$fit$kappa <- array(apply(fit_ind$fit$Sigma, 3, solve), 
-                                dim = dim(fit_ind$fit$Sigma))
-      
-    }
 
-    
-
-   fit_ind  
-  }
-  return(fit)
-  # stopCluster(cl)
-  
-  
-  
-}
 
 l_res <- list()
 l_res2 <- list()
@@ -258,23 +216,6 @@ Compare results with graphicalVAR estimation.
 
 Take the first 100 samples from the posterior of the first model (after deleting warmup samples).
 ```{r simulate-from-posterior}
-# Obtain posterior samples from models
-# delete first 50 samples
-l_params <- list()
-for(i in seq(n_ind)){
-  l_params[[i]] <- list()
-  l_params[[i]]$beta <- l_res[[i]]$fit$beta[,,51:n_iter]
-  l_params[[i]]$kappa <- l_res[[i]]$fit$kappa[,,51:n_iter]
-}
-
-l_params2 <- list()
-for(i in seq(n_ind)){
-  l_params2[[i]] <- list()
-  l_params2[[i]]$beta <- l_res2[[i]]$fit$beta[,,51:n_iter]
-  l_params2[[i]]$kappa <- l_res2[[i]]$fit$kappa[,,51:n_iter]
-}
-
-
 
 # setup foreach for data generation
 ncores = parallel::detectCores() - 4
@@ -283,73 +224,20 @@ registerDoParallel(cl)
 
 l_data <- list()
 l_data <- sim_from_post_parallel(fitobj = l_res, n = n_ind, n_datasets = n_postds, tp = n_tp,
-                       iterations = n_iter, means = 0, convert_bggm = TRUE)
+                       iterations = n_iter, means = 0, convert_bggm = FALSE)
 
 
+stopCluster(cl)
 
 # TODO: maybe use own function to simulateVAR model, this gives me weird results
 # Could also use sth. inspired by here: https://github.com/jmbh/ARVAR/blob/master/aux_functions.R
-# Simulate new data from fitted reference model
-# IMPORTANT
-# !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
 # DO I HAVE TO TRANSPOSE THE BETA MATRIX HERE?!?!?!
 # DIFFERENT FORMAT IN BGGM and graphicalVAR
 # put 1 on diagonal of matrix
 
 # IMPORTANT! KAPPA IS NOT EQUAL TO PCOR MATRIX. KAPPA = PRECISION MATRIX
 
-
-# l_dat <- foreach(i = seq(n_ind), .packages = "graphicalVAR") %dopar% {
-#   dat <- list()
-#   # Loop over number of datasets to create from posterior
-#   for(j in seq(n_postds)){
-#     # get random posterior sample
-#     smp <- sample(n_iter, size = 1)
-#     dat[[j]] <- try(as.data.frame(graphicalVAR::graphicalVARsim(nTime = n_tp,
-#                                 beta = t(l_params[[i]]$beta[,,smp]),
-#                                 kappa = l_params[[i]]$kappa[,,smp],
-#                                 mean = 0))) 
-#     
-#   }
-#       
-#   dat
-#   
-# }
-# 
-# l_dat2 <- foreach(i = seq(n_ind), .packages = "graphicalVAR") %dopar% {
-#   dat2 <- list()
-#   for(j in seq(n_postds)){
-#     # get random posterior sample
-#     smp <- sample(n_iter, size = 1)
-#     dat2[[j]] <- try(as.data.frame(graphicalVAR::graphicalVARsim(nTime = n_tp,
-#                                 beta = t(l_params2[[i]]$beta[,,smp]),
-#                                 kappa = l_params2[[i]]$kappa[,,smp],
-#                                 mean = 0)))  
-#     
-#   }
-#    
-#   dat2
-#   
-# }
-# 
-
-
-
-stopCluster(cl)
-
-
-
-
-
-# Convert data to BGGM format
-# The last Y value gets cut off because 
-# we insert NA for the lagged value matrix
-# Need to think about whether I keep it this way to comply with Williams or I change it
-# Maybe this is correct, because the effective sample size is always n-100
-source("aux_funs.R")
-l_dat_bggm <- lapply(l_dat, format_bggm_list)
-l_dat2_bggm <- lapply(l_dat2, format_bggm_list)
-# write_rds(l_dat, "l_dat_simvar.RDS")
 
 ```
 
@@ -364,64 +252,123 @@ seed <- 2022
 n_iter <- 5000
 
 # Same DGP
-# TODO: rewerite cross_compare so that we first refit models to the posterior dataset
-# then simply evaluate their difference
-# this is more useful if we want to compare many individuals
+ncores = parallel::detectCores() - 4
+cl = makeCluster(ncores)
+registerDoParallel(cl)
 l_postres <- list()
-l_postres[[1]] <- fit_var_parallel(data = l_data[[1]], n = 100, 
+
+before <- Sys.time()
+
+l_postres <- lapply(l_data, function(x) fit_var_parallel(data = x, n = 100, 
                  rho_prior = rho_sd, beta_prior = beta_sd, seed = seed, 
-                 iterations = n_iter)
+                 iterations = n_iter, posteriorsamples = TRUE, pruneresults = TRUE) )
+after <- before - Sys.time()
+stopCluster(cl)
 
 
+# Compare all possible combinations
+comp_combinations <- expand_grid_unique(mod_a = seq(1, n_ind, 1),
+                                 mod_b = seq(1, n_ind, 1))
 
-
-
+comp_conditions <- data.frame(mod_a = rep(comp_combinations[,1], 2),
+                        mod_b = rep(comp_combinations[,2], 2),
+                        fitpost_a = rep("l_postres", nrow(comp_combinations)*2),
+                        fitpost_b = rep("l_postres", nrow(comp_combinations)*2), 
+                        fitemp_a = rep("l_res", nrow(comp_combinations)*2),
+                        fitemp_b = rep("l_res", nrow(comp_combinations)*2),
+                        n_datasets = rep(n_postds, nrow(comp_combinations)*2),
+                        comparison = c(rep("frob", nrow(comp_combinations)), 
+                                       rep("maxdiff", nrow(comp_combinations))))
 
 ncores = parallel::detectCores() - 4
 cl = makeCluster(ncores)
 registerDoParallel(cl)
-
 starttime <- Sys.time()
-test <- cross_compare_emp()
-stoptime <- Sys.time()
-test_maxdiff <- cross_compare_emp(comparison = "maxdiff")
+cross_compare_res <- list()
+cross_compare_res <- 
+  lapply(c(1:nrow(comp_conditions)), function(i){
+    args <- comp_conditions[i,]
+    cross_compare_emp(
+      mod_a = args$mod_a, 
+      mod_b = args$mod_b,
+      fitpost_a = eval(as.name(paste(args$fitpost_a))),
+      fitpost_b = eval(as.name(paste(args$fitpost_b))), 
+      fitemp_a = eval(as.name(paste(args$fitemp_a))), 
+      fitemp_b = eval(as.name(paste(args$fitemp_b))), 
+      n_datasets = args$n_datasets, 
+      comparison = args$comparison
+    )
+    }
+  )
+
+
+stoptime <- Sys.time()-starttime    # ~16 seconds for 4950 comparisons!
+
 
 
 stopCluster(cl)
 
+# TODO right now I do not take into account that some samples did not work
+# need to implement this, maybe as a counter
+
+
+eval_res <- lapply(cross_compare_res, cross_compare_eval, plot = FALSE)
+df_eval_res <- as.data.frame(do.call(rbind, eval_res))
+df_eval_res <- df_eval_res %>% 
+  mutate(res_a = as.numeric(res_a),
+         res_b = as.numeric(res_b),
+         comp = as.factor(as.character(comp))) %>% 
+  group_by(comp) %>% 
+  count(res_a < 5 & res_b <5)
+
+
+# How many were "significant" for both
+df_eval_res %>% 
+  group_by(comp) %>% 
+  count(res_a < 5 & res_b <5)
+
+  
 
 
 
-
-# Different DGp
-test2 <- cross_compare_emp(postdata_b = l_dat2_bggm, fitres_b = l_res2)
-test2_maxdiff <- cross_compare_emp(postdata_b = l_dat2_bggm, fitres_b = l_res2, comparison = "maxdiff")
-cross_compare_eval(test, plot = TRUE)
-cross_compare_eval(test2, plot = TRUE)
-
-
-# Compare full posterior
-test_post <- cross_compare_post(postdata_b = l_dat2_bggm, fitres_b = l_res2)
-
-test_post %>% 
-  mutate(model_ind = as.factor(model_ind)) %>% 
-  ggplot(aes(x = frob, color = model_ind, fill = model_ind))+
-  geom_density()+
+df_eval_res %>% 
+  pivot_longer(cols = c(res_a, res_b), names_to = "res") %>% 
+  ggplot(aes(x = value, color = comp, fill = comp))+
+  geom_histogram()+
   theme_minimal()
 
-test_maxdiff %>% 
-        mutate(model_ind = as.factor(model_ind)) %>% 
-        ggplot(aes(x = maxdiff_null, fill = model_ind))+
-        geom_density() +
-        theme_minimal()+
-        geom_vline(aes(xintercept = max(maxdiff_emp)), col = "black",
-                   linetype = "dashed")+
-        geom_label(aes(x = max(maxdiff_emp), y = 1),
-                   label = "Emp. Maxdiff", show.legend = FALSE)+
-        labs(fill = "Model",
-             x = "Maxdiff",
-             y = "Density")+
-  ggokabeito::scale_fill_okabe_ito()
+
+
+
+
+
+
+
+
+
+# 
+# # Compare full posterior
+# test_post <- cross_compare_post(postdata_b = l_dat2_bggm, fitres_b = l_res2)
+# 
+# test_post %>% 
+#   mutate(model_ind = as.factor(model_ind)) %>% 
+#   ggplot(aes(x = frob, color = model_ind, fill = model_ind))+
+#   geom_density()+
+#   theme_minimal()
+# 
+# test_maxdiff %>% 
+#         mutate(model_ind = as.factor(model_ind)) %>% 
+#         ggplot(aes(x = maxdiff_null, fill = model_ind))+
+#         geom_density() +
+#         theme_minimal()+
+#         geom_vline(aes(xintercept = max(maxdiff_emp)), col = "black",
+#                    linetype = "dashed")+
+#         geom_label(aes(x = max(maxdiff_emp), y = 1),
+#                    label = "Emp. Maxdiff", show.legend = FALSE)+
+#         labs(fill = "Model",
+#              x = "Maxdiff",
+#              y = "Density")+
+#   ggokabeito::scale_fill_okabe_ito()
 
 ```
 
