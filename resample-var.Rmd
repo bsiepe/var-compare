@@ -25,6 +25,7 @@ library(stats)         # KS-Test
 library(philentropy)   # divergence measures
 library(todor)         # keep on track with stuff to do
 source("aux_funs.R")
+library(ggokabeito)
 ```
 
 
@@ -74,13 +75,15 @@ dimnames(graph$kappa) <- NULL
 
 
 
+
+
+
 # add slight change of one model parameter to the list
 graph2 <- graph
 graph2$beta[which.max(graph2$beta)] <- graph2$beta[which.max(graph2$beta)]*1.5
   
 l_graph <- list(graph = graph, 
                 graph2 = graph2)
-
 
 
 
@@ -104,7 +107,7 @@ l_graph <- list(graph = graph,
 l_raw <- list()
 
 # Simulation conditions
-n_ind <- 100   # number of individuals (so models to create)
+n_ind <- 200   # number of individuals (so models to create)
 n_tp <- 100     # number of timepoints per time series
 n_postds <- 100     # number of posterior datasets to create 
 
@@ -176,12 +179,12 @@ ncores = parallel::detectCores() - 2
 cl = makeCluster(ncores)
 registerDoParallel(cl)
 
-l_res <- fit_var_parallel(data = l_raw$graph, n = 100, 
+l_res <- fit_var_parallel(data = l_raw$graph, n = n_ind, 
                  rho_prior = rho_sd, beta_prior = beta_sd, seed = seed, 
                  iterations = n_iter)
 
 
-l_res2 <- fit_var_parallel(data = l_raw$graph2, n = 100, 
+l_res2 <- fit_var_parallel(data = l_raw$graph2, n = n_ind, 
                  rho_prior = rho_sd, beta_prior = beta_sd, seed = seed, 
                  iterations = n_iter)
 
@@ -229,6 +232,20 @@ l_data <- sim_from_post_parallel(fitobj = l_res, n = n_ind, n_datasets = n_postd
 
 stopCluster(cl)
 
+
+
+# second dgp
+ncores = parallel::detectCores() - 4
+cl = makeCluster(ncores)
+registerDoParallel(cl)
+
+l_data2 <- list()
+l_data2 <- sim_from_post_parallel(fitobj = l_res2, n = n_ind, n_datasets = n_postds, tp = n_tp,
+                       iterations = n_iter, means = 0, convert_bggm = FALSE)
+
+
+stopCluster(cl)
+
 # TODO: maybe use own function to simulateVAR model, this gives me weird results
 # Could also use sth. inspired by here: https://github.com/jmbh/ARVAR/blob/master/aux_functions.R
 
@@ -266,11 +283,27 @@ after <- before - Sys.time()
 stopCluster(cl)
 
 
+
+# Another DGP
+ncores = parallel::detectCores() - 4
+cl = makeCluster(ncores)
+registerDoParallel(cl)
+l_postres2 <- list()
+
+before <- Sys.time()
+
+l_postres2 <- lapply(l_data2, function(x) fit_var_parallel(data = x, n = 100, 
+                 rho_prior = rho_sd, beta_prior = beta_sd, seed = seed, 
+                 iterations = n_iter, posteriorsamples = TRUE, pruneresults = TRUE) )
+after <- before - Sys.time()
+stopCluster(cl)
+
+
 # Compare all possible combinations
 comp_combinations <- expand_grid_unique(mod_a = seq(1, n_ind, 1),
                                  mod_b = seq(1, n_ind, 1))
 
-comp_conditions <- data.frame(mod_a = rep(comp_combinations[,1], 2),
+comp_conditions2 <- data.frame(mod_a = rep(comp_combinations[,1], 2),
                         mod_b = rep(comp_combinations[,2], 2),
                         fitpost_a = rep("l_postres", nrow(comp_combinations)*2),
                         fitpost_b = rep("l_postres", nrow(comp_combinations)*2), 
@@ -287,7 +320,7 @@ starttime <- Sys.time()
 cross_compare_res <- list()
 cross_compare_res <- 
   lapply(c(1:nrow(comp_conditions)), function(i){
-    args <- comp_conditions[i,]
+    args <- comp_conditions2[i,]
     cross_compare_emp(
       mod_a = args$mod_a, 
       mod_b = args$mod_b,
@@ -312,63 +345,60 @@ stopCluster(cl)
 # need to implement this, maybe as a counter
 
 
-eval_res <- lapply(cross_compare_res, cross_compare_eval, plot = FALSE)
-df_eval_res <- as.data.frame(do.call(rbind, eval_res))
-df_eval_res <- df_eval_res %>% 
-  mutate(res_a = as.numeric(res_a),
-         res_b = as.numeric(res_b),
+eval_res <- lapply(cross_compare_res, cross_compare_eval)
+df_eval_res <- as.data.frame(do.call(rbind, eval_res2))
+df_eval_res %>% 
+  mutate(beta_a = as.numeric(beta_a),
+         beta_b = as.numeric(beta_b),
+         pcor_a = as.numeric(pcor_a),
+         pcor_b = as.numeric(pcor_b),
          comp = as.factor(as.character(comp))) %>% 
   group_by(comp) %>% 
-  count(res_a < 5 & res_b <5)
-
-
-# How many were "significant" for both
-df_eval_res %>% 
-  group_by(comp) %>% 
-  count(res_a < 5 & res_b <5)
-
-  
+  # number of tries per condition
+  add_count(comp) %>% 
+  summarize(sig_beta = sum(beta_a < 5 & beta_b < 5)/n,
+            sig_pcor = sum(pcor_a < 5 & pcor_b < 5)/n) %>% 
+  ungroup() %>% 
+  distinct(comp, sig_beta, sig_pcor)
 
 
 
-df_eval_res %>% 
-  pivot_longer(cols = c(res_a, res_b), names_to = "res") %>% 
+
+# Build plot separated by PCOR and BETA and by comparison type
+plot_test_comp <- df_eval_res %>% 
+  pivot_longer(cols = -comp, 
+               names_to = c("matrix", ".value"),
+               names_sep = "_") %>% 
+  pivot_longer(cols = c(a,b), values_to = "value", names_to = "ref_model") %>% 
+  mutate(value = as.numeric(value),
+         comp = as.character(comp)) %>% 
   ggplot(aes(x = value, color = comp, fill = comp))+
-  geom_histogram()+
-  theme_minimal()
+  geom_histogram(bins = 100, alpha =0.8)+
+  theme_minimal()+
+  scale_fill_okabe_ito()+
+  scale_color_okabe_ito()+
+  labs(title = "Count of posterior differences larger than empirical",
+       subtitle = "Simulating from different DGP (largeste edge *1.5)",
+       caption = "100 Timepoints")+
+  facet_wrap(~matrix)
+
+ggsave("figures/plot_test_comp2.pdf", plot_test_comp2,  device = "pdf",
+       height = 12, width = 16, units = "cm")
 
 
 
+df_eval_res %>% 
+  pivot_longer(cols = c(beta_a, beta_b, pcor_a, pcor_b), names_to = "res") %>% 
+  mutate(value = as.numeric(value),
+         comp = as.character(comp)) %>% 
+  ggplot(aes(x = value, color = comp, fill = comp))+
+  geom_histogram(bins = 100)+
+  theme_minimal()+
+  scale_fill_okabe_ito()+
+  scale_color_okabe_ito()+
+  labs(title = "Count of posterior differences larger than empirical",
+       subtitle = "Simulating from same DGP")
 
-
-
-
-
-
-
-# 
-# # Compare full posterior
-# test_post <- cross_compare_post(postdata_b = l_dat2_bggm, fitres_b = l_res2)
-# 
-# test_post %>% 
-#   mutate(model_ind = as.factor(model_ind)) %>% 
-#   ggplot(aes(x = frob, color = model_ind, fill = model_ind))+
-#   geom_density()+
-#   theme_minimal()
-# 
-# test_maxdiff %>% 
-#         mutate(model_ind = as.factor(model_ind)) %>% 
-#         ggplot(aes(x = maxdiff_null, fill = model_ind))+
-#         geom_density() +
-#         theme_minimal()+
-#         geom_vline(aes(xintercept = max(maxdiff_emp)), col = "black",
-#                    linetype = "dashed")+
-#         geom_label(aes(x = max(maxdiff_emp), y = 1),
-#                    label = "Emp. Maxdiff", show.legend = FALSE)+
-#         labs(fill = "Model",
-#              x = "Maxdiff",
-#              y = "Density")+
-#   ggokabeito::scale_fill_okabe_ito()
 
 ```
 
