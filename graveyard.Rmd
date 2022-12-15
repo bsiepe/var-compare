@@ -124,3 +124,269 @@ to evaluate the prediction and not just the posterior mean. Maybe I should rewri
 # stopCluster(cl)
 ```
 
+
+
+
+
+
+
+
+## Older Stuff
+
+
+Another idea: for each posterior sample, generate two new datasets and obtain Frobenius norm between the two regression matrices for each sample as Null distribution. 
+```{r}
+# takes as input one posterior sample
+# generates two new datasets, re-estimates the model and then 
+# computes frobenius norm between resulting estimates
+# this does not work well because there is not enough error 
+
+
+frob_res <- c(rep(NA, 100))
+for(i in 51:151){
+  frob_res[i] <- f_post_frob(l_res[[1]]$fit$beta[,,i])
+}
+
+df_frob_res <- as.data.frame(frob_res)
+df_frob_res <- na.omit(df_frob_res)
+df_frob_emp <- as.data.frame(frob_emp)
+df_frob_emp <- na.omit(df_frob_emp)
+
+
+
+df_frob_res %>% 
+  filter(!is.na(frob_res)) %>% 
+  ggplot(aes(x = frob_res))+
+  geom_density()+
+  geom_vline(aes(xintercept = quantile(frob_res, 0.95), col = "red"))+
+  geom_point(data = df_frob_emp, aes(x = frob_emp, y = 0), col = "blue")+
+  theme_minimal()
+
+
+```
+
+
+
+
+For later, obtain the likelihoods of each model directly and then compare these across samples. 
+```{r}
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+# Older Stuff
+
+## Refitting approach
+Refit all models to all 100 datasets. Use the internal function by Williams, modified by me.
+
+Do I even need the intercept when all time series are standardized? He seems to ignore them. I also still need to understand what the 'predict' function does here and if it is even useful for me. The predict function uses the posterior samples to predict fitted values, so it even contains the foundation for the new simulated datasets? Not sure if this makes sense. Here we are however interested in the comparison of the graph that will actually be plotted, so just use the posterior mean of the beta coefficients for prediction.
+
+
+This is not functioning at the moment because there is a new list layer to l_dat_bggm. 
+```{r}
+ncores = parallel::detectCores() - 8
+cl = makeCluster(ncores)
+registerDoParallel(cl)
+
+# change i to n_ind or so
+l_refit <- foreach(i = seq(2), .export = c("predict_pmu.var_estimate"))  %dopar% { # each model
+  l_m_ref <- list()  # store for each model
+  for(j in 1:n_postds){   # each simulated dataset
+    l_m_ref[[j]] <- try(predict_pmu.var_estimate(object = l_res[[i]],
+                             data = l_dat_bggm[[j]]))
+  }
+  return(l_m_ref)
+} 
+
+
+
+stopCluster(cl)
+```
+
+We use RMSE to evaluate the fit, but could also use Bayesian $R^2$ or similar stuff (maybe even the likelihood). As we get credible intervals for the predictions, we could also do something with structure recovery, so see which edges were included and which weren't if we opt for some kind of sparsity. 
+
+```{r compute-rmse}
+l_rmse <- list()
+ncores = parallel::detectCores() - 4
+cl = makeCluster(ncores)
+registerDoParallel(cl)
+l_rmse <- foreach(i = seq(n_ind)) %dopar% {  # for every model 
+  df_rmse <- data.frame(iter = 1:n_ds,
+                    rmse = rep(NA, n_ds),
+                    model = rep(i, n_ds))
+  for(j in 1:n_postds){      # for every dataset
+    df_rmse[j,"rmse"] <- try(f_eval_refit(data = l_dat_bggm[[j]],
+               refit = l_refit[[i]][[j]]))
+  }
+  return(df_rmse)
+}
+
+stopCluster(cl)
+df_errors <- do.call(rbind, l_rmse)
+# write_rds(df_errors, "df_errors.Rds")
+```
+
+
+Plot the error distribution:
+```{r plot-error-dist}
+df_errors %>% 
+  mutate(rmse = as.numeric(rmse)) %>% 
+  mutate(rmse = round(rmse, 3)) %>% 
+  filter(model < 10) %>% 
+  ggplot(aes(x = rmse, group = model , fill = as.factor(model), col = as.factor(model)))+
+  ggdist::stat_halfeye(alpha = 0.7)+
+  theme_minimal()+
+  ggokabeito::scale_fill_okabe_ito()+
+  ggokabeito::scale_color_okabe_ito()
+
+```
+
+
+Two ways of numerical comparison: First, treat as empirical distribution and use Kolmogorow-Smirnow. P-Values can be computed exactly or with Monte Carlo Sampling, I need to check which one makes the most sense. Apparently, the KS test (and similar tests) assume independence between the curves under consideration. 
+```{r comp-kstest}
+# Loop over test statistics
+# Baseline is model 1
+err1 <- df_errors$rmse[df_errors$model == 1]
+df_ks_res <- data.frame(model = rep(NA, n_mod),
+                        statistic = rep(NA, n_mod),
+                        pval = rep(NA, n_mod))
+options(scipen=999)
+
+# Filter model that did not converge, have to do this more principled later on
+df_errors <- df_errors %>% 
+  mutate(rmse = as.numeric(rmse)) %>% 
+  filter(!is.na(rmse))
+
+for(m in 2:n_mod){
+  if(m != 75){
+  err_alt <- df_errors$rmse[df_errors$model == m]
+  tmp <- stats::ks.test(x = err1,
+                 y = err_alt,
+                 alternative = "greater")
+  df_ks_res[m,"model"] <- m
+  df_ks_res[m, "statistic"] <- tmp$statistic[[1]]
+  df_ks_res[m, "pval"] <- round(tmp$p.value, 5)
+  }
+
+}
+
+# Still too many false positives?
+# maybe I should actually test one-sided, because some of the models
+# actually fit better than the reference model
+sum(df_ks_res$pval < 0.001, na.rm = TRUE)
+
+
+
+```
+
+Second, estimate density, treat as empirical distribution and calculate Jenson-Shannon-Divergence (which is symmetrical, KL-Divergence is not).
+The exact method for estimating the density should not matter too much, as the distribution of errors should roughly follow a normal distribution. For now, just use the density approach in the `stats` package with a Gaussian kernel. 1-JSD is a similarity metric. 
+```{r}
+
+# compute for whole dataset
+jsd_res <- f_comp_jsd(df = df_errors, n = 100)
+
+jsd_res %>% 
+  ggplot(aes(x = jsd))+
+  geom_density()+
+  theme_minimal()
+
+
+```
+
+
+Another idea: compute something like absolute difference between network results, as van Borkulo et al. did it. 
+```{r}
+
+```
+
+
+
+
+
+# Concatenating Time Series
+Another idea is based on Williams & Mulder (2020). Instead of comparing the posterior predictive estimations of two datasets directly, we could concatenate two time series under the null hypothesis that they originate from the same data-generating process. We could then compare the posterior predictive results from these concatenated time series to either a distribution from an individual time series or just a single test statistic. This is also comparable to Zhang, Templin & Mintz (2022). 
+
+```{r concatenate-ts}
+# time series need to be standardized before concatenation
+# we also need to assume stationarity 
+# first just take the first two time series here
+conc_12 <- rbind(l_dat[[1]]$Y, l_dat[[3]]$Y)
+
+# delete first entry of second time series to create gap
+# conc_12[nrow(conc_12)/2+1,] <- c(NA, NA, NA, NA, NA, NA)
+
+# delete multiple entries in the middle of the time series to create gap
+conc_12[197:201,] <- c(rep(NA, 6))
+
+# Estimate new model on concatenated dataset
+# Fit the model
+rho_sd <- 0.5
+beta_sd <- 1
+seed <- 2022
+n_iter <- 5000
+
+# estimate model on concatenated dataset
+res_conc12 <- BGGM::var_estimate(conc_12,
+                                   rho_sd = rho_sd,
+                                   beta_sd = beta_sd,
+                                   iter = n_iter,
+                                   progress = FALSE,
+                                   seed = seed)
+
+# results are very different compared to just one model
+res_conc12$beta_mu
+l_res[[1]]$beta_mu
+l_res[[2]]$beta_mu
+t(graph$beta)
+
+
+```
+
+
+
+
+
+Just a quick check on how well parameters are recovered: 
+```{r}
+test <- list()
+for(i in 1:length(l_res)){
+  test[[i]] <- l_res[[i]]$beta_mu
+}
+a_test <- array(unlist(test), c(6,6,100))
+
+# means across refit samples
+rowMeans(a_test, dims = 2)
+# comparison with ground truth
+t(graph$beta)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
