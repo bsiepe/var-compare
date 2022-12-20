@@ -1112,80 +1112,31 @@ cross_compare_post <- function(
     stop("Error: Model needs to have numerical index")
   }
   
-  
-  # Frobenius Norm Comparison 
   if(comparison == "frob"){
     normtype = "F"
-    # Compute Distance of empirical estimates to posterior samples estimates
-    frob_null_a <- postemp_distance(post = fitpost_a, emp = fitemp_a, comp = "frob", mod = mod_a)
-    frob_null_b <- postemp_distance(post = fitpost_b, emp = fitemp_b, comp = "frob", mod = mod_b)
+  }
+    # Distance empirical to posterior sample estimates
+    null_a <- postemp_distance(post = fitpost_a, emp = fitemp_a, 
+                               comp = comparison, mod = mod_a)
+    null_b <- postemp_distance(post = fitpost_a, emp = fitemp_a, 
+                               comp = comparison, mod = mod_b)
+  
+    # Distance posterior estimates between A and B
+    post <- postpost_distance(post_a = fitpost_a, post_b = fitpost_b, 
+                              comp = comparison,mod_a = mod_a, mod_b = mod_b)
     
-    # Compute Distance of posterior estimates between a and b
-    frob_post <- postpost_distance(post_a = fitpost_a, post_b = fitpost_b, comp = "frob", mod_a = mod_a, mod_b = mod_b)
+    # Save results
+    cc_res_beta <- data.frame(model_ind = c(rep(mod_a, n_datasets), rep(mod_b, n_datasets)),
+                              null = c(null_a[["beta"]], null_b[["beta"]]),
+                              emp = rep(post[["beta"]], 2),    # TODO repeat the distribution?
+                              comp = rep(comparison, n_datasets*2))
     
+    
+    cc_res_pcor <- data.frame(model_ind = c(rep(mod_a, n_datasets), rep(mod_b, n_datasets)),
+                              null = c(null_a[["pcor"]], null_b[["pcor"]]),
+                              emp = rep(post[["pcor"]], 2),
+                              comp = rep(comparison, n_datasets*2))
 
-    cc_res_beta <- data.frame(model_ind = c(rep(mod_a, n_datasets), rep(mod_b, n_datasets)),
-                              null = c(frob_null_a[["beta"]], frob_null_b[["beta"]]),
-                              emp = rep(frob_post[["beta"]], 2),    # TODO repeat the distribution?
-                              comp = rep("frob", n_datasets*2))
-    
-    
-    cc_res_pcor <- data.frame(model_ind = c(rep(mod_a, n_datasets), rep(mod_b, n_datasets)),
-                              null = c(frob_null_a[["pcor"]], frob_null_b[["pcor"]]),
-                              emp = rep(frob_post[["pcor"]], 2),
-                              comp = rep("frob", n_datasets*2))
-    
-    
-  }
-  # Max Difference Comparison
-  if(comparison == "maxdiff"){
-    # Compute maximum distance of empirical estimates to posterior samples estimates
-    maxdiff_null_a <- postemp_distance(post = fitpost_a, emp = fitemp_a, comp = "maxdiff", mod = mod_a)
-    maxdiff_null_b <- postemp_distance(post = fitpost_b, emp = fitemp_b, comp = "maxdiff", mod = mod_b)
-    
-    # Compute maxdiff of posterior estimates between a and b
-    maxdiff_post <- postpost_distance(post_a = fitpost_a, post_b = fitpost_b, comp = "maxdiff", mod_a = mod_a, mod_b = mod_b)
-    
-    
-    cc_res_beta <- data.frame(model_ind = c(rep(mod_a, n_datasets), rep(mod_b, n_datasets)),
-                              null = c(maxdiff_null_a[["beta"]], maxdiff_null_b[["beta"]]),
-                              emp = rep(maxdiff_post[["beta"]], n_datasets*2),
-                              comp = rep("maxdiff", n_datasets*2))
-    
-    
-    
-    cc_res_pcor <- data.frame(model_ind = c(rep(mod_a, n_datasets), rep(mod_b, n_datasets)),
-                              null = c(maxdiff_null_a[["pcor"]], maxdiff_null_b[["pcor"]]),
-                              emp = rep(maxdiff_post[["beta"]], n_datasets*2),
-                              comp = rep("maxdiff", n_datasets*2))
-    
-    
-    
-  } # end maxdiff
-  
-  
-  if(comparison == "l1"){
-    l1_null_a <- postemp_distance(post = fitpost_a, emp = fitemp_a, comp = "l1", mod = mod_a)
-    l1_null_b <- postemp_distance(post = fitpost_b, emp = fitemp_b, comp = "l1", mod = mod_b)
-    
-    # Compute l1 of posterior estimates between a and b
-    l1_post <- postpost_distance(post_a = fitpost_a, post_b = fitpost_b, comp = "l1", mod_a = mod_a, mod_b = mod_b)
-    
-    
-    cc_res_beta <- data.frame(model_ind = c(rep(mod_a, n_datasets), rep(mod_b, n_datasets)),
-                              null = c(l1_null_a[["beta"]], l1_null_b[["beta"]]),
-                              emp = rep(l1_post[["beta"]], n_datasets*2),
-                              comp = rep("l1", n_datasets*2))
-    
-    
-    
-    
-    cc_res_pcor <- data.frame(model_ind = c(rep(mod_a, n_datasets), rep(mod_b, n_datasets)),
-                              null = c(l1_null_a[["pcor"]], l1_null_b[["pcor"]]),
-                              emp = rep(l1_post[["pcor"]], n_datasets*2),
-                              comp = rep("l1", n_datasets*2))
-    
-  }
   
   l_cc_res <- list()
   l_cc_res[["beta"]] <- cc_res_beta
