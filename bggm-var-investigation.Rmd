@@ -102,63 +102,6 @@ TODO: Add correlations
 
 
 ```{r compare-results}
-
-# TODO: Do I need to takek absolute differences here or does it work this way?
-compare_dgp <- function(true, 
-                        est_bggm,
-                        comp_gvar = TRUE,
-                        est_gvar,
-                        n = n_ind){
-  
-  # replicate dgp 
-  dgp <- list()
-  for(i in 1:n){
-    dgp[[i]] <- list()
-    dgp[[i]]$beta <- true$beta
-    dgp[[i]]$kappa <- true$kappa
-    dgp[[i]]$PCC <- true$PCC
-  }
-  
-  # storage
-  l_diff_beta <- list()
-  l_diff_pcor <- list()
-  out <- list()
-  ## Differences
-  # Look at difference to true values for bggm
-  l_diff_beta[["true_bggm"]] <- map2(dgp, est_bggm, .f = function(x,y){x$beta-t(y$beta_mu)})
-  l_diff_pcor[["true_bggm"]] <- map2(dgp, est_bggm, .f = function(x,y){x$PCC-y$pcor_mu})
-  
-  if(isTRUE(comp_gvar)){
-  # Look at difference to true values for gvar
-  # delete intercepts
-  l_diff_beta[["true_gvar"]] <- map2(dgp, est_gvar, .f = function(x,y){x$beta-y$beta[,-1]})
-  l_diff_pcor[["true_gvar"]] <- map2(dgp, est_gvar, .f = function(x,y){x$PCC-y$PCC})
-  
-  # Look at difference between bggm and gvar
-  # delete intercepts
-  l_diff_beta[["bggm_gvar"]] <- map2(est_bggm, est_gvar, .f = function(x,y){t(x$beta_mu)-y$beta[,-1]})
-  l_diff_pcor[["bggm_gvar"]] <- map2(est_bggm, est_gvar, .f = function(x,y){x$pcor_mu-y$PCC})
-    
-  }
-
-  
-  # Aggregate differences
-  out[["diff_beta"]] <- lapply(l_diff_beta, function(x){apply(simplify2array(x), 1:2, mean)})
-  out[["diff_pcor"]] <- lapply(l_diff_pcor, function(x){apply(simplify2array(x), 1:2, mean)})
-  
-  ## Correlations
-  # Look at correlations between bggm and gvar
-  # # delete intercepts
-  # 
-  # out[["cor"]] <- map2(est_bggm, est_gvar, .f = function(x,y){cor(t(x$beta_mu)-y$beta[,-1])})
-  # 
-  # # aggregate correlations
-  
-  out
-  
-}
-
-
 comp_res <- compare_dgp(true = compgraph, est_bggm = l_compres$bggm, est_gvar = l_compres$gvar, n = 200)
 
 
