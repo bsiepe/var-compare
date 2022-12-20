@@ -962,149 +962,10 @@ postpost_distance <- function(post_a,
 
 
 
-
-
-
-# Cross compare two models with posterior ---------------------------------
-#' Cross-compare two models with their posterior
-#'
-#' @param mod_a Numerical indicator of model/person A. 
-#' @param mod_b Numerical indicator of model/person B. 
-#' @param n_datasets Number of datasets sampled from posterior. 
-#' @param comparison Which comparison to use. "Frob" for Frobenius-Norm, "maxdiff" for maximum edge difference. 
-#' @param ... Currently ignored. 
-#' @param fitpost_a Posterior fit objects for model A. 
-#' @param fitpost_b Posterior fit objects for model B.
-#' @param fitemp_a Empirical fit object for model A.
-#' @param fitemp_b Empirical fit object for model B. 
-#'
-#' @return Dataframe with null distributions for Frobenius norm of both models under the Null and empirical Frobenius norm between both models 
-#' @export
-#'
-#' 
-cross_compare_emp <- function(
-    fitpost_a = l_postres,
-    fitpost_b = l_postres,
-    fitemp_a = l_res,
-    fitemp_b = l_res,
-    mod_a = 1, 
-    mod_b = 2,
-    n_datasets = 100,
-    comparison = "frob",
-    ...){
-  if(!is.numeric(mod_a) | !is.numeric(mod_b)){
-    stop("Error: Model needs to have numerical index")
-  }
-  
-  if(comparison == "frob"){
-    normtype = "F"
-  }
-  null_a <- postemp_distance(post = fitpost_a, emp = fitemp_a, comp = "frob", mod = mod_a)
-  
-  
-  
-  
-  
-  # Frobenius Norm Comparison 
-  if(comparison == "frob"){
-    normtype = "F"
-    # Compute Distance of empirical estimates to posterior samples estimates
-    frob_null_a <- postemp_distance(post = fitpost_a, emp = fitemp_a, comp = "frob", mod = mod_a)
-    frob_null_b <- postemp_distance(post = fitpost_b, emp = fitemp_b, comp = "frob", mod = mod_b)
-    
-    # Compute Distance of empirical betas between a and b
-    frob_emp_beta <- tryCatch(norm(fitemp_a[[mod_a]]$beta_mu - fitemp_b[[mod_b]]$beta_mu), error = function(e) {NA})
-    
-    # Compute Distance of empirical pcors between a and b
-    frob_emp_pcor <- tryCatch(norm(fitemp_a[[mod_a]]$pcor_mu - fitemp_b[[mod_b]]$pcor_mu), error = function(e) {NA})
-    
-    cc_res_beta <- data.frame(model_ind = c(rep(mod_a, n_datasets), rep(mod_b, n_datasets)),
-                         null = c(frob_null_a[["beta"]], frob_null_b[["beta"]]),
-                         emp = rep(frob_emp_beta, n_datasets*2),
-                         comp = rep("frob", n_datasets*2))
-    
-    
-    cc_res_pcor <- data.frame(model_ind = c(rep(mod_a, n_datasets), rep(mod_b, n_datasets)),
-                         null = c(frob_null_a[["pcor"]], frob_null_b[["pcor"]]),
-                         emp = rep(frob_emp_pcor, n_datasets*2),
-                         comp = rep("frob", n_datasets*2))
-    
-    
-  }
-  # Max Difference Comparison
-  if(comparison == "maxdiff"){
-    # Compute maximum distance of empirical estimates to posterior samples estimates
-    maxdiff_null_a <- postemp_distance(post = fitpost_a, emp = fitemp_a, comp = "maxdiff", mod = mod_a)
-    maxdiff_null_b <- postemp_distance(post = fitpost_b, emp = fitemp_b, comp = "maxdiff", mod = mod_b)
-   
-    # Compute maxdiff of empirical betas between a and b
-    maxdiff_emp_beta <- tryCatch(max(abs(fitemp_a[[mod_a]]$beta_mu - fitemp_b[[mod_b]]$beta_mu)), error = function(e) {NA})
-    
-    # Compute maxdiff of empirical pcors between a and b
-    maxdiff_emp_pcor <- tryCatch(max(abs(fitemp_a[[mod_a]]$pcor_mu - fitemp_b[[mod_b]]$pcor_mu)), error = function(e) {NA})
-    
-    cc_res_beta <- data.frame(model_ind = c(rep(mod_a, n_datasets), rep(mod_b, n_datasets)),
-                         null = c(maxdiff_null_a[["beta"]], maxdiff_null_b[["beta"]]),
-                         emp = rep(maxdiff_emp_beta, n_datasets*2),
-                         comp = rep("maxdiff", n_datasets*2))
-    
-
-    
-    cc_res_pcor <- data.frame(model_ind = c(rep(mod_a, n_datasets), rep(mod_b, n_datasets)),
-                              null = c(maxdiff_null_a[["pcor"]], maxdiff_null_b[["pcor"]]),
-                              emp = rep(maxdiff_emp_pcor, n_datasets*2),
-                              comp = rep("maxdiff", n_datasets*2))
-    
-    
-    
-  } # end maxdiff
-  
-  
-  if(comparison == "l1"){
-    l1_null_a <- postemp_distance(post = fitpost_a, emp = fitemp_a, comp = "l1", mod = mod_a)
-    l1_null_b <- postemp_distance(post = fitpost_b, emp = fitemp_b, comp = "l1", mod = mod_b)
-    
-    # Compute l1 of empirical betas between a and b
-    l1_emp_beta <- tryCatch(sum(abs(fitemp_a[[mod_a]]$beta_mu - fitemp_b[[mod_b]]$beta_mu)), error = function(e) {NA})
-    
-    # Compute l1 of empirical pcors between a and b
-    l1_emp_pcor <- tryCatch(sum(abs(fitemp_a[[mod_a]]$pcor_mu - fitemp_b[[mod_b]]$pcor_mu)), error = function(e) {NA})
-    
-    cc_res_beta <- data.frame(model_ind = c(rep(mod_a, n_datasets), rep(mod_b, n_datasets)),
-                              null = c(l1_null_a[["beta"]], l1_null_b[["beta"]]),
-                              emp = rep(l1_emp_beta, n_datasets*2),
-                              comp = rep("l1", n_datasets*2))
-    
-    
-    
-    
-    cc_res_pcor <- data.frame(model_ind = c(rep(mod_a, n_datasets), rep(mod_b, n_datasets)),
-                              null = c(l1_null_a[["pcor"]], l1_null_b[["pcor"]]),
-                              emp = rep(l1_emp_pcor, n_datasets*2),
-                              comp = rep("l1", n_datasets*2))
-    
-  }
-  
-  l_cc_res <- list()
-  l_cc_res[["beta"]] <- cc_res_beta
-  l_cc_res[["pcor"]] <- cc_res_pcor
-  
-  return(l_cc_res)
-} # end function
-
-
-
-
-
-
-
-
-# 
+ 
 # # Cross-compare all posterior samples -------------------------------------
 # TODO implement for all comparison types
 # does not work yet, emp gives NA
-
-
 cross_compare <- function(
     postpost = FALSE,        # compute differences between posteriors
     fitpost_a = l_postres,
@@ -1134,10 +995,10 @@ cross_compare <- function(
       
       if(comparison == "frob"){
         # Compute Distance of empirical betas between a and b
-        emp_beta <- tryCatch(norm(fitemp_a[[mod_a]]$beta_mu - fitemp_b[[mod_b]]$beta_mu), error = function(e) {NA})
+        emp_beta <- tryCatch(norm(fitemp_a[[mod_a]]$beta_mu - fitemp_b[[mod_b]]$beta_mu, type = normtype), error = function(e) {NA})
         
         # Compute Distance of empirical pcors between a and b
-        emp_pcor <- tryCatch(norm(fitemp_a[[mod_a]]$pcor_mu - fitemp_b[[mod_b]]$pcor_mu), error = function(e) {NA})
+        emp_pcor <- tryCatch(norm(fitemp_a[[mod_a]]$pcor_mu - fitemp_b[[mod_b]]$pcor_mu, type = normtype), error = function(e) {NA})
         
       }
 
@@ -1221,6 +1082,8 @@ cross_compare <- function(
 
 
 # Evaluate Cross-Comparison with Matrix Norm ------------------------------
+# TODO make this applicable to both postpost and postemp comparison types?
+
 #' Evaluate Cross-Comparison with Matrix Norm
 #'
 #' @param df_res Dataframe with posterior predictive and empirical distance measures. 
@@ -1244,9 +1107,6 @@ cross_compare_eval <- function(l_res,
   teststat_a_beta <- sum(df_res_beta$null[df_res_beta$model_ind == model_ind_a] > df_res_beta$emp[df_res_beta$model_ind == model_ind_a], na.rm = TRUE)
   teststat_b_beta <- sum(df_res_beta$null[df_res_beta$model_ind == model_ind_b] > df_res_beta$emp[df_res_beta$model_ind == model_ind_b], na.rm = TRUE)
   
-  
-  
-
     
     
   if(isTRUE(pcor)){
@@ -1316,7 +1176,7 @@ f_post_frob <- function(sample, seed = 2022,
 
 
 # Compare to DGP ----------------------------------------------------------
-# TODO: Do I need to takek absolute differences here or does it work this way?
+# TODO: Do I need to take absolute differences here or does it work this way?
 compare_dgp <- function(true, 
                         est_bggm,
                         comp_gvar = TRUE,
@@ -1338,26 +1198,29 @@ compare_dgp <- function(true,
   out <- list()
   ## Differences
   # Look at difference to true values for bggm
-  l_diff_beta[["true_bggm"]] <- map2(dgp, est_bggm, .f = function(x,y){x$beta-t(y$beta_mu)})
-  l_diff_pcor[["true_bggm"]] <- map2(dgp, est_bggm, .f = function(x,y){x$PCC-y$pcor_mu})
+  l_diff_beta[["true_bggm"]] <- map2(dgp, est_bggm, .f = function(x,y){abs(x$beta-t(y$beta_mu))})
+  l_diff_pcor[["true_bggm"]] <- map2(dgp, est_bggm, .f = function(x,y){abs(x$PCC-y$pcor_mu)})
   
   if(isTRUE(comp_gvar)){
     # Look at difference to true values for gvar
     # delete intercepts
-    l_diff_beta[["true_gvar"]] <- map2(dgp, est_gvar, .f = function(x,y){x$beta-y$beta[,-1]})
-    l_diff_pcor[["true_gvar"]] <- map2(dgp, est_gvar, .f = function(x,y){x$PCC-y$PCC})
+    l_diff_beta[["true_gvar"]] <- map2(dgp, est_gvar, .f = function(x,y){abs(x$beta-y$beta[,-1])})
+    l_diff_pcor[["true_gvar"]] <- map2(dgp, est_gvar, .f = function(x,y){abs(x$PCC-y$PCC)})
     
     # Look at difference between bggm and gvar
     # delete intercepts
-    l_diff_beta[["bggm_gvar"]] <- map2(est_bggm, est_gvar, .f = function(x,y){t(x$beta_mu)-y$beta[,-1]})
-    l_diff_pcor[["bggm_gvar"]] <- map2(est_bggm, est_gvar, .f = function(x,y){x$pcor_mu-y$PCC})
+    l_diff_beta[["bggm_gvar"]] <- map2(est_bggm, est_gvar, .f = function(x,y){abs(t(x$beta_mu)-y$beta[,-1])})
+    l_diff_pcor[["bggm_gvar"]] <- map2(est_bggm, est_gvar, .f = function(x,y){abs(x$pcor_mu-y$PCC)})
     
   }
   
   
   # Aggregate differences
-  out[["diff_beta"]] <- lapply(l_diff_beta, function(x){apply(simplify2array(x), 1:2, mean)})
-  out[["diff_pcor"]] <- lapply(l_diff_pcor, function(x){apply(simplify2array(x), 1:2, mean)})
+  # TODO add standard deviations? or even look at raw differences across all individuals
+
+  
+  out[["diff_beta_mean"]] <- lapply(l_diff_beta, function(x){apply(simplify2array(x), 1:2, mean)})
+  out[["diff_pcor_mean"]] <- lapply(l_diff_pcor, function(x){apply(simplify2array(x), 1:2, mean)})
   
   ## Correlations
   # Look at correlations between bggm and gvar
