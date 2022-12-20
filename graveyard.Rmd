@@ -140,8 +140,6 @@ Another idea: for each posterior sample, generate two new datasets and obtain Fr
 # generates two new datasets, re-estimates the model and then 
 # computes frobenius norm between resulting estimates
 # this does not work well because there is not enough error 
-
-
 frob_res <- c(rep(NA, 100))
 for(i in 51:151){
   frob_res[i] <- f_post_frob(l_res[[1]]$fit$beta[,,i])
