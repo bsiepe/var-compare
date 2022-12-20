@@ -996,6 +996,14 @@ cross_compare_emp <- function(
     stop("Error: Model needs to have numerical index")
   }
   
+  if(comparison == "frob"){
+    normtype = "F"
+  }
+  null_a <- postemp_distance(post = fitpost_a, emp = fitemp_a, comp = "frob", mod = mod_a)
+  
+  
+  
+  
   
   # Frobenius Norm Comparison 
   if(comparison == "frob"){
@@ -1096,9 +1104,9 @@ cross_compare_emp <- function(
 # TODO implement for all comparison types
 # does not work yet, emp gives NA
 
-# TODO Could make this way shorter by just pasting comparison type
 
-cross_compare_post <- function(
+cross_compare <- function(
+    postpost = FALSE,        # compute differences between posteriors
     fitpost_a = l_postres,
     fitpost_b = l_postres,
     fitemp_a = l_res,
@@ -1120,22 +1128,85 @@ cross_compare_post <- function(
                                comp = comparison, mod = mod_a)
     null_b <- postemp_distance(post = fitpost_a, emp = fitemp_a, 
                                comp = comparison, mod = mod_b)
-  
-    # Distance posterior estimates between A and B
-    post <- postpost_distance(post_a = fitpost_a, post_b = fitpost_b, 
-                              comp = comparison,mod_a = mod_a, mod_b = mod_b)
     
-    # Save results
-    cc_res_beta <- data.frame(model_ind = c(rep(mod_a, n_datasets), rep(mod_b, n_datasets)),
-                              null = c(null_a[["beta"]], null_b[["beta"]]),
-                              emp = rep(post[["beta"]], 2),    # TODO repeat the distribution?
-                              comp = rep(comparison, n_datasets*2))
+    # Compute empirical distance as test statistic
+    if(isFALSE(postpost)){
+      
+      if(comparison == "frob"){
+        # Compute Distance of empirical betas between a and b
+        emp_beta <- tryCatch(norm(fitemp_a[[mod_a]]$beta_mu - fitemp_b[[mod_b]]$beta_mu), error = function(e) {NA})
+        
+        # Compute Distance of empirical pcors between a and b
+        emp_pcor <- tryCatch(norm(fitemp_a[[mod_a]]$pcor_mu - fitemp_b[[mod_b]]$pcor_mu), error = function(e) {NA})
+        
+      }
+
+      if(comparison == "maxdiff"){
+        # Compute maxdiff of empirical betas between a and b
+        maxdiff_emp_beta <- tryCatch(max(abs(fitemp_a[[mod_a]]$beta_mu - fitemp_b[[mod_b]]$beta_mu)), error = function(e) {NA})
+        
+        # Compute maxdiff of empirical pcors between a and b
+        maxdiff_emp_pcor <- tryCatch(max(abs(fitemp_a[[mod_a]]$pcor_mu - fitemp_b[[mod_b]]$pcor_mu)), error = function(e) {NA})
+        
+      }
+      
+      if(comparison == "l1"){
+        # Compute l1 of empirical betas between a and b
+        l1_emp_beta <- tryCatch(sum(abs(fitemp_a[[mod_a]]$beta_mu - fitemp_b[[mod_b]]$beta_mu)), error = function(e) {NA})
+        
+        # Compute l1 of empirical pcors between a and b
+        l1_emp_pcor <- tryCatch(sum(abs(fitemp_a[[mod_a]]$pcor_mu - fitemp_b[[mod_b]]$pcor_mu)), error = function(e) {NA})
+        
+        
+      }
+      
+      # Save results
+      cc_res_beta <- data.frame(model_ind = c(rep(mod_a, n_datasets), rep(mod_b, n_datasets)),
+                                null = c(null_a[["beta"]], null_b[["beta"]]),
+                                emp = rep(emp_beta, n_datasets*2),
+                                comp = rep(comparison, n_datasets*2),
+                                type = rep("postemp", n_datasets*2))
+      
+      
+      cc_res_pcor <- data.frame(model_ind = c(rep(mod_a, n_datasets), rep(mod_b, n_datasets)),
+                                null = c(null_a[["pcor"]], null_b[["pcor"]]),
+                                emp = rep(emp_pcor, n_datasets*2),
+                                comp = rep(comparison, n_datasets*2),
+                                type = rep("postemp", n_datasets*2))
+      
+      
+      
+      
+    } # end isFALSE(postpost)
     
     
-    cc_res_pcor <- data.frame(model_ind = c(rep(mod_a, n_datasets), rep(mod_b, n_datasets)),
-                              null = c(null_a[["pcor"]], null_b[["pcor"]]),
-                              emp = rep(post[["pcor"]], 2),
-                              comp = rep(comparison, n_datasets*2))
+    # Compute posterior distances as test distribution
+    if(isTRUE(postpost)){
+      
+      # Distance posterior estimates between A and B
+      post <- postpost_distance(post_a = fitpost_a, post_b = fitpost_b, 
+                                comp = comparison,mod_a = mod_a, mod_b = mod_b)
+      
+      # Save results
+      cc_res_beta <- data.frame(model_ind = c(rep(mod_a, n_datasets), rep(mod_b, n_datasets)),
+                                null = c(null_a[["beta"]], null_b[["beta"]]),
+                                emp = rep(post[["beta"]], 2),    # TODO repeat the distribution?
+                                comp = rep(comparison, n_datasets*2),
+                                type = rep("postpost", n_datasets*2))
+      
+      
+      cc_res_pcor <- data.frame(model_ind = c(rep(mod_a, n_datasets), rep(mod_b, n_datasets)),
+                                null = c(null_a[["pcor"]], null_b[["pcor"]]),
+                                emp = rep(post[["pcor"]], 2),
+                                comp = rep(comparison, n_datasets*2),
+                                type = rep("postpost", n_datasets*2))
+      
+      
+      
+      
+      
+    } # end isTRUE(postpost)
+
 
   
   l_cc_res <- list()
