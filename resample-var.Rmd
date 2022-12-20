@@ -27,6 +27,10 @@ library(todor)         # keep on track with stuff to do
 source("aux_funs.R")
 library(ggokabeito)
 library(Matrix)
+library(here)
+
+
+here::i_am("var-compare.Rproj")
 ```
 
 
@@ -91,6 +95,13 @@ dimnames(graph_eps$kappa) <- NULL
 
 ```
 
+```{r dgp-chain graph}
+# Create a chain graph, which is good to estimate with VAR models
+
+
+
+
+```
 
 
 ```{r generate-graph}
@@ -119,7 +130,6 @@ kappa <- as.matrix(read.table(header = FALSE, colClasses = "numeric", text = "
 # in the case of only 1s on the diagonal of kappa, this just changes the sign
 pcc <- -cov2cor(kappa)
 
-
 graph <- list()
 graph$beta <- beta
 graph$kappa <- kappa
@@ -140,9 +150,9 @@ dimnames(graph$kappa) <- NULL
 
 
 # # add stronger change of one model parameter
-# graph2 <- graph
-# graph2$beta[which.max(graph2$beta)] <- graph2$beta[which.max(graph2$beta)]*-1
-#   
+graph2 <- graph
+graph2$beta[which.max(graph2$beta)] <- graph2$beta[which.max(graph2$beta)]*-1
+
 # l_graph <- list(graph = graph, 
 #                 graph2 = graph2)
 
@@ -180,12 +190,6 @@ l_graph <- list(graph = graph,
 
 
 
-# Idea for the future: don't simulate (50, 100, 300, 500) observations,
-# but just simulate 500 and then subsample from it. Then datasets are matched.
-# # maybe DON'T DO THIS! If I standardize these data again when estimating a VAR
-# # model, the data changes. 
-
-
 
 ```
 
@@ -198,7 +202,6 @@ l_raw <- list()
 n_ind <- 100   # number of individuals (so models to create)
 n_tp <- 200     # number of timepoints per time series
 n_postds <- 150     # number of posterior datasets to create. I create more than I want to use in case some of the data generation fails
-# probably only need 150 postds, not 200. Usually, only a couple of estimations fail
 
 
 
@@ -260,7 +263,6 @@ stopCluster(cl)
 Comparison of results with grahpicalVAR is done in another script ("bggm-var-investigation.Rmd"). Here, we look at how well our model recovered the correct parameters. 
 ```{r recovery}
 rec_res <- compare_dgp(graph, est_bggm = l_res, comp_gvar = FALSE, est_gvar = NULL)
-
 
 ```
 
@@ -572,7 +574,7 @@ ggsave("figures/plot_test_runifnoise75.svg", plot_test_comp2,  device = "svg",
 Instead of only taking the empirical difference between fits, we generate a distribution of posterior differences. 
 
 ```{r posterior-differences}
-post_diff <- cross_compare_post()
+post_diff <- cross_compare_post(comparison = "l1")
 
 
 post_diff %>% 
