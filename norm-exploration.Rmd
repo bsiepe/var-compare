@@ -1,0 +1,113 @@
+---
+title: "norm-exploration"
+author: "Björn Siepe"
+date: "2022-12-20"
+output: html_document
+---
+
+# Introduction
+Here, we try to understand matrix norms a bit better by computing norms of difference matrices
+and plotting the change of norms. 
+
+First, look at a beta matrix changes when changing the largest parameters:
+```{r}
+beta <- as.matrix(read.table(header = FALSE, colClasses = "numeric", text = "
+ 0.2266407 0.0000000  0.0000000 -0.2668593  0.0000000 0.0000000
+-0.7380388 0.2266407  0.0000000  0.0000000 -0.9288327 0.0000000
+ 0.0000000 0.0000000  0.2266407  0.9571318  0.2409225 0.5543485
+ 0.0000000 0.0000000  0.0000000  0.2266407 -0.7438448 0.0000000
+ 0.5214148 0.0000000  0.0000000  0.0000000  0.2266407 0.0000000
+ 0.0000000 0.0000000 -0.8903007  0.0000000  0.0000000 0.2266407"))
+
+beta_change <- seq(-2,2, by = 0.1)
+
+beta_new <- beta
+
+beta_list <- list(beta_new)[rep(1, length(beta_change))]
+norm_list <- list()
+norm_list[["l1"]] <- list()
+norm_list[["maxdiff"]] <- list()
+norm_list[["frob"]] <- list()
+
+
+# Change maximum value
+for(i in seq_along(beta_change)){
+  ind <- which.max(beta)
+  beta_list[[i]][ind] <- beta_list[[i]][ind]*beta_change[i]
+  norm_list[["l1"]][[i]] <- norm(beta - beta_list[[i]], type = "F")
+  norm_list[["maxdiff"]][[i]] <- max(abs(beta - beta_list[[i]]))
+  norm_list[["frob"]][[i]] <- sum(abs(beta - beta_list[[i]]))
+  
+}
+norm_res <- as.data.frame(do.call("rbind", norm_list))
+
+norm_res <- norm_res %>% 
+  rownames_to_column(. ,var = "comp") %>% 
+  unnest(cols = starts_with("V"))
+
+# change names to show change
+names(norm_res) <- c("comp", beta_change)
+
+norm_res %>% 
+  pivot_longer(cols = !comp, names_to  = "change") %>% 
+  mutate(change = as.numeric(change)) %>% 
+  ggplot(aes(x = change, y = value, color = comp)) +
+  geom_line() +
+  facet_wrap(~comp)+
+  theme_minimal()+
+  scale_color_okabe_ito()+
+  labs(title = "Change of maximum value with certain factor",
+       x = "Change Factor")
+
+
+
+  
+```
+
+
+Now add random uniform noise
+```{r}
+change_noise <- seq(0,1, by = 0.05)
+beta_list <- list(beta_new)[rep(1, length(change_noise))]
+norm_list <- list()
+norm_list[["l1"]] <- list()
+norm_list[["maxdiff"]] <- list()
+norm_list[["frob"]] <- list()
+
+
+# Add noise
+for(i in seq_along(change_noise)){
+  beta_list[[i]] <- beta_list[[i]] + runif(36, min = -change_noise[i], max = change_noise[i])
+  norm_list[["l1"]][[i]] <- norm(beta - beta_list[[i]], type = "F")
+  norm_list[["maxdiff"]][[i]] <- max(abs(beta - beta_list[[i]]))
+  norm_list[["frob"]][[i]] <- sum(abs(beta - beta_list[[i]]))
+  
+}
+norm_res <- as.data.frame(do.call("rbind", norm_list))
+
+norm_res <- norm_res %>% 
+  rownames_to_column(. ,var = "comp") %>% 
+  unnest(cols = starts_with("V"))
+
+# change names to show change
+names(norm_res) <- c("comp", change_noise)
+
+norm_res %>% 
+  pivot_longer(cols = !comp, names_to  = "change") %>% 
+  mutate(change = as.numeric(change)) %>% 
+  ggplot(aes(x = change, y = value, color = comp)) +
+  geom_line() +
+  facet_wrap(~comp)+
+  theme_minimal()+
+  scale_color_okabe_ito()+
+  labs(title = "Change of maximum value with uniform noise",
+       x = "Interval width of uniform noise",
+       caption = "Example : 0.5 means runif(n, -0.25, 0.5)")
+
+
+
+```
+
+
+
+
