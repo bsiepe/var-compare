@@ -9,7 +9,9 @@ output: html_document
 Here, we try to understand matrix norms a bit better by computing norms of difference matrices
 and plotting the change of norms. 
 
-First, look at a beta matrix changes when changing the largest parameters:
+# Change maximum edge
+
+First, look at a changes when changing the largest parameters:
 ```{r}
 beta <- as.matrix(read.table(header = FALSE, colClasses = "numeric", text = "
  0.2266407 0.0000000  0.0000000 -0.2668593  0.0000000 0.0000000
@@ -19,34 +21,57 @@ beta <- as.matrix(read.table(header = FALSE, colClasses = "numeric", text = "
  0.5214148 0.0000000  0.0000000  0.0000000  0.2266407 0.0000000
  0.0000000 0.0000000 -0.8903007  0.0000000  0.0000000 0.2266407"))
 
-beta_change <- seq(-2,2, by = 0.1)
+kappa <- as.matrix(read.table(header = FALSE, colClasses = "numeric", text = "
+ 1.0000000  0.0000000  0.0000000 0.0000000  0.4018933 0.3717013
+ 0.0000000  1.0000000  0.2266407 0.5527593 -0.2654634 0.2593779
+ 0.0000000  0.2266407  1.0000000 0.0000000 -0.3318945 0.3175423
+ 0.0000000  0.5527593  0.0000000 1.0000000  0.0000000 0.0000000
+ 0.4018933 -0.2654634 -0.3318945 0.0000000  1.0000000 0.0000000
+ 0.3717013  0.2593779  0.3175423 0.0000000  0.0000000 1.0000000"))
+pcc <- -stats::cov2cor(kappa)
+
+# Change by factor -2 to 2
+max_change <- seq(-2,2, by = 0.1)
 
 beta_new <- beta
+pcc_new <- pcc
 
-beta_list <- list(beta_new)[rep(1, length(beta_change))]
+# Setup storage
+beta_list <- list(beta_new)[rep(1, length(max_change))]
+pcc_list <- list(pcc_new)[rep(1, length(max_change))]
 norm_list <- list()
-norm_list[["l1"]] <- list()
-norm_list[["maxdiff"]] <- list()
-norm_list[["frob"]] <- list()
-
+bnorm_list[["l1"]] <- list()
+bnorm_list[["maxdiff"]] <- list()
+bnorm_list[["frob"]] <- list()
+pnorm_list[["l1"]] <- list()
+pnorm_list[["maxdiff"]] <- list()
+pnorm_list[["frob"]] <- list()
 
 # Change maximum value
-for(i in seq_along(beta_change)){
-  ind <- which.max(beta)
-  beta_list[[i]][ind] <- beta_list[[i]][ind]*beta_change[i]
-  norm_list[["l1"]][[i]] <- norm(beta - beta_list[[i]], type = "F")
-  norm_list[["maxdiff"]][[i]] <- max(abs(beta - beta_list[[i]]))
-  norm_list[["frob"]][[i]] <- sum(abs(beta - beta_list[[i]]))
-  
+for(i in seq_along(max_change)){
+  b_ind <- which.max(abs(beta))
+  p_ind <- which.max(abs(pcc))
+  beta_list[[i]][b_ind] <- beta_list[[i]][b_ind]*max_change[i]
+  pcc_list[[i]][p_ind] <- pcc_list[[i]][p_ind]*max_change[i]
+  bnorm_list[["l1"]][[i]] <- norm(beta - beta_list[[i]], type = "F")
+  bnorm_list[["maxdiff"]][[i]] <- max(abs(beta - beta_list[[i]]))
+  bnorm_list[["frob"]][[i]] <- sum(abs(beta - beta_list[[i]]))
+  pnorm_list[["l1"]][[i]] <- norm(pcc - pcc_list[[i]], type = "F")
+  pnorm_list[["maxdiff"]][[i]] <- max(abs(pcc - pcc_list[[i]]))
+  pnorm_list[["frob"]][[i]] <- sum(abs(pcc - pcc_list[[i]]))
 }
-norm_res <- as.data.frame(do.call("rbind", norm_list))
+bnorm_res <- as.data.frame(do.call("rbind", bnorm_list))
+pnorm_res <- as.data.frame(do.call("rbind", pnorm_list))
+norm_res <- c(bnorm_res, pnorm_res)
 
+
+# Unnest
 norm_res <- norm_res %>% 
   rownames_to_column(. ,var = "comp") %>% 
   unnest(cols = starts_with("V"))
 
 # change names to show change
-names(norm_res) <- c("comp", beta_change)
+names(norm_res) <- c("comp", max_change)
 
 norm_res %>% 
   pivot_longer(cols = !comp, names_to  = "change") %>% 
@@ -56,7 +81,7 @@ norm_res %>%
   facet_wrap(~comp)+
   theme_minimal()+
   scale_color_okabe_ito()+
-  labs(title = "Change of maximum value with certain factor",
+  labs(title = "Change of maximum beta value with certain factor",
        x = "Change Factor")
 
 
@@ -100,7 +125,7 @@ norm_res %>%
   facet_wrap(~comp)+
   theme_minimal()+
   scale_color_okabe_ito()+
-  labs(title = "Change of maximum value with uniform noise",
+  labs(title = "Change of maximum beta value with uniform noise",
        x = "Interval width of uniform noise",
        caption = "Example : 0.5 means runif(n, -0.25, 0.5)")
 
@@ -109,5 +134,12 @@ norm_res %>%
 ```
 
 
+# PCOR
+```{r}
+
+
+
+
+```
 
 
