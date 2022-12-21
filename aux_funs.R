@@ -797,6 +797,7 @@ logll <- function(kappa, sigma, n){
 # Distance between empirical and posterior --------------------------------
 
 # TODO output structure
+# PCMD not yet implemented in other functions
 postemp_distance <- function(post,
                              emp,
                              comp,
@@ -862,11 +863,25 @@ postemp_distance <- function(post,
       else
       {sum(abs(emp[[mod]]$pcor_mu-x$pcor_mu))}}))
     
-    dist_out[["beta"]] <- l1_beta
-    dist_out[["pcor"]] <- l1_pcor  
+      dist_out[["beta"]] <- l1_beta
+      dist_out[["pcor"]] <- l1_pcor 
     
     
     }  # end l1
+  
+  if(comp == "pcmd"){
+    # only suitable for (partial) correlations
+    pcmd_pcor <-  unlist(lapply(post[[mod]], function(x){
+      if(length(x) == 0 | !is.list(x))
+      {NA}
+      else
+      {1 - (sum(diag(emp[[mod]]$pcor_mu %*% x$pcor_mu)) / (norm(emp[[mod]]$pcor_mu, type = "F") * norm(x$pcor_mu, type = "F")))}}))
+    # dist_out[["beta"]] <- NULL
+    dist_out[["pcor"]] <- pcmd_pcor
+    
+    
+  }
+  
            
   return(dist_out)
 }
@@ -1004,19 +1019,19 @@ cross_compare <- function(
 
       if(comparison == "maxdiff"){
         # Compute maxdiff of empirical betas between a and b
-        maxdiff_emp_beta <- tryCatch(max(abs(fitemp_a[[mod_a]]$beta_mu - fitemp_b[[mod_b]]$beta_mu)), error = function(e) {NA})
+        emp_beta <- tryCatch(max(abs(fitemp_a[[mod_a]]$beta_mu - fitemp_b[[mod_b]]$beta_mu)), error = function(e) {NA})
         
         # Compute maxdiff of empirical pcors between a and b
-        maxdiff_emp_pcor <- tryCatch(max(abs(fitemp_a[[mod_a]]$pcor_mu - fitemp_b[[mod_b]]$pcor_mu)), error = function(e) {NA})
+        emp_pcor <- tryCatch(max(abs(fitemp_a[[mod_a]]$pcor_mu - fitemp_b[[mod_b]]$pcor_mu)), error = function(e) {NA})
         
       }
       
       if(comparison == "l1"){
         # Compute l1 of empirical betas between a and b
-        l1_emp_beta <- tryCatch(sum(abs(fitemp_a[[mod_a]]$beta_mu - fitemp_b[[mod_b]]$beta_mu)), error = function(e) {NA})
+        emp_beta <- tryCatch(sum(abs(fitemp_a[[mod_a]]$beta_mu - fitemp_b[[mod_b]]$beta_mu)), error = function(e) {NA})
         
         # Compute l1 of empirical pcors between a and b
-        l1_emp_pcor <- tryCatch(sum(abs(fitemp_a[[mod_a]]$pcor_mu - fitemp_b[[mod_b]]$pcor_mu)), error = function(e) {NA})
+        emp_pcor <- tryCatch(sum(abs(fitemp_a[[mod_a]]$pcor_mu - fitemp_b[[mod_b]]$pcor_mu)), error = function(e) {NA})
         
         
       }
