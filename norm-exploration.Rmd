@@ -32,14 +32,15 @@ pcc <- -stats::cov2cor(kappa)
 
 # Change by factor -2 to 2
 max_change <- seq(-2,2, by = 0.1)
-
+kap_new <- kappa
 beta_new <- beta
 pcc_new <- pcc
 
 # Setup storage
 beta_list <- list(beta_new)[rep(1, length(max_change))]
 pcc_list <- list(pcc_new)[rep(1, length(max_change))]
-norm_list <- list()
+bnorm_list <- list()
+pnorm_list <- list()
 bnorm_list[["l1"]] <- list()
 bnorm_list[["maxdiff"]] <- list()
 bnorm_list[["frob"]] <- list()
@@ -61,24 +62,29 @@ for(i in seq_along(max_change)){
   pnorm_list[["frob"]][[i]] <- sum(abs(pcc - pcc_list[[i]]))
 }
 bnorm_res <- as.data.frame(do.call("rbind", bnorm_list))
+bnorm_res$mat <- rep("beta", 3)
 pnorm_res <- as.data.frame(do.call("rbind", pnorm_list))
-norm_res <- c(bnorm_res, pnorm_res)
-
+pnorm_res$mat <- rep("pcc",3)
+norm_res <- rbind(bnorm_res, pnorm_res)
 
 # Unnest
 norm_res <- norm_res %>% 
   rownames_to_column(. ,var = "comp") %>% 
+  mutate(comp = recode(comp, 
+                       "l11" = "l1",
+                       "maxdiff1" = "maxdiff",
+                       "frob1" = "frob")) %>% 
   unnest(cols = starts_with("V"))
 
 # change names to show change
-names(norm_res) <- c("comp", max_change)
+names(norm_res) <- c("comp", max_change, "mat")
 
 norm_res %>% 
-  pivot_longer(cols = !comp, names_to  = "change") %>% 
+  pivot_longer(cols = !c(comp, mat), names_to  = "change") %>% 
   mutate(change = as.numeric(change)) %>% 
   ggplot(aes(x = change, y = value, color = comp)) +
   geom_line() +
-  facet_wrap(~comp)+
+  facet_grid(mat~comp)+
   theme_minimal()+
   scale_color_okabe_ito()+
   labs(title = "Change of maximum beta value with certain factor",
@@ -94,35 +100,54 @@ Now add random uniform noise
 ```{r}
 change_noise <- seq(0,1, by = 0.05)
 beta_list <- list(beta_new)[rep(1, length(change_noise))]
-norm_list <- list()
-norm_list[["l1"]] <- list()
-norm_list[["maxdiff"]] <- list()
-norm_list[["frob"]] <- list()
-
+kappa_list <- list(kap_new)[rep(1, length(change_noise))]
+bnorm_list <- list()
+knorm_list <- list()
+bnorm_list[["l1"]] <- list()
+bnorm_list[["maxdiff"]] <- list()
+bnorm_list[["frob"]] <- list()
+knorm_list[["l1"]] <- list()
+knorm_list[["maxdiff"]] <- list()
+knorm_list[["frob"]] <- list()
 
 # Add noise
 for(i in seq_along(change_noise)){
   beta_list[[i]] <- beta_list[[i]] + runif(36, min = -change_noise[i], max = change_noise[i])
-  norm_list[["l1"]][[i]] <- norm(beta - beta_list[[i]], type = "F")
-  norm_list[["maxdiff"]][[i]] <- max(abs(beta - beta_list[[i]]))
-  norm_list[["frob"]][[i]] <- sum(abs(beta - beta_list[[i]]))
+  kappa_list[[i]] <- kappa_list[[i]] + runif(36, min = -change_noise[i], max = change_noise[i])
+  kappa_list <- lapply(kappa_list, Matrix::forceSymmetric)
+  bnorm_list[["l1"]][[i]] <- norm(beta - beta_list[[i]], type = "F")
+  bnorm_list[["maxdiff"]][[i]] <- max(abs(beta - beta_list[[i]]))
+  bnorm_list[["frob"]][[i]] <- sum(abs(beta - beta_list[[i]]))
+  knorm_list[["l1"]][[i]] <- norm(kappa - kappa_list[[i]], type = "F")
+  knorm_list[["maxdiff"]][[i]] <- max(abs(kappa - kappa_list[[i]]))
+  knorm_list[["frob"]][[i]] <- sum(abs(kappa - kappa_list[[i]]))
+  
+  
   
 }
-norm_res <- as.data.frame(do.call("rbind", norm_list))
+bnorm_res <- as.data.frame(do.call("rbind", bnorm_list))
+bnorm_res$mat <- rep("beta", 3)
+knorm_res <- as.data.frame(do.call("rbind", knorm_list))
+knorm_res$mat <- rep("kappa",3)
+norm_res <- rbind(bnorm_res, knorm_res)
 
 norm_res <- norm_res %>% 
   rownames_to_column(. ,var = "comp") %>% 
+    mutate(comp = recode(comp, 
+                       "l11" = "l1",
+                       "maxdiff1" = "maxdiff",
+                       "frob1" = "frob")) %>% 
   unnest(cols = starts_with("V"))
 
 # change names to show change
-names(norm_res) <- c("comp", change_noise)
+names(norm_res) <- c("comp", change_noise, "mat")
 
 norm_res %>% 
-  pivot_longer(cols = !comp, names_to  = "change") %>% 
+  pivot_longer(cols = !c(comp, mat), names_to  = "change") %>% 
   mutate(change = as.numeric(change)) %>% 
   ggplot(aes(x = change, y = value, color = comp)) +
   geom_line() +
-  facet_wrap(~comp)+
+  facet_grid(mat~comp)+
   theme_minimal()+
   scale_color_okabe_ito()+
   labs(title = "Change of maximum beta value with uniform noise",
@@ -133,13 +158,63 @@ norm_res %>%
 
 ```
 
-
-# PCOR
+Now add t-noise (more extreme values)
 ```{r}
+change_t <- seq(1, 50, by = 1)
+beta_list <- list(beta_new)[rep(1, length(change_t))]
+kappa_list <- list(kap_new)[rep(1, length(change_t))]
+bnorm_list <- list()
+knorm_list <- list()
+bnorm_list[["l1"]] <- list()
+bnorm_list[["maxdiff"]] <- list()
+bnorm_list[["frob"]] <- list()
+knorm_list[["l1"]] <- list()
+knorm_list[["maxdiff"]] <- list()
+knorm_list[["frob"]] <- list()
 
+# Add noise
+for(i in seq_along(change_noise)){
+  beta_list[[i]] <- beta_list[[i]] + rt(36, df = change_t[i])
+  kappa_list[[i]] <- kappa_list[[i]] + rt(36, df = change_t[i])
+  kappa_list <- lapply(kappa_list, Matrix::forceSymmetric)
+  bnorm_list[["l1"]][[i]] <- norm(beta - beta_list[[i]], type = "F")
+  bnorm_list[["maxdiff"]][[i]] <- max(abs(beta - beta_list[[i]]))
+  bnorm_list[["frob"]][[i]] <- sum(abs(beta - beta_list[[i]]))
+  knorm_list[["l1"]][[i]] <- norm(kappa - kappa_list[[i]], type = "F")
+  knorm_list[["maxdiff"]][[i]] <- max(abs(kappa - kappa_list[[i]]))
+  knorm_list[["frob"]][[i]] <- sum(abs(kappa - kappa_list[[i]]))
+  
+  
+  
+}
+bnorm_res <- as.data.frame(do.call("rbind", bnorm_list))
+bnorm_res$mat <- rep("beta", 3)
+knorm_res <- as.data.frame(do.call("rbind", knorm_list))
+knorm_res$mat <- rep("kappa",3)
+norm_res <- rbind(bnorm_res, knorm_res)
 
+norm_res <- norm_res %>% 
+  rownames_to_column(. ,var = "comp") %>% 
+    mutate(comp = recode(comp, 
+                       "l11" = "l1",
+                       "maxdiff1" = "maxdiff",
+                       "frob1" = "frob")) %>% 
+  unnest(cols = starts_with("V"))
 
+# change names to show change
+names(norm_res) <- c("comp", change_noise, "mat")
 
+norm_res %>% 
+  pivot_longer(cols = !c(comp, mat), names_to  = "change") %>% 
+  mutate(change = as.numeric(change)) %>% 
+  ggplot(aes(x = change, y = value, color = comp)) +
+  geom_line() +
+  facet_grid(mat~comp)+
+  theme_minimal()+
+  scale_color_okabe_ito()+
+  labs(title = "Change of maximum beta value with student-t noise",
+       x = "Degrees of freedom", 
+       caption = "n = 50")
 ```
 
 
