@@ -54,12 +54,12 @@ for(i in seq_along(max_change)){
   p_ind <- which.max(abs(pcc))
   beta_list[[i]][b_ind] <- beta_list[[i]][b_ind]*max_change[i]
   pcc_list[[i]][p_ind] <- pcc_list[[i]][p_ind]*max_change[i]
-  bnorm_list[["l1"]][[i]] <- norm(beta - beta_list[[i]], type = "F")
+  bnorm_list[["frob"]][[i]] <- norm(beta - beta_list[[i]], type = "F")
   bnorm_list[["maxdiff"]][[i]] <- max(abs(beta - beta_list[[i]]))
-  bnorm_list[["frob"]][[i]] <- sum(abs(beta - beta_list[[i]]))
-  pnorm_list[["l1"]][[i]] <- norm(pcc - pcc_list[[i]], type = "F")
+  bnorm_list[["l1"]][[i]] <- sum(abs(beta - beta_list[[i]]))
+  pnorm_list[["frob"]][[i]] <- norm(pcc - pcc_list[[i]], type = "F")
   pnorm_list[["maxdiff"]][[i]] <- max(abs(pcc - pcc_list[[i]]))
-  pnorm_list[["frob"]][[i]] <- sum(abs(pcc - pcc_list[[i]]))
+  pnorm_list[["l1"]][[i]] <- sum(abs(pcc - pcc_list[[i]]))
 }
 bnorm_res <- as.data.frame(do.call("rbind", bnorm_list))
 bnorm_res$mat <- rep("beta", 3)
@@ -115,12 +115,12 @@ for(i in seq_along(change_noise)){
   beta_list[[i]] <- beta_list[[i]] + runif(36, min = -change_noise[i], max = change_noise[i])
   kappa_list[[i]] <- kappa_list[[i]] + runif(36, min = -change_noise[i], max = change_noise[i])
   kappa_list <- lapply(kappa_list, Matrix::forceSymmetric)
-  bnorm_list[["l1"]][[i]] <- norm(beta - beta_list[[i]], type = "F")
+  bnorm_list[["frob"]][[i]] <- norm(beta - beta_list[[i]], type = "F")
   bnorm_list[["maxdiff"]][[i]] <- max(abs(beta - beta_list[[i]]))
-  bnorm_list[["frob"]][[i]] <- sum(abs(beta - beta_list[[i]]))
-  knorm_list[["l1"]][[i]] <- norm(kappa - kappa_list[[i]], type = "F")
+  bnorm_list[["l1"]][[i]] <- sum(abs(beta - beta_list[[i]]))
+  knorm_list[["frob"]][[i]] <- norm(kappa - kappa_list[[i]], type = "F")
   knorm_list[["maxdiff"]][[i]] <- max(abs(kappa - kappa_list[[i]]))
-  knorm_list[["frob"]][[i]] <- sum(abs(kappa - kappa_list[[i]]))
+  knorm_list[["l1"]][[i]] <- sum(abs(kappa - kappa_list[[i]]))
   
   
   
@@ -158,9 +158,73 @@ norm_res %>%
 
 ```
 
+Add normal noise.
+```{r}
+change_norm <- round(seq(0.05, 1, length.out = 50),3)
+beta_list <- list(beta_new)[rep(1, length(change_norm))]
+kappa_list <- list(kap_new)[rep(1, length(change_norm))]
+bnorm_list <- list()
+knorm_list <- list()
+bnorm_list[["l1"]] <- list()
+bnorm_list[["maxdiff"]] <- list()
+bnorm_list[["frob"]] <- list()
+knorm_list[["l1"]] <- list()
+knorm_list[["maxdiff"]] <- list()
+knorm_list[["frob"]] <- list()
+
+# Add noise
+for(i in seq_along(change_norm)){
+  beta_list[[i]] <- beta_list[[i]] + rnorm(n = 36, mean= 0, sd = change_norm[i])
+  kappa_list[[i]] <- kappa_list[[i]] + rnorm(n = 36, mean = 0, sd = change_norm[i])
+  kappa_list <- lapply(kappa_list, Matrix::forceSymmetric)
+  bnorm_list[["frob"]][[i]] <- norm(beta - beta_list[[i]], type = "F")
+  bnorm_list[["maxdiff"]][[i]] <- max(abs(beta - beta_list[[i]]))
+  bnorm_list[["l1"]][[i]] <- sum(abs(beta - beta_list[[i]]))
+  knorm_list[["frob"]][[i]] <- norm(kappa - kappa_list[[i]], type = "F")
+  knorm_list[["maxdiff"]][[i]] <- max(abs(kappa - kappa_list[[i]]))
+  knorm_list[["l1"]][[i]] <- sum(abs(kappa - kappa_list[[i]]))
+  
+  
+  
+}
+bnorm_res <- as.data.frame(do.call("rbind", bnorm_list))
+bnorm_res$mat <- rep("beta", 3)
+knorm_res <- as.data.frame(do.call("rbind", knorm_list))
+knorm_res$mat <- rep("kappa",3)
+norm_res <- rbind(bnorm_res, knorm_res)
+
+norm_res <- norm_res %>% 
+  rownames_to_column(. ,var = "comp") %>% 
+    mutate(comp = recode(comp, 
+                       "l11" = "l1",
+                       "maxdiff1" = "maxdiff",
+                       "frob1" = "frob")) %>% 
+  unnest(cols = starts_with("V"))
+
+# change names to show change
+names(norm_res) <- c("comp", change_norm, "mat")
+
+norm_res %>% 
+  pivot_longer(cols = !c(comp, mat), names_to  = "change") %>% 
+  mutate(change = as.numeric(change)) %>% 
+  ggplot(aes(x = change, y = value, color = comp)) +
+  geom_line() +
+  facet_grid(mat~comp)+
+  theme_minimal()+
+  scale_color_okabe_ito()+
+  labs(title = "Change of maximum value with normal noise",
+       x = "SD of noise")
+```
+
+
+
+
+
+
+
 Now add t-noise (more extreme values)
 ```{r}
-change_t <- seq(1, 50, by = 1)
+change_t <- seq(5, 55, by = 1)
 beta_list <- list(beta_new)[rep(1, length(change_t))]
 kappa_list <- list(kap_new)[rep(1, length(change_t))]
 bnorm_list <- list()
@@ -202,19 +266,58 @@ norm_res <- norm_res %>%
   unnest(cols = starts_with("V"))
 
 # change names to show change
-names(norm_res) <- c("comp", change_noise, "mat")
+names(norm_res) <- c("comp", change_t, "mat")
 
 norm_res %>% 
   pivot_longer(cols = !c(comp, mat), names_to  = "change") %>% 
   mutate(change = as.numeric(change)) %>% 
   ggplot(aes(x = change, y = value, color = comp)) +
   geom_line() +
-  facet_grid(mat~comp)+
+  facet_grid(mat~comp, scales = "free")+
   theme_minimal()+
   scale_color_okabe_ito()+
-  labs(title = "Change of maximum beta value with student-t noise",
+  labs(title = "Change of maximum value with student-t noise",
        x = "Degrees of freedom", 
-       caption = "n = 50")
+       caption = "n = 36")
 ```
+What do we learn? Not sure.... Frobenius is always the largest, also seems to have the largest fluctuations, which might explain the significance that often occurs. 
+
+
+# Derivatives
+Instead of doing this with simulations, I could just find the first-order derivatives of the different norms? Then I could maybe get a better understanding of what to expect for any change. 
+
+## Derivative Matrix Frobenius Norm
+
+The Frobenius norm of a matrix $A$ is defined as $$\lVert A \rVert_{F} = \sqrt{\sum_{i,j}A^2_{i,j}}$$
+It can also be written as 
+Obtain the first derivative of the Frobenius norm?
+
+Very unsure if this is correct.
+
+New function:
+$$f(\mathbf{x}) = \left|A\right|_F^2$$
+
+$$f(\mathbf{x}) = \left(\sqrt{\sum_{i=1}^m \sum_{j=1}^n A_{ij}^2}\right)^2$$
+
+$$f(\mathbf{x}) = \sum_{i=1}^m \sum_{j=1}^n A_{ij}^2$$
+$$\frac{df}{dA_{ij}} = 2 A_{ij}$$
+$$\frac{d}{dA_{ij}} \left|A\right|F = \frac{df}{dA{ij}} \cdot \frac{d}{df} \left|A\right|_F$$
+$$\frac{d}{dA_{ij}} \left|A\right|F = 2 A{ij} \cdot \frac{1}{2 \left|A\right|_F}$$
+
+
+Elementwise, it could then be:
+$$\frac{d}{dA_{ij}} \lVert A\rVert_{F} = \frac{A{ij}}{\lVert A\rVert_F}$$
+
+
+
+http://paulklein.ca/newsite/teaching/matrix%20calculus.pdf
+Here seem to be some solutions as well...
+
+
+
+
+
+
+
 
 
