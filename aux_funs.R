@@ -42,40 +42,115 @@ changemax_kappa <- function(m_kappa,
 }
 
 
+# Change Graph ------------------------------------------------------------
+# Function to change "true graph" according to specified changes of max value
+# and noise
+# Uses uniform noise for now
+change_graphs <- function(truegraph, 
+                          changemax, 
+                          noise){
+  ### Create storage
+  l_out <- list()
+  l_out[[1]] <- truegraph
+  names(l_out)[[1]] <- "truegraph"
+  
+  ### Obtain matrix characteristics
+  ## Beta
+  m_beta <- truegraph$beta
+  b_i <- nrow(m_beta)
+  b_j <- ncol(m_beta)
+  
+  ## Kappa
+  m_kappa <- truegraph$kappa
+  k_i <- nrow(m_kappa)
+  k_j <- ncol(m_kappa)
+  
+  ### Find max
+  ## Beta
+  b_max <- which.max(m_beta)
+  
+  ## Kappa - only search for off-diagonal
+  # Initialize the largest element to be zero
+  largest_element <- 0
+  max_row <- NA
+  max_col <- NA
+  # Loop through kappa and find the largest off-diagonal element
+  for (i in 1:k_i) {
+    for (j in 1:k_j) {
+      # Skip the diagonal elements (i.e. the elements where i == j)
+      if (i != j) {
+        # Update the largest element if we find a larger one
+        if (abs(m_kappa[i,j]) > abs(largest_element)) {
+          largest_element <- m_kappa[i,j]
+          max_row <- i
+          max_col <- j
+        }
+      }
+    }
+  }
+  
+  
+  
+  
+  ### Change max
+  l_out_change <- list()
+  ## Beta
+  for(c in seq_along(changemax)){
+    # create storage for each changed graph
+    l_out_change[[c]] <- list()
+    tmp_beta <- m_beta
+    tmp_beta[b_max] <- m_beta[b_max]*changemax[c]
+    l_out_change[[c]]$beta <- tmp_beta
+  }
+  
+  ## Kappa
+  # change the element in the matrix on both sides of diagonal
+  for(c in seq_along(changemax)){
+    tmp_kappa <- m_kappa
+    tmp_kappa[max_row,max_col] <- m_kappa[max_row,max_col]*changemax[c]
+    tmp_kappa[max_col,max_row] <- m_kappa[max_col,max_row]*changemax[c]
+    l_out_change[[c]]$kappa <- tmp_kappa
+    names(l_out_change)[[c]] <- paste0("change_", changemax[c])
+  }
+  
+  
+  
+  ### Add noise
+  l_out_noise <- list()
+  ## Beta
+  for(n in seq_along(noise)){
+    l_out_noise[[n]] <- list()
+    tmp_beta <- m_beta + runif(n = b_i*b_j, min = -noise[n], max = noise[n])
+    l_out_noise[[n]]$beta <- tmp_beta
+  }
+  
+  ## Kappa
+  for(n in seq_along(noise)){
+    l_out_noise[[n]] <- list()
+    tmp_kappa <- m_kappa + runif(n = k_i*k_j, min = -noise[n], max = noise[n])
+    tmp_kappa <- as.matrix(Matrix::forceSymmetric(tmp_kappa))
+    l_out_noise[[n]]$kappa <- tmp_kappa
+    names(l_out_noise)[[n]] <- paste0("noise_", noise[n])
+  }
+  
+  
+  ### Checking 
+  ## Check if max change only changed one edge
+  
+  ## Check if stationarity holds
+  
+  ## Check if everything is <= 1
+  
+  
+  ### Output
+  # Combine truegraph, maxchange, and added noise
+  l_out <- c(l_out, l_out_change, l_out_noise)
+  return(l_out)
+  
+}
 
-# Add noise kappa ---------------------------------------------------------
-# # Add noise to kappa
-# addnoise_kappa <- function(m_kappa,
-#                             ){
-#   # Find the dimensions of the m_kappa
-#   n <- nrow(m_kappa)
-#   m <- ncol(m_kappa)
-#   
-# 
-#   # Loop through the m_kappa
-#   for (i in 1:n) {
-#     for (j in 1:m) {
-#       # Skip the diagonal elements (i.e. the elements where i == j)
-#       if (i != j) {
-#         # Update the largest element if we find a larger one
-#         if (abs(m_kappa[i,j]) > abs(largest_element)) {
-#           largest_element <- m_kappa[i,j]
-#           row <- i
-#           col <- j
-#         }
-#       }
-#     }
-#   }
-#   print(largest_element)
-#   # change the element in the matrix on both sides of diagonal
-#   m_kappa[row,col] <- m_kappa[row,col]*change
-#   m_kappa[col,row] <- m_kappa[col,row]*change
-#   
-#   
-#   
-#   # Multiply the largest element by a factor and return the result
-#   return(m_kappa)
-# }
+
+
 
 
 
