@@ -237,16 +237,16 @@ knorm_list[["maxdiff"]] <- list()
 knorm_list[["frob"]] <- list()
 
 # Add noise
-for(i in seq_along(change_noise)){
+for(i in seq_along(change_t)){
   beta_list[[i]] <- beta_list[[i]] + rt(36, df = change_t[i])
   kappa_list[[i]] <- kappa_list[[i]] + rt(36, df = change_t[i])
   kappa_list <- lapply(kappa_list, Matrix::forceSymmetric)
-  bnorm_list[["l1"]][[i]] <- norm(beta - beta_list[[i]], type = "F")
+  bnorm_list[["frob"]][[i]] <- norm(beta - beta_list[[i]], type = "F")
   bnorm_list[["maxdiff"]][[i]] <- max(abs(beta - beta_list[[i]]))
-  bnorm_list[["frob"]][[i]] <- sum(abs(beta - beta_list[[i]]))
-  knorm_list[["l1"]][[i]] <- norm(kappa - kappa_list[[i]], type = "F")
+  bnorm_list[["l1"]][[i]] <- sum(abs(beta - beta_list[[i]]))
+  knorm_list[["frob"]][[i]] <- norm(kappa - kappa_list[[i]], type = "F")
   knorm_list[["maxdiff"]][[i]] <- max(abs(kappa - kappa_list[[i]]))
-  knorm_list[["frob"]][[i]] <- sum(abs(kappa - kappa_list[[i]]))
+  knorm_list[["l1"]][[i]] <- sum(abs(kappa - kappa_list[[i]]))
   
   
   
