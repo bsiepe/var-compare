@@ -46,6 +46,18 @@ changemax_kappa <- function(m_kappa,
 # Function to change "true graph" according to specified changes of max value
 # and noise
 # Uses uniform noise for now
+# TODO make sure that everything is stationary/below 1
+
+#' Change Graph
+#' Changes graph structure (beta and kappa matrix) according to prescpecified changes. 
+#' @param truegraph The true graph (should contain a beta and a kappa matrix)
+#' @param changemax Vector of factors with which the largested matrix element
+#' should be multiplied.
+#' @param noise Vector of uniform noise that is added to the matrixes.
+#'
+#' @return List containing truegraph and all changed graphs as elements. 
+#' @export
+#'
 change_graphs <- function(truegraph, 
                           changemax, 
                           noise){
@@ -126,7 +138,6 @@ change_graphs <- function(truegraph,
   
   ## Kappa
   for(n in seq_along(noise)){
-    l_out_noise[[n]] <- list()
     tmp_kappa <- m_kappa + runif(n = k_i*k_j, min = -noise[n], max = noise[n])
     tmp_kappa <- as.matrix(Matrix::forceSymmetric(tmp_kappa))
     l_out_noise[[n]]$kappa <- tmp_kappa
@@ -174,6 +185,7 @@ sim_raw_parallel <- function(dgp,
                              n,
                              tp,
                              means = 0,
+                             seed = seed,
                              standardize = TRUE){
   # save function arguments in output
   args <- as.list(environment())
@@ -182,6 +194,10 @@ sim_raw_parallel <- function(dgp,
   # ncores = parallel::detectCores() - 2
   # cl = makeCluster(ncores)
   # registerDoParallel(cl)
+  
+  # Reproducible loops
+  registerDoRNG(seed)
+  
   data <- foreach(i = seq(n), .packages = "graphicalVAR") %dopar% {
     raw_data <- list()
     raw_data$data <- as.data.frame(graphicalVAR::graphicalVARsim(nTime = tp,
@@ -221,29 +237,52 @@ fit_var_parallel <- function(data,
   if(n != length(data)){
     warning("The n provided does not match the number of available data frames")
   }
+  require(doParallel)
+  # require("BGGM", lib.loc = "C:/Users/Bjoern/R-dev")
   
-
-  
+  # reproducible parallelization
+  registerDoRNG(seed)
   # if we take simulated data in a list object
   if(isFALSE(posteriorsamples)){
     fit <- foreach(i = seq(n), .packages = "BGGM") %dopar% {
       fit_ind <- list()
       if(is.list(data[[i]]$data) | is.numeric(data[[i]]$data)){
-        fit_ind <- try(BGGM::var_estimate(data[[i]]$data,
+        fit_ind <- tryCatch({BGGM::var_estimate(data[[i]]$data,
                                           rho_sd = rho_prior,
                                           beta_sd = beta_prior,
                                           iter = iterations,
                                           progress = FALSE,
-                                          seed = seed), silent = TRUE)
+                                          seed = seed)}, error = function(e) NULL)
         if(isTRUE(get_kappa)){
           # check if fitting worked
           if(is.list(fit_ind)){
             # Invert covariance matrix of residuals to obtain precision matrix
             fit_ind$fit$kappa <- array(apply(fit_ind$fit$Sigma, 3, solve), 
                                        dim = dim(fit_ind$fit$Sigma))
+            
+            # Calculate mean of kappa
+            fit_ind$kappa_mu <- apply(fit_ind$fit$kappa, c(1,2), mean)
+            
            }
 
-          }
+        }
+        # prune results for comparison purposes
+        if(isTRUE(pruneresults) & is.list(fit_ind)){
+          beta <- fit_ind$fit$beta
+          kappa <- fit_ind$fit$kappa
+          beta_mu <- fit_ind$beta_mu 
+          pcor_mu <- fit_ind$pcor_mu
+          kappa_mu <- fit_ind$kappa_mu
+          fit_ind <- list()
+          fit_ind$fit <- list()
+          fit_ind$beta_mu <- beta_mu
+          fit_ind$pcor_mu <- pcor_mu
+          fit_ind$kappa_mu <- kappa_mu
+          fit_ind$fit$beta <- beta
+          fit_ind$fit$kappa <- kappa
+          
+        } 
+        
       }
       else fit_ind <- NA
       
@@ -257,6 +296,7 @@ fit_var_parallel <- function(data,
   # if we fit the data on samples generated from the posterior
   if(isTRUE(posteriorsamples)){
     print("Fitting to posterior samples")
+    # TODO does this call the correct BGGM version?
     fit <- foreach(i = seq(n), .packages = "BGGM") %dopar% {
       fit_ind <- list()
       if(is.list(data[[i]])){
@@ -272,13 +312,15 @@ fit_var_parallel <- function(data,
             # Invert covariance matrix of residuals to obtain precision matrix
             fit_ind$fit$kappa <- array(apply(fit_ind$fit$Sigma, 3, solve), 
                                        dim = dim(fit_ind$fit$Sigma))
+            # Calculate mean of kappa
+            fit_ind$kappa_mu <- apply(fit_ind$fit$kappa, c(1,2), mean)
           }
 
         }
         # prune results for comparison purposes
         if(isTRUE(pruneresults) & is.list(fit_ind)){
           beta_mu <- fit_ind$beta_mu 
-          kappa_mu <- fit_ind$kappa_mu
+          kappa_mu <- fit_ind$kappa
           pcor_mu <- fit_ind$pcor_mu
           fit_ind <- list()
           fit_ind$beta_mu <- beta_mu
@@ -308,7 +350,11 @@ fit_var_parallel <- function(data,
 
 
 # Fit var parallel to posterior samples -----------------------------------
-# TODO: Keep counter of failed attempts?
+# TODO maybe merge this to the other fit function?
+# TODO counter for attempts is only implemented for posteriorsamples = TRUE
+# TODO Should maybe parallelize at the level of posterior datasets, not individuals
+# this is especially relevant going forward, when this function should be used by researchers
+
 
 fit_var_parallel_post <- function(data, 
                                   n,
@@ -325,8 +371,10 @@ fit_var_parallel_post <- function(data,
     warning("The n provided does not match the number of available data frames")
   }
   require(doParallel)
-  require("BGGM", lib.loc = "C:/Users/Bjoern/R-dev")
+  # require("BGGM", lib.loc = "C:/Users/Bjoern/R-dev")
   
+  # reproducible parallelization
+  registerDoRNG(seed)
   
   # if we take simulated data in a list object
   if(isFALSE(posteriorsamples)){
@@ -364,13 +412,184 @@ fit_var_parallel_post <- function(data,
     
     # counter for converged models 
     m <- list()
-    
-    # storage for overall results
+    # counter for attempted models
+    c <- list()
     
     
     # loop across individuals
     foreach(i = seq(n), .packages = "BGGM") %dopar% {
+      # Counter for converged models
       m[[i]] <- 0
+
+      fit <- list()
+      # loop across datasets
+      for(d in seq(nds)) {
+        # we want 100 converged models
+        if(m[[i]] >= 100){
+          break 
+        }
+        
+        fit_ind <- list()
+        if(is.list(data[[i]][[d]])){
+          fit_ind <- tryCatch({BGGM::var_estimate(data[[i]][[d]],
+                                                  rho_sd = rho_prior,
+                                                  beta_sd = beta_prior,
+                                                  iter = iterations,
+                                                  progress = FALSE,
+                                                  seed = seed)}, error = function(e) NULL)
+
+          
+          # check if fitting worked
+          if(is.list(fit_ind)){
+            m[[i]] <- m[[i]]+1
+            # print(m[[i]])
+            
+            
+            if(isTRUE(get_kappa)){
+              # Invert covariance matrix of residuals to obtain precision matrix
+              fit_ind$fit$kappa <- array(apply(fit_ind$fit$Sigma, 3, solve), 
+                                         dim = dim(fit_ind$fit$Sigma))
+              # Calculate mean of kappa
+              fit_ind$kappa_mu <- apply(fit_ind$fit$kappa, c(1,2), mean)
+              
+            }
+            
+            
+            # prune results for comparison purposes
+            if(isTRUE(pruneresults)){
+              # kappa <- fit_ind$fit$kappa
+              # beta <- fit_ind$fit$beta
+              beta_mu <- fit_ind$beta_mu 
+              kappa_mu <- fit_ind$kappa_mu
+              pcor_mu <- fit_ind$pcor_mu
+              # n_attempts <- c[[i]]
+              fit_ind <- list()
+              # fit_ind$fit <- list()
+              fit_ind$beta_mu <- beta_mu
+              fit_ind$kappa_mu <- kappa_mu
+              fit_ind$pcor_mu <- pcor_mu
+              # fit_ind$n_attempts <- n_attempts
+              # fit_ind$fit$beta <- beta
+              # fit_ind$fit$kappa <- kappa
+              
+            } 
+            
+            fit[[d]] <- fit_ind  
+          }    # end is.list(fit_ind)
+          
+          
+        } # end is.list(data[[i]])  
+        
+        
+      } # end for loop 
+      res <- list()
+      res$fit <- fit
+      
+      # store parameters
+      res$params <- list()
+      # number of failed attempts
+      res$params$n_notconv <- length(res$fit)-100
+      
+      return(res)
+      
+    }  # end foreach
+    
+    
+  } # end isTRUE posteriorsamples
+
+}  # end function
+
+
+
+
+# Fit VAR parallel merged -------------------------------------------------
+# This is a merge of fit_var_parallel and fit_var_parallel_post into one function
+fit_var_parallel_merged <- function(data, 
+                                     n,
+                                     rho_prior, 
+                                     beta_prior,
+                                     seed,
+                                     iterations,
+                                     get_kappa = TRUE,
+                                     posteriorsamples = FALSE,
+                                     pruneresults = FALSE){
+  
+  if(n != length(data)){
+    warning("The n provided does not match the number of available data frames")
+  }
+  require(doParallel)
+  # require("BGGM", lib.loc = "C:/Users/Bjoern/R-dev")
+  
+  # reproducible parallelization
+  registerDoRNG(seed)
+  
+  # if we take simulated data in a list object
+  if(isFALSE(posteriorsamples)){
+    fit <- foreach(i = seq(n), .packages = "BGGM") %dopar% {
+      fit_ind <- list()
+      if(is.list(data[[i]]$data) | is.numeric(data[[i]]$data)){
+        fit_ind <- tryCatch({BGGM::var_estimate(data[[i]]$data,
+                                                rho_sd = rho_prior,
+                                                beta_sd = beta_prior,
+                                                iter = iterations,
+                                                progress = FALSE,
+                                                seed = seed)}, error = function(e) NULL)
+        if(isTRUE(get_kappa)){
+          # check if fitting worked
+          if(is.list(fit_ind)){
+            # Invert covariance matrix of residuals to obtain precision matrix
+            fit_ind$fit$kappa <- array(apply(fit_ind$fit$Sigma, 3, solve), 
+                                       dim = dim(fit_ind$fit$Sigma))
+            
+            # Calculate mean of kappa
+            fit_ind$kappa_mu <- apply(fit_ind$fit$kappa, c(1,2), mean)
+            
+          }
+          
+        }
+        # prune results for comparison purposes
+        if(isTRUE(pruneresults) & is.list(fit_ind)){
+          beta <- fit_ind$fit$beta
+          kappa <- fit_ind$fit$kappa
+          beta_mu <- fit_ind$beta_mu 
+          pcor_mu <- fit_ind$pcor_mu
+          kappa_mu <- fit_ind$kappa_mu
+          fit_ind <- list()
+          fit_ind$fit <- list()
+          fit_ind$beta_mu <- beta_mu
+          fit_ind$pcor_mu <- pcor_mu
+          fit_ind$kappa_mu <- kappa_mu
+          fit_ind$fit$beta <- beta
+          fit_ind$fit$kappa <- kappa
+          
+        } 
+        
+      }
+      else fit_ind <- NA
+      
+      fit_ind  
+    }
+    
+    
+  }
+  
+  
+  # if we fit the data on samples generated from the posterior
+  if(isTRUE(posteriorsamples)){
+    print("Fitting to posterior samples")
+    
+    # counter for converged models 
+    m <- list()
+    # counter for attempted models
+    c <- list()
+    
+    
+    # loop across individuals
+    foreach(i = seq(n), .packages = "BGGM") %dopar% {
+      # Counter for converged models
+      m[[i]] <- 0
+      # Counter for estimated models
+      c[[i]] <- 0
       fit <- list()
       # loop across datasets
       for(d in seq(nds)) {
@@ -386,6 +605,8 @@ fit_var_parallel_post <- function(data,
                                                   iter = iterations,
                                                   progress = FALSE,
                                                   seed = seed)}, error = function(e) NULL)
+          # Add to counter for estimated models
+          c[[i]] <- c[[i]]+1
           
           # check if fitting worked
           if(is.list(fit_ind)){
@@ -397,18 +618,30 @@ fit_var_parallel_post <- function(data,
               # Invert covariance matrix of residuals to obtain precision matrix
               fit_ind$fit$kappa <- array(apply(fit_ind$fit$Sigma, 3, solve), 
                                          dim = dim(fit_ind$fit$Sigma))
+              # Calculate mean of kappa
+              fit_ind$kappa_mu <- apply(fit_ind$fit$kappa, c(1,2), mean)
+              
             }
             
             
             # prune results for comparison purposes
+            # When fitting to posterior data, we no longer need 
+            # raw kappa/beta matrizes
             if(isTRUE(pruneresults)){
+              # kappa <- fit_ind$fit$kappa
+              # beta <- fit_ind$fit$beta
               beta_mu <- fit_ind$beta_mu 
               kappa_mu <- fit_ind$kappa_mu
               pcor_mu <- fit_ind$pcor_mu
+              n_attempts <- c[[i]]
               fit_ind <- list()
+              # fit_ind$fit <- list()
               fit_ind$beta_mu <- beta_mu
               fit_ind$kappa_mu <- kappa_mu
               fit_ind$pcor_mu <- pcor_mu
+              fit_ind$n_attempts <- n_attempts
+              # fit_ind$fit$beta <- beta
+              # fit_ind$fit$kappa <- kappa
               
             } 
             
@@ -426,15 +659,19 @@ fit_var_parallel_post <- function(data,
     }
     
     
-    
-    
-    
-    
-    
-    
-    
   } # end isTRUE posteriorsamples
+
+  
 }  
+
+
+
+
+
+
+
+
+
 
 
 
@@ -442,11 +679,28 @@ fit_var_parallel_post <- function(data,
 # Sim from posterior ------------------------------------------------------
 # TODO save function arguments
 # TODO INSANELY IMPORTANT! DO I NEED TO TRANSPOSE? I THINK YES
+
+#' Simulate from Posterior Samples
+#' This function simulates a specified number of datasets from the posterior
+#' of a given model. Uses the graphicalVARsim function from the graphicalVAR
+#' package to generate data. 
+#' @param fitobj BGGM fit object containing all posterior samples
+#' @param n_datasets Number of datasets to create
+#' @param n Number of individuals
+#' @param tp Number of timepoints
+#' @param iterations Number of iterations used in BGGM sampling
+#' @param means Mean vector
+#' @param convert_bggm DEPRECATED: Should results be converted to BGGM List format?
+#'
+#' @return List of datasets in dataframe format. 
+#' @export
+
 sim_from_post_parallel <- function(fitobj, 
                                    n_datasets, 
                                    n,
                                    tp,
                                    iterations,
+                                   seed = seed,
                                    means = 0,
                                    convert_bggm = FALSE){
   # Extract parameters from fitobject
@@ -457,6 +711,9 @@ sim_from_post_parallel <- function(fitobj,
     l_params[[i]]$beta <- fitobj[[i]]$fit$beta[,,51:iterations]
     l_params[[i]]$kappa <- fitobj[[i]]$fit$kappa[,,51:iterations]
   }
+  
+  # reproducible parallelization
+  registerDoRNG(seed)
   
   # Loop to create new datasets from posterior samples
   post_data <- foreach(i = seq(n), .packages = "graphicalVAR") %dopar% {
@@ -477,6 +734,8 @@ sim_from_post_parallel <- function(fitobj,
     
     
   } # end parallel
+  
+  # DEPRECATED: Should data be converted to bggm format?
   if(isTRUE(convert_bggm)){
     post_data <- lapply(post_data, format_bggm_list)
     
@@ -1051,6 +1310,80 @@ postpost_distance <- function(post_a,
 }
 
 
+# Distance within posterior samples ---------------------------------------
+# Looks at differences between models sampled from the same
+# "original" model, so similar to bootstrapping
+# TODO this is still in the works
+# TODO make other postpost functions shorter as well
+postpost_distance_within <- function(post_a, 
+                      comp, 
+                      draws = 1000){
+  
+  # storage
+  dist_out <- list()
+  
+  # define the distance function based on comp
+  distance_fn_beta <- switch(comp,
+                             frob =   {function(x, y) norm(x$beta_mu-y$beta_mu, type = "F")},
+                             maxdiff = {function(x, y) max(abs((x$beta_mu-y$beta_mu)))},
+                             l1 = {function(x, y) sum(abs((x$beta_mu-y$beta_mu)))}
+  )
+  distance_fn_pcor <- switch(comp,
+                             frob = {function(x, y) norm(x$pcor_mu-y$pcor_mu, type = "F")},
+                             maxdiff = {function(x, y) max(abs((x$pcor_mu-y$pcor_mu)))},
+                             l1 = {function(x, y) sum(abs((x$pcor_mu-y$pcor_mu)))}
+  )
+  
+  
+  
+  
+  ## Draw two random models
+  # Obtain number of models
+  n_mod <- length(post_a)
+  
+  # Draw pairs of models
+  mod_pairs <- replicate(draws, sample(1:n_mod, size = 2, replace = TRUE))
+  
+for(i in seq(draws)){
+  # storage
+  dist_out[[i]] <- list()
+  mod_a <- mod_pairs[1,i]
+  mod_b <- mod_pairs[2,i]
+  
+# if mod_a and mod_b are equal, redraw
+  if(mod_a == mod_b){
+    mod_b <- sample(1:n_mod, size = 1)
+}
+  
+  ## Check if estimation worked
+  # Should be unneccessary if non-converged attempts were deleted
+  if(!is.list(post_a[[mod_a]]) | !is.list(post_a[[mod_b]])){
+    beta_distance <- NA
+    pcor_distance <- NA
+    stop("Not a list.")
+    
+    
+  } 
+  # if both elements are lists
+  else{
+    beta_distance <- distance_fn_beta(post_a[[mod_a]], post_a[[mod_b]])
+    pcor_distance <- distance_fn_pcor(post_a[[mod_a]], post_a[[mod_b]])
+    
+  }  
+  dist_out[[i]]$mod_a <- mod_a
+  dist_out[[i]]$mod_b <- mod_b
+  dist_out[[i]]$beta <- beta_distance
+  dist_out[[i]]$pcor <- pcor_distance  
+  
+} # end for loop  
+  out <- do.call(rbind, dist_out)
+  
+  
+  
+  return(out)
+}
+
+
 
  
 # # Cross-compare all posterior samples -------------------------------------
@@ -1225,48 +1558,11 @@ cross_compare_eval <- function(l_res,
 
 
 
-# Frobenius norm two datasets from each posterior sample ------------------
-f_post_frob <- function(sample, seed = 2022,
-                        rho_sd = 0.5, beta_sd = 1){
-  set.seed = seed
-  
-  # Simulate
-  d1 <- mlVAR::simulateVAR(pars = sample,
-                           means = 0,
-                           Nt = 200,
-                           residuals = .1)
-  d2 <- mlVAR::simulateVAR(pars = sample,
-                           means = 0,
-                           Nt = 200,
-                           residuals = .1)
-  # Estimate
-  m1 <- try(BGGM::var_estimate(d1,
-                               rho_sd = rho_sd,
-                               beta_sd = beta_sd,
-                               iter = n_iter,
-                               progress = FALSE,
-                               seed = seed))
-  m2 <- try(BGGM::var_estimate(d2,
-                               rho_sd = rho_sd,
-                               beta_sd = beta_sd,
-                               iter = n_iter,
-                               progress = FALSE,
-                               seed = seed))
-  
-  # Compute Frobenius Norm
-  if(is.list(m1) & is.list(m2)){
-    frob_norm <- norm(m1$beta_mu - m2$beta_mu, type = "F")
-    return(frob_norm)
-    
-  }
-  else return(NA)
-  
-  
-}
+
 
 
 # Compare to DGP ----------------------------------------------------------
-# TODO: Do I need to take absolute differences here or does it work this way?
+# This function compares the BGGM VAR estimates to the true data-generating process
 compare_dgp <- function(true, 
                         est_bggm,
                         comp_gvar = TRUE,
@@ -1354,7 +1650,7 @@ expand_grid_unique <- function(mod_a, mod_b){
 
 
 
-# Posterior sampmles covariance matrix ------------------------------------
+# Posterior samples covariance matrix ------------------------------------
 # res = results of var_estimate
 f_postcov <- function(res){
   beta_posterior <- res$fit$beta
