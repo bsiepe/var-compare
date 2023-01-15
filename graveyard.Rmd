@@ -4,6 +4,39 @@ author: "Björn Siepe"
 date: "2022-11-16"
 output: html_document
 ---
+# Add noise to graphs manually
+```{r}
+# # # add slight change of one model parameter to the list
+# graph2 <- graph
+# graph2$beta[which.max(graph2$beta)] <- graph2$beta[which.max(graph2$beta)]*1.5
+# graph2$beta[which.max(graph2$kappa)] <- graph2$beta[which.max(graph2$kappa)]*1.5
+# 
+# l_graph <- list(graph = graph,
+#                 graph2 = graph2)
+# # add stronger change of one model parameter
+# graph2 <- graph
+# graph2$beta[which.max(graph2$beta)] <- graph2$beta[which.max(graph2$beta)]*-1
+# l_graph <- list(graph = graph, 
+#                 graph2 = graph2)
+# # # also change kappa but less strongly
+# graph2 <- graph
+# graph2$beta[which.max(graph2$beta)] <- graph2$beta[which.max(graph2$beta)]*1.8
+# graph2$kappa[which.max(graph2$kappa)] <- graph2$kappa[which.max(graph2$kappa)]*1.8
+# 
+# 
+# l_graph <- list(graph = graph,
+#                 graph2 = graph2)
+# also change kappa
+# TODO Need to be careful here! Kappa may not be >1, maybe not even 1 (I have to partial other stuff out...)
+# 
+# graph2 <- graph
+# graph2$beta[which.max(graph2$beta)] <- graph2$beta[which.max(graph2$beta)]*2
+# graph2$kappa <- changemax_kappa(graph2$kappa, change = 2)
+# Add random noise to the network
+```
+
+
+
 
 # Fit VAR models
 ```{r}
@@ -175,6 +208,47 @@ For later, obtain the likelihoods of each model directly and then compare these 
 
 
 
+Function for comparison of frobenius of posterior samples. 
+```{r}
+# Frobenius norm two datasets from each posterior sample ------------------
+f_post_frob <- function(sample, seed = 2022,
+                        rho_sd = 0.5, beta_sd = 1){
+  set.seed = seed
+  
+  # Simulate
+  d1 <- mlVAR::simulateVAR(pars = sample,
+                           means = 0,
+                           Nt = 200,
+                           residuals = .1)
+  d2 <- mlVAR::simulateVAR(pars = sample,
+                           means = 0,
+                           Nt = 200,
+                           residuals = .1)
+  # Estimate
+  m1 <- try(BGGM::var_estimate(d1,
+                               rho_sd = rho_sd,
+                               beta_sd = beta_sd,
+                               iter = n_iter,
+                               progress = FALSE,
+                               seed = seed))
+  m2 <- try(BGGM::var_estimate(d2,
+                               rho_sd = rho_sd,
+                               beta_sd = beta_sd,
+                               iter = n_iter,
+                               progress = FALSE,
+                               seed = seed))
+  
+  # Compute Frobenius Norm
+  if(is.list(m1) & is.list(m2)){
+    frob_norm <- norm(m1$beta_mu - m2$beta_mu, type = "F")
+    return(frob_norm)
+    
+  }
+  else return(NA)
+  
+  
+}
+```
 
 
 
@@ -309,6 +383,132 @@ Another idea: compute something like absolute difference between network results
 ```
 
 
+Functions of refitting approach: 
+
+```{r}
+
+
+
+
+
+# Combine y and yhat ------------------------------------------------------
+# Function to get yhat and actual data into the same dataframe
+# data = data object
+# refit = predict.var_estimate object
+f_merge_pred <- function(data, refit){
+  y_pred <- array(NA, dim = c(dim(refit)[1],dim(refit)[3]))
+  # loop over number of variables in refit object
+  for(p in 1:dim(refit)[3]){
+    y_pred[,p] <- refit[,,p]
+    dimnames(y_pred) <- list(NULL, paste0("V",1:6,"_pred"))
+  }
+  res <- cbind(data$Y, y_pred)
+  return(res)
+}
+
+
+
+
+# Compute RMSE ------------------------------------------------------------
+# everything should be standardized
+f_rmse <- function(res){
+  # loop through the merged results
+  # 1st column with 7th, 2nd column with 8th etc.
+  ncol <- dim(res)[2]/2
+  res_rmse <- array(NA, dim = c(1, ncol))
+  for(j in 1:ncol){
+    res_rmse[,j] <- sqrt(sum((res[,j]-res[,j+ncol])^2))
+  }
+  colnames(res_rmse)[1:ncol] <- paste0(colnames(res)[1:ncol],"_rmse")
+  return(res_rmse)
+}
+
+
+
+
+
+# Evaluate refit ----------------------------------------------------------
+# function that combines everything
+f_eval_refit <- function(data,
+                         refit){
+  comb <- f_merge_pred(data = data, refit = refit)
+  fit_stat <- f_rmse(comb)
+  mean_rmse <- rowMeans(fit_stat)
+  
+}
+
+
+
+# JSD between reference and other error distributions ---------------------
+# ref_model = number of model for reference
+# n = number of generated datasets
+f_comp_jsd <- function(df = df_errors, ref_model = 1, n){
+  # create storage
+  l_err <- list()
+  l_ecdf <- list()
+  df_jsd <- data.frame(model = rep(NA, n),
+                       jsd = rep(NA, n))
+  
+  
+  # Obtain characteristics of reference model
+  # obtain RMSEs
+  tmp <- subset(df_errors, model == ref_model, select = rmse)
+  rmse_refmod <- tmp$rmse
+  
+  # obtain ECDFs
+  f_ecdf_ref <- stats::ecdf(rmse_refmod)
+  ecdf_refmod <- f_ecdf_ref(rmse_refmod)
+  
+  # setup loop
+  for(i in seq(n)){
+    # if model has errors stored
+    if(nrow(subset(df_errors, model == i, select = rmse)) > 0){
+      # obtain RMSEs
+      tmp <- subset(df_errors, model == i, select = rmse)
+      rmse_mod <- tmp$rmse
+      
+      # obtain ECDFs
+      f_ecdf <- stats::ecdf(rmse_mod)
+      ecdf_mod <- f_ecdf(rmse_mod)
+      
+      # compute JSD to reference distribution
+      v_ecdf <- rbind(ecdf_refmod, ecdf_mod)
+      jsd <- philentropy::JSD(v_ecdf)
+      
+      # store values
+      df_jsd[i,"model"] <- i
+      df_jsd[i, "jsd"] <- jsd
+    }
+
+   
+  }
+  
+  return(df_jsd)
+}
+
+
+# Compute likelihood ------------------------------------------------------
+# https://github.com/cran/graphicalVAR/blob/master/R/graphicalVAR.R
+# starting with line 158
+# kappa = precision matrix of residuals
+# sigma = unconstrained covariance matrix of residuals
+
+logll <- function(kappa, sigma, n){
+  lik1 <- determinant(kappa)$modulus[1]
+  lik2 <- sum(diag(kappa %*% sigma))
+  
+  llk <- (n/2)*(lik1-lik2)
+  llk
+}
+
+```
+
+
+
+
+
+
+
 
 
 
@@ -377,7 +577,65 @@ t(graph$beta)
 
 
 
+```{r}
 
+
+# Posterior samples covariance matrix ------------------------------------
+# res = results of var_estimate
+f_postcov <- function(res){
+  beta_posterior <- res$fit$beta
+  # delete warm-up samples
+  beta_posterior <- beta_posterior[,,51:5050]
+
+  # get mean and SD of posterior estimates
+  beta_mu <- round(apply(beta_posterior,1:2,mean), digits = 3)
+  beta_sd <- round(apply(beta_posterior,1:2,sd), digits = 3)
+
+  # obtain the covariance matrix of estimates
+  dimnames(beta_posterior)[[1]] <- c("V1.l1", "V2.l1", "V3.l1", "V4.l1", "V5.l1", "V6.l1")
+  dimnames(beta_posterior)[[2]] <- c("V1", "V2", "V3", "V4", "V5", "V6")
+
+  # convert array to list
+  l_beta_posterior <- lapply(seq(dim(beta_posterior)[3]), function(x) beta_posterior[,,x])
+
+  ldf_beta_posterior <- lapply(l_beta_posterior, function(x){reshape2::melt(as.matrix(x))})
+
+  # keep sample index
+  df_beta_posterior <- purrr::map_dfr(ldf_beta_posterior, .f = rbind, .id = "index")
+
+  # pivot wider to obtain cov-matrix of predictors across posterior samples
+  vcov_beta <- df_beta_posterior |>
+    tidyr::pivot_wider(id_cols = index,
+                names_from = c(Var1, Var2)) |>
+    dplyr::select(!index) |>
+    stats::cov()
+  return(vcov_beta)
+}
+
+
+# Get Beta Variance -------------------------------------------------------
+# Input: fit object res
+# iter: number of iterations
+f_betavar <- function(res){
+  iter <- res$iter
+  beta_var <- apply(res$fit$beta[,,51:(res$iter+50)], 1:2, var)   # delete first 50 samples
+  beta_var
+  
+}
+  
+  
+
+
+# Compute reliability -----------------------------------------------------
+# Input: Vector of beta weights and posterior samples covariance matrix
+f_rel <- function(beta, covmat){
+  var_bw <- sd(beta)
+  var_wi <- tr(covmat)
+}
+
+
+
+```
 
 
 
