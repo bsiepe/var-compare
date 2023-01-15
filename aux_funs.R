@@ -417,7 +417,7 @@ fit_var_parallel_post <- function(data,
     
     
     # loop across individuals
-    foreach(i = seq(n), .packages = "BGGM") %dopar% {
+  l_out <- foreach(i = seq(n), .packages = "BGGM") %dopar% {
       # Counter for converged models
       m[[i]] <- 0
 
@@ -490,13 +490,19 @@ fit_var_parallel_post <- function(data,
       # number of failed attempts
       res$params$n_notconv <- length(res$fit)-100
       
+      # Cut away failed attempts
+      res$fit <- res$fit[!sapply(res$fit, is.null)]
+      
+      
       return(res)
       
     }  # end foreach
-    
-    
+  # cut away failed attempts
+
+  return(l_out)
   } # end isTRUE posteriorsamples
 
+  
 }  # end function
 
 
@@ -999,57 +1005,6 @@ format_bggm_list <- function(listname){
 
 
 
-
-# Combine y and yhat ------------------------------------------------------
-# Function to get yhat and actual data into the same dataframe
-# data = data object
-# refit = predict.var_estimate object
-f_merge_pred <- function(data, refit){
-  y_pred <- array(NA, dim = c(dim(refit)[1],dim(refit)[3]))
-  # loop over number of variables in refit object
-  for(p in 1:dim(refit)[3]){
-    y_pred[,p] <- refit[,,p]
-    dimnames(y_pred) <- list(NULL, paste0("V",1:6,"_pred"))
-  }
-  res <- cbind(data$Y, y_pred)
-  return(res)
-}
-
-
-
-
-# Compute RMSE ------------------------------------------------------------
-# everything should be standardized
-f_rmse <- function(res){
-  # loop through the merged results
-  # 1st column with 7th, 2nd column with 8th etc.
-  ncol <- dim(res)[2]/2
-  res_rmse <- array(NA, dim = c(1, ncol))
-  for(j in 1:ncol){
-    res_rmse[,j] <- sqrt(sum((res[,j]-res[,j+ncol])^2))
-  }
-  colnames(res_rmse)[1:ncol] <- paste0(colnames(res)[1:ncol],"_rmse")
-  return(res_rmse)
-}
-
-
-
-
-
-# Evaluate refit ----------------------------------------------------------
-# function that combines everything
-f_eval_refit <- function(data,
-                         refit){
-  comb <- f_merge_pred(data = data, refit = refit)
-  fit_stat <- f_rmse(comb)
-  mean_rmse <- rowMeans(fit_stat)
-  
-}
-
-
-
-
-
 # Plot error distribution -------------------------------------------------
 plot_error_dist <- function(dat, errorcol = mse){
   ggplot(dat, aes(x = {{errorcol}}))+
@@ -1062,73 +1017,64 @@ plot_error_dist <- function(dat, errorcol = mse){
 
 
 
-# JSD between reference and other error distributions ---------------------
-# ref_model = number of model for reference
-# n = number of generated datasets
-f_comp_jsd <- function(df = df_errors, ref_model = 1, n){
-  # create storage
-  l_err <- list()
-  l_ecdf <- list()
-  df_jsd <- data.frame(model = rep(NA, n),
-                       jsd = rep(NA, n))
-  
-  
-  # Obtain characteristics of reference model
-  # obtain RMSEs
-  tmp <- subset(df_errors, model == ref_model, select = rmse)
-  rmse_refmod <- tmp$rmse
-  
-  # obtain ECDFs
-  f_ecdf_ref <- stats::ecdf(rmse_refmod)
-  ecdf_refmod <- f_ecdf_ref(rmse_refmod)
-  
-  # setup loop
-  for(i in seq(n)){
-    # if model has errors stored
-    if(nrow(subset(df_errors, model == i, select = rmse)) > 0){
-      # obtain RMSEs
-      tmp <- subset(df_errors, model == i, select = rmse)
-      rmse_mod <- tmp$rmse
-      
-      # obtain ECDFs
-      f_ecdf <- stats::ecdf(rmse_mod)
-      ecdf_mod <- f_ecdf(rmse_mod)
-      
-      # compute JSD to reference distribution
-      v_ecdf <- rbind(ecdf_refmod, ecdf_mod)
-      jsd <- philentropy::JSD(v_ecdf)
-      
-      # store values
-      df_jsd[i,"model"] <- i
-      df_jsd[i, "jsd"] <- jsd
-    }
-
-   
-  }
-  
-  return(df_jsd)
-}
-
-
-# Compute likelihood ------------------------------------------------------
-# https://github.com/cran/graphicalVAR/blob/master/R/graphicalVAR.R
-# starting with line 158
-# kappa = precision matrix of residuals
-# sigma = unconstrained covariance matrix of residuals
-
-logll <- function(kappa, sigma, n){
-  lik1 <- determinant(kappa)$modulus[1]
-  lik2 <- sum(diag(kappa %*% sigma))
-  
-  llk <- (n/2)*(lik1-lik2)
-  llk
-}
-
-
-
-
 
 # Distance between empirical and posterior --------------------------------
+
+# THIS IS A NEW BETA VERSION!
+postemp_distance_new <- function(post,
+                             emp,
+                             comp,
+                             mod){
+  
+  # storage
+  dist_out <- list()
+  
+  
+  # define the distance function based on comp
+  distance_fn_beta <- switch(comp,
+                             frob =   {function(x) norm(emp[[mod]]$beta_mu-x$beta_mu, type = "F")},
+                             maxdiff = {function(x) max(abs((emp[[mod]]$beta_mu-x$beta_mu)))},
+                             l1 = {function(x) sum(abs((emp[[mod]]$beta_mu-x$beta_mu)))}
+  )
+  distance_fn_pcor <- switch(comp,
+                             frob = {function(x) norm(emp[[mod]]$pcor_mu-x$pcor_mu, type = "F")},
+                             maxdiff = {function(x) max(abs((emp[[mod]]$pcor_mu-x$pcor_mu)))},
+                             l1 = {function(x) sum(abs((emp[[mod]]$pcor_mu-x$pcor_mu)))}
+  )
+  
+  
+## Check if estimation worked
+# Should be unneccessary if non-converged attempts were deleted
+if(!is.list(post_a[[mod_a]]) | !is.list(post_a[[mod_b]])){
+    beta_distance <- NA
+    pcor_distance <- NA
+    stop("Input not a list, probably estimation did not converge.")
+    
+} 
+
+  # if both elements are lists
+  else{
+    dist_out[["beta"]] <- unlist(lapply(post[[mod]], distance_fn_beta(x)))
+    dist_out[["pcor"]] <- unlist(lapply(post[[mod]], distance_fn_pcor(x)))
+    
+  }   
+
+  
+  
+  return(dist_out)
+}
+
+
+
+
+
+
+
+
+
+
+
+
 
 # TODO output structure
 # PCMD not yet implemented in other functions
@@ -1136,73 +1082,73 @@ postemp_distance <- function(post,
                              emp,
                              comp,
                              mod){
-  
+
   # storage
   dist_out <- list()
-    
-  
-  
+
+
+
   if(comp == "frob"){
     normtype = "F"
     frob_beta <- unlist(lapply(post[[mod]], function(x){
       if(length(x) == 0 | !is.list(x))
-        {NA} 
+        {NA}
       else
         {norm(emp[[mod]]$beta_mu-x$beta_mu, type = normtype)}}))
-      
+
     frob_pcor <- unlist(lapply(post[[mod]], function(x){
       if(length(x) == 0 | !is.list(x))
-        {NA} 
+        {NA}
       else
         {norm(emp[[mod]]$pcor_mu-x$pcor_mu, type = normtype)}}))
-    
+
     dist_out[["beta"]] <- frob_beta
     dist_out[["pcor"]] <- frob_pcor
-    
+
     }  # end frob
 
 
-  
-  
+
+
   if(comp == "maxdiff"){
     maxdiff_beta <- unlist(lapply(post[[mod]], function(x){
       if(length(x) == 0 | !is.list(x))
         {NA}
       else
         {max(abs(emp[[mod]]$beta_mu-x$beta_mu))}}))
-    
+
     maxdiff_pcor <- unlist(lapply(post[[mod]], function(x){
       if(length(x) == 0 | !is.list(x))
         {NA}
       else
         {max(abs(emp[[mod]]$pcor_mu-x$pcor_mu))}}))
-    
+
     dist_out[["beta"]] <- maxdiff_beta
     dist_out[["pcor"]] <- maxdiff_pcor
-    
+
     }  # end maxdiff
-  
-  
-  
+
+
+
   if(comp == "l1"){
     l1_beta <-  unlist(lapply(post[[mod]], function(x){
       if(length(x) == 0 | !is.list(x))
         {NA}
       else
         {sum(abs(emp[[mod]]$beta_mu-x$beta_mu))}}))
-    
+
     l1_pcor <-  unlist(lapply(post[[mod]], function(x){
       if(length(x) == 0 | !is.list(x))
       {NA}
       else
       {sum(abs(emp[[mod]]$pcor_mu-x$pcor_mu))}}))
-    
+
       dist_out[["beta"]] <- l1_beta
-      dist_out[["pcor"]] <- l1_pcor 
-    
-    
+      dist_out[["pcor"]] <- l1_pcor
+
+
     }  # end l1
-  
+
   if(comp == "pcmd"){
     # only suitable for (partial) correlations
     pcmd_pcor <-  unlist(lapply(post[[mod]], function(x){
@@ -1212,11 +1158,11 @@ postemp_distance <- function(post,
       {1 - (sum(diag(emp[[mod]]$pcor_mu %*% x$pcor_mu)) / (norm(emp[[mod]]$pcor_mu, type = "F") * norm(x$pcor_mu, type = "F")))}}))
     # dist_out[["beta"]] <- NULL
     dist_out[["pcor"]] <- pcmd_pcor
-    
-    
+
+
   }
-  
-           
+
+
   return(dist_out)
 }
 
@@ -1370,6 +1316,7 @@ for(i in seq(draws)){
     pcor_distance <- distance_fn_pcor(post_a[[mod_a]], post_a[[mod_b]])
     
   }  
+  dist_out[[i]]$comp <- comp
   dist_out[[i]]$mod_a <- mod_a
   dist_out[[i]]$mod_b <- mod_b
   dist_out[[i]]$beta <- beta_distance
@@ -1646,62 +1593,6 @@ expand_grid_unique <- function(mod_a, mod_b){
 
 
 
-
-
-
-
-# Posterior samples covariance matrix ------------------------------------
-# res = results of var_estimate
-f_postcov <- function(res){
-  beta_posterior <- res$fit$beta
-  # delete warm-up samples
-  beta_posterior <- beta_posterior[,,51:5050]
-
-  # get mean and SD of posterior estimates
-  beta_mu <- round(apply(beta_posterior,1:2,mean), digits = 3)
-  beta_sd <- round(apply(beta_posterior,1:2,sd), digits = 3)
-
-  # obtain the covariance matrix of estimates
-  dimnames(beta_posterior)[[1]] <- c("V1.l1", "V2.l1", "V3.l1", "V4.l1", "V5.l1", "V6.l1")
-  dimnames(beta_posterior)[[2]] <- c("V1", "V2", "V3", "V4", "V5", "V6")
-
-  # convert array to list
-  l_beta_posterior <- lapply(seq(dim(beta_posterior)[3]), function(x) beta_posterior[,,x])
-
-  ldf_beta_posterior <- lapply(l_beta_posterior, function(x){reshape2::melt(as.matrix(x))})
-
-  # keep sample index
-  df_beta_posterior <- purrr::map_dfr(ldf_beta_posterior, .f = rbind, .id = "index")
-
-  # pivot wider to obtain cov-matrix of predictors across posterior samples
-  vcov_beta <- df_beta_posterior |>
-    tidyr::pivot_wider(id_cols = index,
-                names_from = c(Var1, Var2)) |>
-    dplyr::select(!index) |>
-    stats::cov()
-  return(vcov_beta)
-}
-
-
-# Get Beta Variance -------------------------------------------------------
-# Input: fit object res
-# iter: number of iterations
-f_betavar <- function(res){
-  iter <- res$iter
-  beta_var <- apply(res$fit$beta[,,51:(res$iter+50)], 1:2, var)   # delete first 50 samples
-  beta_var
-  
-}
-  
-  
-
-
-# Compute reliability -----------------------------------------------------
-# Input: Vector of beta weights and posterior samples covariance matrix
-f_rel <- function(beta, covmat){
-  var_bw <- sd(beta)
-  var_wi <- tr(covmat)
-}
 
 
 
