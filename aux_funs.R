@@ -1045,7 +1045,7 @@ postemp_distance_new <- function(post,
   
 ## Check if estimation worked
 # Should be unneccessary if non-converged attempts were deleted
-if(!is.list(post_a[[mod_a]]) | !is.list(post_a[[mod_b]])){
+if(!is.list(post[[mod]]$fit) | !is.list(post[[mod]]$fit)){
     beta_distance <- NA
     pcor_distance <- NA
     stop("Input not a list, probably estimation did not converge.")
@@ -1054,8 +1054,8 @@ if(!is.list(post_a[[mod_a]]) | !is.list(post_a[[mod_b]])){
 
   # if both elements are lists
   else{
-    dist_out[["beta"]] <- unlist(lapply(post[[mod]], distance_fn_beta(x)))
-    dist_out[["pcor"]] <- unlist(lapply(post[[mod]], distance_fn_pcor(x)))
+    dist_out[["beta"]] <- unlist(lapply(post[[mod]]$fit, distance_fn_beta(x)))
+    dist_out[["pcor"]] <- unlist(lapply(post[[mod]]$fit, distance_fn_pcor(x)))
     
   }   
 
@@ -1090,13 +1090,13 @@ postemp_distance <- function(post,
 
   if(comp == "frob"){
     normtype = "F"
-    frob_beta <- unlist(lapply(post[[mod]], function(x){
+    frob_beta <- unlist(lapply(post[[mod]]$fit, function(x){
       if(length(x) == 0 | !is.list(x))
         {NA}
       else
         {norm(emp[[mod]]$beta_mu-x$beta_mu, type = normtype)}}))
 
-    frob_pcor <- unlist(lapply(post[[mod]], function(x){
+    frob_pcor <- unlist(lapply(post[[mod]]$fit, function(x){
       if(length(x) == 0 | !is.list(x))
         {NA}
       else
@@ -1111,13 +1111,13 @@ postemp_distance <- function(post,
 
 
   if(comp == "maxdiff"){
-    maxdiff_beta <- unlist(lapply(post[[mod]], function(x){
+    maxdiff_beta <- unlist(lapply(post[[mod]]$fit, function(x){
       if(length(x) == 0 | !is.list(x))
         {NA}
       else
         {max(abs(emp[[mod]]$beta_mu-x$beta_mu))}}))
 
-    maxdiff_pcor <- unlist(lapply(post[[mod]], function(x){
+    maxdiff_pcor <- unlist(lapply(post[[mod]]$fit, function(x){
       if(length(x) == 0 | !is.list(x))
         {NA}
       else
@@ -1131,13 +1131,13 @@ postemp_distance <- function(post,
 
 
   if(comp == "l1"){
-    l1_beta <-  unlist(lapply(post[[mod]], function(x){
+    l1_beta <-  unlist(lapply(post[[mod]]$fit, function(x){
       if(length(x) == 0 | !is.list(x))
         {NA}
       else
         {sum(abs(emp[[mod]]$beta_mu-x$beta_mu))}}))
 
-    l1_pcor <-  unlist(lapply(post[[mod]], function(x){
+    l1_pcor <-  unlist(lapply(post[[mod]]$fit, function(x){
       if(length(x) == 0 | !is.list(x))
       {NA}
       else
@@ -1151,7 +1151,7 @@ postemp_distance <- function(post,
 
   if(comp == "pcmd"){
     # only suitable for (partial) correlations
-    pcmd_pcor <-  unlist(lapply(post[[mod]], function(x){
+    pcmd_pcor <-  unlist(lapply(post[[mod]]$fit, function(x){
       if(length(x) == 0 | !is.list(x))
       {NA}
       else
@@ -1357,7 +1357,7 @@ cross_compare <- function(
     # Distance empirical to posterior sample estimates
     null_a <- postemp_distance(post = fitpost_a, emp = fitemp_a, 
                                comp = comparison, mod = mod_a)
-    null_b <- postemp_distance(post = fitpost_a, emp = fitemp_a, 
+    null_b <- postemp_distance(post = fitpost_b, emp = fitemp_b, 
                                comp = comparison, mod = mod_b)
     
     # Compute empirical distance as test statistic
@@ -1496,7 +1496,10 @@ cross_compare_eval <- function(l_res,
                   beta_b = teststat_b_beta,
                   pcor_a = teststat_a_pcor,
                   pcor_b = teststat_b_pcor,
-                  comp = df_res_beta$comp[[1]])  # get type of comparison
+                  comp = df_res_beta$comp[[1]], # get type of comparison
+                  dgp = l_res[["params"]]$dgp,
+                  tp = l_res[["params"]]$tp,
+                  comp_graph = l_res[["params"]]$comp_graph)  
   testres
 }
 
