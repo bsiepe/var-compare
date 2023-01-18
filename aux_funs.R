@@ -51,7 +51,7 @@ changemax_kappa <- function(m_kappa,
 #' Change Graph
 #' Changes graph structure (beta and kappa matrix) according to prescpecified changes. 
 #' @param truegraph The true graph (should contain a beta and a kappa matrix)
-#' @param changemax Vector of factors with which the largested matrix element
+#' @param changemax Vector of factors with which the largest matrix element
 #' should be multiplied.
 #' @param noise Vector of uniform noise that is added to the matrixes.
 #'
@@ -151,6 +151,21 @@ change_graphs <- function(truegraph,
   ## Check if stationarity holds
   
   ## Check if everything is <= 1
+  l_out_change <- lapply(l_out_change, function(x){
+    lapply(x, function(mat) {
+      mat[mat > 1] <- 1
+      mat
+    })
+  })
+
+
+  l_out_noise <- lapply(l_out_noise, function(x){
+    lapply(x, function(mat) {
+      mat[mat > 1] <- 1
+      mat
+    })
+  })
+  
   
   
   ### Output
@@ -185,7 +200,7 @@ sim_raw_parallel <- function(dgp,
                              n,
                              tp,
                              means = 0,
-                             seed = seed,
+                             seed,
                              standardize = TRUE){
   # save function arguments in output
   args <- as.list(environment())
@@ -510,8 +525,10 @@ fit_var_parallel_post <- function(data,
 
 # Fit VAR parallel merged -------------------------------------------------
 # This is a merge of fit_var_parallel and fit_var_parallel_post into one function
+
 fit_var_parallel_merged <- function(data, 
                                      n,
+                                     nds,       # number of datasets
                                      rho_prior, 
                                      beta_prior,
                                      seed,
@@ -524,14 +541,15 @@ fit_var_parallel_merged <- function(data,
     warning("The n provided does not match the number of available data frames")
   }
   require(doParallel)
-  # require("BGGM", lib.loc = "C:/Users/Bjoern/R-dev")
-  
+
   # reproducible parallelization
   registerDoRNG(seed)
   
+
   # if we take simulated data in a list object
+  # We sequence along number of posterior datasets and then cut away redundant datasets afterwards
   if(isFALSE(posteriorsamples)){
-    fit <- foreach(i = seq(n), .packages = "BGGM") %dopar% {
+    fit <- foreach(i = seq(nds), .packages = "BGGM") %dopar% {
       fit_ind <- list()
       if(is.list(data[[i]]$data) | is.numeric(data[[i]]$data)){
         fit_ind <- tryCatch({BGGM::var_estimate(data[[i]]$data,
@@ -575,9 +593,14 @@ fit_var_parallel_merged <- function(data,
       
       fit_ind  
     }
+    # Cut away nonconverged attempts
+    fit <- fit[!sapply(fit, is.null)]
     
+    # Return list with desired length
+    fit <- fit[c(1:n)]
+    return(fit)
     
-  }
+  } # end isFALSE(posteriorsamples)
   
   
   # if we fit the data on samples generated from the posterior
