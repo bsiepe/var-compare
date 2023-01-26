@@ -48,6 +48,8 @@ changemax_kappa <- function(m_kappa,
 # Uses uniform noise for now
 # TODO make sure that everything is stationary/below 1
 
+# TODO instead of enforcing symmetric, just change upper diagonal and then add together
+
 #' Change Graph
 #' Changes graph structure (beta and kappa matrix) according to prescpecified changes. 
 #' @param truegraph The true graph (should contain a beta and a kappa matrix)
@@ -58,9 +60,14 @@ changemax_kappa <- function(m_kappa,
 #' @return List containing truegraph and all changed graphs as elements. 
 #' @export
 #'
-change_graphs <- function(truegraph, 
-                          changemax, 
-                          noise){
+change_graphs <- function(truegraph = NULL, 
+                          changemax = NULL,
+                          # changeall = NULL,
+                          noise,
+                          seed){
+  
+  set.seed(seed)
+  
   ### Create storage
   l_out <- list()
   l_out[[1]] <- truegraph
@@ -105,67 +112,149 @@ change_graphs <- function(truegraph,
   
   
   ### Change max
-  l_out_change <- list()
-  ## Beta
-  for(c in seq_along(changemax)){
-    # create storage for each changed graph
-    l_out_change[[c]] <- list()
-    tmp_beta <- m_beta
-    tmp_beta[b_max] <- m_beta[b_max]*changemax[c]
-    l_out_change[[c]]$beta <- tmp_beta
+  if(!is.null(changemax)){
+    l_out_change <- list()
+    ## Beta
+    for(c in seq_along(changemax)){
+      # create storage for each changed graph
+      l_out_change[[c]] <- list()
+      tmp_beta <- m_beta
+      tmp_beta[b_max] <- m_beta[b_max]*changemax[c]
+      l_out_change[[c]]$beta <- tmp_beta
+    }
+    
+    ## Kappa
+    # change the element in the matrix on both sides of diagonal
+    for(c in seq_along(changemax)){
+      # Check for positive-semidefiniteness
+      psd_check <- FALSE
+      while(psd_check == FALSE){
+        tmp_kappa <- m_kappa
+        tmp_kappa[max_row,max_col] <- m_kappa[max_row,max_col]*changemax[c]
+        tmp_kappa[max_col,max_row] <- m_kappa[max_col,max_row]*changemax[c]
+        
+        psd <- matrixcalc::is.positive.semi.definite(tmp_kappa)
+        
+        if(psd){
+          psd_check <- TRUE
+        }
+        else{
+          print(paste0("Changemax leads to matrix that is not positive definite for ", changemax[c]))
+        }
+        
+      }
+      l_out_change[[c]]$kappa <- tmp_kappa
+      names(l_out_change)[[c]] <- paste0("change_", changemax[c])
+    }
+    ## Checking
+    # values outside unit circle
+    l_out_change <- lapply(l_out_change, function(x){
+      lapply(x, function(mat) {
+        mat[mat > 1] <- 1
+        mat[mat < -1] <- -1
+        mat
+      })
+    })
   }
   
-  ## Kappa
-  # change the element in the matrix on both sides of diagonal
-  for(c in seq_along(changemax)){
-    tmp_kappa <- m_kappa
-    tmp_kappa[max_row,max_col] <- m_kappa[max_row,max_col]*changemax[c]
-    tmp_kappa[max_col,max_row] <- m_kappa[max_col,max_row]*changemax[c]
-    l_out_change[[c]]$kappa <- tmp_kappa
-    names(l_out_change)[[c]] <- paste0("change_", changemax[c])
-  }
+  
+  # if(!is.null(changeall)){
+  #   ### Change all
+  #   l_out_all <- list()
+  #   
+  #   ## Beta
+  #   for(a in seq_along(changeall)){
+  #     l_out_all[[a]] <- list()
+  #     tmp_beta <- m_beta
+  #     tmp_beta <- m_beta*changeall[c]
+  #     l_out_all[[a]]$beta <- tmp_beta
+  #   }
+  #   
+  #   
+  #   ## Kappa
+  #   for(a in seq_along(changeall)){
+  #     # Check for positive-semidefiniteness
+  #     psd_check <- FALSE
+  #     while(psd_check == FALSE){
+  #       tmp_kappa <- m_kappa
+  #       # change only upper triangle
+  #       tmp_kappa[upper.tri(tmp_kappa)] <- tmp_kappa[upper.tri(tmp_kappa)]*changeall[a]
+  #       
+  #       # make symmetric again
+  #       tmp_kappa <- as.matrix(Matrix::forceSymmetric(tmp_kappa))
+  #       
+  #       # check psd
+  #       psd <- matrixcalc::is.positive.semi.definite(tmp_kappa)
+  #       
+  #       if(psd){
+  #         psd_check <- TRUE
+  #       }
+  #       else{
+  #         print(paste0("Changeall leads to matrix that is not positive definite for ", changeall[a]))
+  #       }
+  #       
+  #     }
+  #     l_out_all[[a]]$kappa <- tmp_kappa
+  #     names(l_out_all)[[a]] <- paste0("changeall_", changeall[a])
+  #     
+  #   }
+  #   ## Checking
+  #   # values outside unit circle
+  #   l_out_all <- lapply(l_out_all, function(x){
+  #     lapply(x, function(mat) {
+  #       mat[mat > 1] <- 1
+  #       mat[mat < -1] <- -1
+  #       mat
+  #     })
+  #   })
+  #   
+  # } # end !is.null
+  # 
   
   
   
   ### Add noise
-  l_out_noise <- list()
-  ## Beta
-  for(n in seq_along(noise)){
-    l_out_noise[[n]] <- list()
-    tmp_beta <- m_beta + runif(n = b_i*b_j, min = -noise[n], max = noise[n])
-    l_out_noise[[n]]$beta <- tmp_beta
+  if(!is.null(noise)){
+    l_out_noise <- list()
+    ## Beta
+    for(n in seq_along(noise)){
+      l_out_noise[[n]] <- list()
+      tmp_beta <- m_beta + runif(n = b_i*b_j, min = -noise[n], max = noise[n])
+      l_out_noise[[n]]$beta <- tmp_beta
+    }
+    
+    ## Kappa
+    for(n in seq_along(noise)){
+      psd_check <- FALSE
+      while(psd_check == FALSE){
+        tmp_kappa <- m_kappa + runif(n = k_i*k_j, min = -noise[n], max = noise[n])
+        tmp_kappa <- as.matrix(Matrix::forceSymmetric(tmp_kappa))
+        psd <- matrixcalc::is.positive.semi.definite(tmp_kappa)  
+        if(psd){
+          psd_check <- TRUE
+        } else{
+          print(paste0("Adding noise to Kappa leads to matrix that is not positive semi-definite for ", noise[n]))
+        }
+      }
+      
+      
+      l_out_noise[[n]]$kappa <- tmp_kappa
+      names(l_out_noise)[[n]] <- paste0("noise_", noise[n])
+    }
+    ## Checking
+    # values outside unit circle
+    l_out_noise <- lapply(l_out_noise, function(x){
+      lapply(x, function(mat) {
+        mat[mat > 1] <- 1
+        mat[mat < -1] <- -1
+        mat
+      })
+      })
+  
+    
   }
   
-  ## Kappa
-  for(n in seq_along(noise)){
-    tmp_kappa <- m_kappa + runif(n = k_i*k_j, min = -noise[n], max = noise[n])
-    tmp_kappa <- as.matrix(Matrix::forceSymmetric(tmp_kappa))
-    l_out_noise[[n]]$kappa <- tmp_kappa
-    names(l_out_noise)[[n]] <- paste0("noise_", noise[n])
-  }
-  
-  
-  ### Checking 
-  ## Check if max change only changed one edge
-  
-  ## Check if stationarity holds
-  
-  ## Check if everything is <= 1
-  l_out_change <- lapply(l_out_change, function(x){
-    lapply(x, function(mat) {
-      mat[mat > 1] <- 1
-      mat
-    })
-  })
 
-
-  l_out_noise <- lapply(l_out_noise, function(x){
-    lapply(x, function(mat) {
-      mat[mat > 1] <- 1
-      mat
-    })
-  })
-  
   
   
   ### Output
@@ -237,8 +326,7 @@ sim_raw_parallel <- function(dgp,
 
 # Fit VAR parallel --------------------------------------------------------
 # TODO add saving of function arguments
-# TODO needs different options for different provided data formats
-# because $data does not work for posterior samples data
+
 fit_var_parallel <- function(data, 
                              n,
                              rho_prior, 
@@ -311,7 +399,7 @@ fit_var_parallel <- function(data,
   # if we fit the data on samples generated from the posterior
   if(isTRUE(posteriorsamples)){
     print("Fitting to posterior samples")
-    # TODO does this call the correct BGGM version?
+
     fit <- foreach(i = seq(n), .packages = "BGGM") %dopar% {
       fit_ind <- list()
       if(is.list(data[[i]])){
@@ -548,6 +636,9 @@ fit_var_parallel_merged <- function(data,
 
   # if we take simulated data in a list object
   # We sequence along number of posterior datasets and then cut away redundant datasets afterwards
+  # Count number of non-converged estimations
+  n_nonconv <- 0
+  
   if(isFALSE(posteriorsamples)){
     fit <- foreach(i = seq(nds), .packages = "BGGM") %dopar% {
       fit_ind <- list()
@@ -569,7 +660,10 @@ fit_var_parallel_merged <- function(data,
             fit_ind$kappa_mu <- apply(fit_ind$fit$kappa, c(1,2), mean)
             
           }
-          
+          else{
+            n_nonconv <- n_nonconv + 1
+          }
+          fit_ind$n_nonconv <- n_nonconv
         }
         # prune results for comparison purposes
         if(isTRUE(pruneresults) & is.list(fit_ind)){
@@ -578,14 +672,16 @@ fit_var_parallel_merged <- function(data,
           beta_mu <- fit_ind$beta_mu 
           pcor_mu <- fit_ind$pcor_mu
           kappa_mu <- fit_ind$kappa_mu
+          n_nonconv <- fit_ind$n_nonconv
           fit_ind <- list()
           fit_ind$fit <- list()
           fit_ind$beta_mu <- beta_mu
           fit_ind$pcor_mu <- pcor_mu
           fit_ind$kappa_mu <- kappa_mu
+          fit_ind$n_nonconv <- n_nonconv
           fit_ind$fit$beta <- beta
           fit_ind$fit$kappa <- kappa
-          
+
         } 
         
       }
@@ -595,6 +691,7 @@ fit_var_parallel_merged <- function(data,
     }
     # Cut away nonconverged attempts
     fit <- fit[!sapply(fit, is.null)]
+    
     
     # Return list with desired length
     fit <- fit[c(1:n)]
@@ -707,7 +804,7 @@ fit_var_parallel_merged <- function(data,
 
 # Sim from posterior ------------------------------------------------------
 # TODO save function arguments
-# TODO INSANELY IMPORTANT! DO I NEED TO TRANSPOSE? I THINK YES
+# TODO Double check transposing for qgraph
 
 #' Simulate from Posterior Samples
 #' This function simulates a specified number of datasets from the posterior
@@ -729,7 +826,7 @@ sim_from_post_parallel <- function(fitobj,
                                    n,
                                    tp,
                                    iterations,
-                                   seed = seed,
+                                   seed,  
                                    means = 0,
                                    convert_bggm = FALSE){
   # Extract parameters from fitobject
@@ -772,214 +869,6 @@ sim_from_post_parallel <- function(fitobj,
   post_data
   
 }
-# Predict function for external data --------------------------------------
-# Taken from https://github.com/donaldRwilliams/BGGM/blob/master/R/predict.estimate.R
-# adapted for using external data for refitting of the model
-# data needs to be of the same length, which is no issue when using simulated data
-
-predict.var_estimate <- function(object,
-                                 data,
-                                 summary = TRUE,
-                                 cred = 0.95,
-                                 iter = NULL,
-                                 progress = TRUE,
-                                 ...){
-  
-  
-  # lower bound
-  lb <- (1 - cred) / 2
-  
-  # uppder bound
-  ub <- 1 - lb
-  
-  
-  # data matrix
-  # B: changed by me to accomodate external object
-  # needs to be in the proper (lagged) formatting
-  X <- data$X
-  n <- nrow(X)
-  
-  
-  if(is.null(iter)){
-    
-    iter <- object$iter
-    
-  }
-  
-  p <- object$p
-  
-  post_names <- sapply(1:p, function(x) paste0(
-    colnames(data$Y)[x], "_",  colnames(data$X))
-  )
-  
-  post_samps <- BGGM::posterior_samples(object)
-  
-  if(isTRUE(progress)){
-    pb <- utils::txtProgressBar(min = 0, max = p, style = 3)
-  }
-  
-  yhats <- lapply(1:p, function(x){
-    
-    yhat_p <- post_samps[, post_names[,x]] %*% t(X)
-    
-    
-    if(isTRUE(progress)){
-      utils::setTxtProgressBar(pb, x)
-    }
-    
-    yhat_p
-    
-  })
-  
-  if(isTRUE(summary)){
-    
-    
-    
-    fitted_array <- array(0, dim = c(n, 4, p))
-    
-    dimnames(fitted_array)[[2]] <- c("Post.mean",
-                                     "Post.sd",
-                                     "Cred.lb",
-                                     "Cred.ub")
-    
-    dimnames(fitted_array)[[3]] <- colnames(data$Y)
-    
-    
-    for(i in 1:p){
-      
-      fitted_array[,,i] <- cbind(colMeans(yhats[[i]]),
-                                 apply(yhats[[i]], 2, sd),
-                                 apply(yhats[[i]], 2, quantile, lb),
-                                 apply(yhats[[i]], 2, quantile, ub)
-      )
-    }
-    
-    
-  } else {
-    
-    fitted_array <- array(0, dim = c(iter, n, p))
-    
-    dimnames(fitted_array)[[3]] <- colnames(data$Y)
-    
-    for(i in 1:p){
-      
-      fitted_array[,,i] <- t(as.matrix(yhats[[i]]))
-      
-    }
-    
-  }
-  
-  return(fitted_array)
-  
-}
-
-
-
-
-
-# Predict with posterior mean ---------------------------------------------
-# IDEA: add option to manually provide a beta matrix with posterior means
-# instead of building the mean of the posterior samples
-
-# Change the function above to only use posterior mean for prediction
-predict_pmu.var_estimate <- function(object,
-                                 data,
-                                 summary = TRUE,
-                                 cred = 0.95,
-                                 iter = NULL,
-                                 progress = TRUE,
-                                 ...){
-  
-  
-  # lower bound
-  lb <- (1 - cred) / 2
-  
-  # uppder bound
-  ub <- 1 - lb
-  
-  
-  # data matrix
-  # B: changed by me to accomodate external object
-  # needs to be in the proper (lagged) formatting
-  X <- data$X
-  n <- nrow(X)
-  
-  
-  if(is.null(iter)){
-    
-    iter <- object$iter
-    
-  }
-  
-  p <- object$p
-  
-  post_names <- sapply(1:p, function(x) paste0(
-    colnames(data$Y)[x], "_",  colnames(data$X))
-  )
-  
-  post_samps <- BGGM::posterior_samples(object)
-  
-  # Only use relevant Beta samples
-  post_samps_b <- post_samps[,post_names]
-  colnames(post_samps_b) <- post_names
-  post_samps_mu <- matrix(colMeans(post_samps_b), ncol = 6)
-  # Very important: Do I need to do byrow TRUE or not?
-  # I don't think so, because it is done variable-wise
-  # so the first 6 values are the the coefficients on V1
-  
-  
-  if(isTRUE(progress)){
-    pb <- utils::txtProgressBar(min = 0, max = p, style = 3)
-  }
-  
-  yhats <- lapply(1:p, function(x){
-    
-    yhat_p <- post_samps_mu[,x] %*% t(X)
-    
-    
-    if(isTRUE(progress)){
-      utils::setTxtProgressBar(pb, x)
-    }
-    
-    yhat_p
-    
-  })
-  
-  if(isTRUE(summary)){
-    
-    
-    
-    fitted_array <- array(0, dim = c(n, 1, p))
-    
-    dimnames(fitted_array)[[2]] <- c("Post.mean")
-    
-    dimnames(fitted_array)[[3]] <- colnames(data$Y)
-    
-    
-    for(i in 1:p){
-      
-      fitted_array[,,i] <- cbind(colMeans(yhats[[i]])
-      )
-    }
-    
-    
-  } else {
-    
-    fitted_array <- array(0, dim = c(iter, n, p))
-    
-    dimnames(fitted_array)[[3]] <- colnames(data$Y)
-    
-    for(i in 1:p){
-      
-      fitted_array[,,i] <- t(as.matrix(yhats[[i]]))
-      
-    }
-    
-  }
-  
-  return(fitted_array)
-  
-}
 
 
 
@@ -1020,20 +909,6 @@ format_bggm <- function(Y){
 format_bggm_list <- function(listname){
   l_out <- lapply(listname, format_bggm)
   l_out
-}
-
-
-
-
-
-
-
-# Plot error distribution -------------------------------------------------
-plot_error_dist <- function(dat, errorcol = mse){
-  ggplot(dat, aes(x = {{errorcol}}))+
-  ggdist::stat_dist_halfeye(fill = ggokabeito::palette_okabe_ito()[2],
-                            color = "black")+
-  theme_minimal()
 }
 
 
@@ -1282,25 +1157,24 @@ postpost_distance <- function(post_a,
 # Distance within posterior samples ---------------------------------------
 # Looks at differences between models sampled from the same
 # "original" model, so similar to bootstrapping
-# TODO this is still in the works
 # TODO make other postpost functions shorter as well
-postpost_distance_within <- function(post_a, 
-                      comp, 
-                      draws = 1000){
+postpost_distance_within <- function(post, 
+                                     comp, 
+                                     draws = 1000){
   
   # storage
   dist_out <- list()
   
   # define the distance function based on comp
   distance_fn_beta <- switch(comp,
-                             frob =   {function(x, y) norm(x$beta_mu-y$beta_mu, type = "F")},
-                             maxdiff = {function(x, y) max(abs((x$beta_mu-y$beta_mu)))},
-                             l1 = {function(x, y) sum(abs((x$beta_mu-y$beta_mu)))}
+                             frob =   {function(x, y, mod_one, mod_two) norm(x$fit[[mod_one]]$beta_mu-y$fit[[mod_two]]$beta_mu, type = "F")},
+                             maxdiff = {function(x, y, mod_one, mod_two) max(abs((x$fit[[mod_one]]$beta_mu-y$fit[[mod_two]]$beta_mu)))},
+                             l1 = {function(x, y, mod_one, mod_two) sum(abs((x$fit[[mod_one]]$beta_mu-y$fit[[mod_two]]$beta_mu)))}
   )
   distance_fn_pcor <- switch(comp,
-                             frob = {function(x, y) norm(x$pcor_mu-y$pcor_mu, type = "F")},
-                             maxdiff = {function(x, y) max(abs((x$pcor_mu-y$pcor_mu)))},
-                             l1 = {function(x, y) sum(abs((x$pcor_mu-y$pcor_mu)))}
+                             frob = {function(x, y, mod_one, mod_two) norm(x$fit[[mod_one]]$pcor_mu-y$fit[[mod_two]]$pcor_mu, type = "F")},
+                             maxdiff = {function(x, y, mod_one, mod_two) max(abs((x$fit[[mod_one]]$pcor_mu-y$fit[[mod_two]]$pcor_mu)))},
+                             l1 = {function(x, y, mod_one, mod_two) sum(abs((x$fit[[mod_one]]$pcor_mu-y$fit[[mod_two]]$pcor_mu)))}
   )
   
   
@@ -1308,7 +1182,7 @@ postpost_distance_within <- function(post_a,
   
   ## Draw two random models
   # Obtain number of models
-  n_mod <- length(post_a)
+  n_mod <- length(post$fit)
   
   # Draw pairs of models
   mod_pairs <- replicate(draws, sample(1:n_mod, size = 2, replace = TRUE))
@@ -1316,17 +1190,17 @@ postpost_distance_within <- function(post_a,
 for(i in seq(draws)){
   # storage
   dist_out[[i]] <- list()
-  mod_a <- mod_pairs[1,i]
-  mod_b <- mod_pairs[2,i]
+  mod_one <- mod_pairs[1,i]
+  mod_two <- mod_pairs[2,i]
   
-# if mod_a and mod_b are equal, redraw
-  if(mod_a == mod_b){
-    mod_b <- sample(1:n_mod, size = 1)
+# if mod_one and mod_two are equal, redraw
+  if(mod_one == mod_two){
+    mod_two <- sample(1:n_mod, size = 1)
 }
   
   ## Check if estimation worked
   # Should be unneccessary if non-converged attempts were deleted
-  if(!is.list(post_a[[mod_a]]) | !is.list(post_a[[mod_b]])){
+  if(!is.list(post$fit[[mod_one]]) | !is.list(post$fit[[mod_two]])){
     beta_distance <- NA
     pcor_distance <- NA
     stop("Not a list.")
@@ -1335,19 +1209,19 @@ for(i in seq(draws)){
   } 
   # if both elements are lists
   else{
-    beta_distance <- distance_fn_beta(post_a[[mod_a]], post_a[[mod_b]])
-    pcor_distance <- distance_fn_pcor(post_a[[mod_a]], post_a[[mod_b]])
+    beta_distance <- distance_fn_beta(post, post, mod_one, mod_two)
+    pcor_distance <- distance_fn_pcor(post, post, mod_one, mod_two)
     
   }  
   dist_out[[i]]$comp <- comp
-  dist_out[[i]]$mod_a <- mod_a
-  dist_out[[i]]$mod_b <- mod_b
+  dist_out[[i]]$mod_one <- mod_one
+  dist_out[[i]]$mod_two <- mod_two
   dist_out[[i]]$beta <- beta_distance
   dist_out[[i]]$pcor <- pcor_distance  
   
 } # end for loop  
   out <- do.call(rbind, dist_out)
-  
+  out <- as.data.frame(out)
   
   
   return(out)
@@ -1357,8 +1231,7 @@ for(i in seq(draws)){
 
  
 # # Cross-compare all posterior samples -------------------------------------
-# TODO implement for all comparison types
-# does not work yet, emp gives NA
+
 cross_compare <- function(
     postpost = FALSE,        # compute differences between posteriors
     fitpost_a = l_postres,
@@ -1377,7 +1250,7 @@ cross_compare <- function(
   if(comparison == "frob"){
     normtype = "F"
   }
-    # Distance empirical to posterior sample estimates
+    # Distance within posterior samples
     null_a <- postemp_distance(post = fitpost_a, emp = fitemp_a, 
                                comp = comparison, mod = mod_a)
     null_b <- postemp_distance(post = fitpost_b, emp = fitemp_b, 
@@ -1416,14 +1289,14 @@ cross_compare <- function(
       
       # Save results
       cc_res_beta <- data.frame(model_ind = c(rep(mod_a, n_datasets), rep(mod_b, n_datasets)),
-                                null = c(null_a[["beta"]], null_b[["beta"]]),
+                                null = c(unlist(null_a[["beta"]]), unlist(null_b[["beta"]])),
                                 emp = rep(emp_beta, n_datasets*2),
                                 comp = rep(comparison, n_datasets*2),
                                 type = rep("postemp", n_datasets*2))
       
       
       cc_res_pcor <- data.frame(model_ind = c(rep(mod_a, n_datasets), rep(mod_b, n_datasets)),
-                                null = c(null_a[["pcor"]], null_b[["pcor"]]),
+                                null = c(unlist(null_a[["pcor"]]), unlist(null_b[["pcor"]])),
                                 emp = rep(emp_pcor, n_datasets*2),
                                 comp = rep(comparison, n_datasets*2),
                                 type = rep("postemp", n_datasets*2))
@@ -1444,7 +1317,7 @@ cross_compare <- function(
       # Save results
       cc_res_beta <- data.frame(model_ind = c(rep(mod_a, n_datasets), rep(mod_b, n_datasets)),
                                 null = c(null_a[["beta"]], null_b[["beta"]]),
-                                emp = rep(post[["beta"]], 2),    # TODO repeat the distribution?
+                                emp = rep(post[["beta"]], 2),    
                                 comp = rep(comparison, n_datasets*2),
                                 type = rep("postpost", n_datasets*2))
       
@@ -1472,6 +1345,97 @@ cross_compare <- function(
 
 
 
+# Within posterior comparison ---------------------------------------------
+# This function uses bootstrapping to generate a difference distribution
+# within the posterior
+within_compare <- function(
+    fitpost_a = l_postres,
+    fitpost_b = l_postres,
+    fitemp_a = l_res,
+    fitemp_b = l_res,
+    mod_a = 1, 
+    mod_b = 2,
+    n_datasets = 100,
+    comparison = "frob",
+    n_draws = 1000,
+...){
+  if(!is.numeric(mod_a) | !is.numeric(mod_b)){
+    stop("Error: Model needs to have numerical index")
+  }
+  
+  if(comparison == "frob"){
+    normtype = "F"
+  }
+  # Distance empirical to posterior sample estimates
+  null_a <- postpost_distance_within(post = fitpost_a[[mod_a]], 
+                             comp = comparison, draws = n_draws)
+  null_b <- postpost_distance_within(post = fitpost_b[[mod_b]], 
+                             comp = comparison, draws = n_draws)
+  
+  # Compute empirical distance as test statistic
+    if(comparison == "frob"){
+      # Compute Distance of empirical betas between a and b
+      emp_beta <- tryCatch(norm(fitemp_a[[mod_a]]$beta_mu - fitemp_b[[mod_b]]$beta_mu, type = normtype), error = function(e) {NA})
+      
+      # Compute Distance of empirical pcors between a and b
+      emp_pcor <- tryCatch(norm(fitemp_a[[mod_a]]$pcor_mu - fitemp_b[[mod_b]]$pcor_mu, type = normtype), error = function(e) {NA})
+      
+    }
+    
+    if(comparison == "maxdiff"){
+      # Compute maxdiff of empirical betas between a and b
+      emp_beta <- tryCatch(max(abs(fitemp_a[[mod_a]]$beta_mu - fitemp_b[[mod_b]]$beta_mu)), error = function(e) {NA})
+      
+      # Compute maxdiff of empirical pcors between a and b
+      emp_pcor <- tryCatch(max(abs(fitemp_a[[mod_a]]$pcor_mu - fitemp_b[[mod_b]]$pcor_mu)), error = function(e) {NA})
+      
+    }
+    
+    if(comparison == "l1"){
+      # Compute l1 of empirical betas between a and b
+      emp_beta <- tryCatch(sum(abs(fitemp_a[[mod_a]]$beta_mu - fitemp_b[[mod_b]]$beta_mu)), error = function(e) {NA})
+      
+      # Compute l1 of empirical pcors between a and b
+      emp_pcor <- tryCatch(sum(abs(fitemp_a[[mod_a]]$pcor_mu - fitemp_b[[mod_b]]$pcor_mu)), error = function(e) {NA})
+      
+      
+    }
+    
+    # Save results
+    cc_res_beta <- data.frame(model_ind = c(rep(mod_a, n_draws), rep(mod_b, n_draws)),
+                              null = c(unlist(null_a[["beta"]]), unlist(null_b[["beta"]])),
+                              emp = rep(emp_beta, n_draws*2),
+                              comp = rep(comparison, n_draws*2),
+                              type = rep("postemp", n_draws*2))
+    
+    
+    cc_res_pcor <- data.frame(model_ind = c(rep(mod_a, n_draws), rep(mod_b, n_draws)),
+                              null = c(unlist(null_a[["pcor"]]), unlist(null_b[["pcor"]])),
+                              emp = rep(emp_pcor, n_draws*2),
+                              comp = rep(comparison, n_draws*2),
+                              type = rep("postemp", n_draws*2))
+    
+    
+    
+    
+
+  
+ 
+  
+  
+  l_cc_res <- list()
+  l_cc_res[["beta"]] <- cc_res_beta
+  l_cc_res[["pcor"]] <- cc_res_pcor
+  
+  cc_res <- dplyr::bind_rows(l_cc_res, .id = "mat")
+  
+  return(cc_res)
+} # end function
+
+
+
+
+
 
 
 # Evaluate Cross-Comparison with Matrix Norm ------------------------------
@@ -1487,8 +1451,7 @@ cross_compare <- function(
 #'
 #' 
 
-cross_compare_eval <- function(l_res, 
-                               pcor = TRUE){
+cross_compare_eval <- function(l_res){
   
   ### Betas
   df_res_beta <- l_res[["beta"]]
@@ -1496,25 +1459,51 @@ cross_compare_eval <- function(l_res,
   model_ind_a <- unique(df_res_beta$model_ind)[1]
   model_ind_b <- unique(df_res_beta$model_ind)[2]
   
-  # Number of posterior difference > empirical difference
-  teststat_a_beta <- sum(df_res_beta$null[df_res_beta$model_ind == model_ind_a] > df_res_beta$emp[df_res_beta$model_ind == model_ind_a], na.rm = TRUE)
-  teststat_b_beta <- sum(df_res_beta$null[df_res_beta$model_ind == model_ind_b] > df_res_beta$emp[df_res_beta$model_ind == model_ind_b], na.rm = TRUE)
+  # Check if model even converged
+  # if(is.na(df_res_beta$null[df_res_beta$model_ind == model_ind_a])){
+  #   teststat_a_beta <- NULL
+  # }
+  # if(is.na(df_res_beta$null[df_res_beta$model_ind == model_ind_b])){
+  #   teststat_b_beta <- NULL
+  # }
   
-    
-    
-  if(isTRUE(pcor)){
-    ### Pcor
-    df_res_pcor <- l_res[["pcor"]]
-    # Obtain model indexes
-    model_ind_a <- unique(df_res_pcor$model_ind)[1]
-    model_ind_b <- unique(df_res_pcor$model_ind)[2]
-    
+  # Replace infinite with NA
+  df_res_beta$null[is.infinite(df_res_beta$null)] <- NA
+  df_res_beta$emp[is.infinite(df_res_beta$emp)] <- NA
+  
     # Number of posterior difference > empirical difference
-    teststat_a_pcor <- sum(df_res_pcor$null[df_res_pcor$model_ind == model_ind_a] > df_res_pcor$emp[df_res_pcor$model_ind == model_ind_a], na.rm = TRUE)
-    teststat_b_pcor <- sum(df_res_pcor$null[df_res_pcor$model_ind == model_ind_b] > df_res_pcor$emp[df_res_pcor$model_ind == model_ind_b], na.rm = TRUE)
+    teststat_a_beta <- sum(df_res_beta$null[df_res_beta$model_ind == model_ind_a] > df_res_beta$emp[df_res_beta$model_ind == model_ind_a])
+    teststat_b_beta <- sum(df_res_beta$null[df_res_beta$model_ind == model_ind_b] > df_res_beta$emp[df_res_beta$model_ind == model_ind_b])
     
-  }
+    
+    
 
+  ### Pcor
+  df_res_pcor <- l_res[["pcor"]]
+  # Obtain model indexes
+  model_ind_a <- unique(df_res_pcor$model_ind)[1]
+  model_ind_b <- unique(df_res_pcor$model_ind)[2]
+  
+  # Check if model even converged
+  # if(is.na(df_res_pcor$null[df_res_pcor$model_ind == model_ind_a])){
+  #   teststat_a_pcor <- NULL
+  # }
+  # if(is.na(df_res_pcor$null[df_res_pcor$model_ind == model_ind_b])){
+  #   teststat_b_pcor <- NULL
+  # }
+  #     
+  
+  # Replace infinite with NA
+  df_res_pcor$null[is.infinite(df_res_pcor$null)] <- NA
+  df_res_pcor$emp[is.infinite(df_res_pcor$emp)] <- NA
+  
+      # Number of posterior difference > empirical difference
+      teststat_a_pcor <- sum(df_res_pcor$null[df_res_pcor$model_ind == model_ind_a] > df_res_pcor$emp[df_res_pcor$model_ind == model_ind_a])
+      teststat_b_pcor <- sum(df_res_pcor$null[df_res_pcor$model_ind == model_ind_b] > df_res_pcor$emp[df_res_pcor$model_ind == model_ind_b])
+    
+
+
+  ### Store Output
   testres <- list(beta_a = teststat_a_beta,
                   beta_b = teststat_b_beta,
                   pcor_a = teststat_a_pcor,
