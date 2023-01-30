@@ -65,9 +65,7 @@ graph_fried$kappa <- fried_net$kappa
 
 ```{r dgp-chain graph}
 # Create a chain graph, which is good to estimate with VAR models
-
-
-# Sanity check: Did this actually produce a chain graph?
+# Not done yet
 
 ```
 
@@ -75,6 +73,14 @@ graph_fried$kappa <- fried_net$kappa
 graph <- readRDS(here("data/graph.RDS"))
 
 ```
+
+
+Create another graph with the same structure, as "graph", but very different parameters.
+```{r}
+
+
+```
+
 
 
 
@@ -90,9 +96,33 @@ l_graphs <- list(graph1 = graph,
 l_changed_graphs <- lapply(l_graphs, 
                            function(x) {change_graphs(
                                             truegraph = x, 
-                                            changemax = c(1.2, 1.5, 1.7),
+                                            changemax = c(1.2, 1.4, 1.6),
                                             noise = c(0.1,0.2,0.3),
                                             seed = seed)})
+
+
+# Create one graph that is completely different
+# diff_graph <- randomGVARmodel(Nvar = 6, probKappaEdge = 0.3, probBetaEdge = 0.5)
+graph_fried$beta[1:6, 1:6]
+
+
+
+
+# Check if difference is large enough
+norm(graph$beta - graph_fried$beta[1:6, 1:6], type = "F")
+norm(graph$beta - l_changed_graphs$graph1$noise_0.3$beta, type = "F")
+
+# Save in list
+l_changed_graphs$graph1$diffgraph <- list(
+  beta = graph_fried$beta[1:6, 1:6],
+  kappa = graph_fried$kappa[1:6, 1:6]
+)
+
+# Delete other graphs
+l_changed_graphs$graph1[["change_1.2"]] <- NULL
+l_changed_graphs$graph1[["change_1.4"]] <- NULL
+l_changed_graphs$graph1[["change_1.6"]] <- NULL
+l_changed_graphs$graph1[["noise_0.1"]] <- NULL
 
 
 ```
@@ -103,13 +133,11 @@ Then, generate rawdata from data-generating processes. We create more posterior 
 
 Rewrite this to handle multiple data-generating processes at once: 
 ```{r generate-rawdata-parallel}
-# Storage
-l_raw <- list()
 
 # Simulation conditions
 n_ind <- 15 # number of individuals(so models to create) TODO change back to 100
-n_tp <- c(50,100,200,300) # number of timepoints
-n_postds <- 110  # number of posterior datasets
+n_tp <- c(50,100,200,400) # number of timepoints
+n_postds <- 130 # number of posterior datasets
 seed <- 2022
 
 # Think about if I actually need to standardize here
@@ -122,6 +150,7 @@ before_simraw <- Sys.time()
 ncores = parallel::detectCores() - 2
 cl = makeCluster(ncores)
 registerDoParallel(cl)
+l_raw <- list()
 l_raw$graph3 <- l_raw$graph2 <- l_raw$graph1 <-  list()
 for(t in seq_along(n_tp)){
   l_raw$graph1[[t]] <- list()
@@ -160,7 +189,7 @@ stopCluster(cl)
 
 after_simraw <- Sys.time()-before_simraw  # less than 4 minutes
 
-# write_rds(l_raw, "l_raw.RDS")
+write_rds(l_raw, "l_raw_new.RDS")
 # l_raw <- readRDS(here("l_raw.RDS"))
 
 
@@ -177,21 +206,22 @@ And also return how often estimation failed.
 
 ```{r}
 # Bayesian model parameters
-rho_sd <- 0.5      # Prior for covariance matrix
+rho_sd <- 0.3      # Prior for partial correlations
 beta_sd <- 1       # Prior for regression matrix
 seed <- 2022
 n_iter <- 5000
 
-l_res <- list()
-l_res$graph3 <- l_res$graph2 <- l_res$graph1 <-  list()
+
 
 before_fitraw <- Sys.time()
 ncores = parallel::detectCores() - 2
 cl = makeCluster(ncores)
 registerDoParallel(cl)
-# Loop over timepoints condition
+l_res <- list()
+l_res$graph3 <- l_res$graph2 <- l_res$graph1 <-  list()
+
 for(t in seq_along(n_tp)){
-  l_res$graph1[[t]] <- lapply(l_raw$graph1[[t]], function(x){fit_var_parallel_merged(
+    l_res$graph1[[t]] <- lapply(l_raw$graph1[[t]], function(x){fit_var_parallel_merged(
     data = x, n = n_ind, nds = n_postds, rho_prior = rho_sd, beta_prior = beta_sd, seed = seed,
     iterations = n_iter, pruneresults = TRUE
   )})
@@ -211,20 +241,22 @@ stopCluster(cl)
 after_fitraw <- Sys.time()-before_fitraw
 
 
-# write_rds(l_res, "l_res.Rds")
+write_rds(l_res, "l_res_new.Rds")
 # l_res <- readRDS(here("l_res.Rds"))
+
+
+
 
 ```
 
 
-Comparison of results with grahpicalVAR is done in another script ("bggm-var-investigation.Rmd"). Here, we look at how well our model recovered the correct parameters. This function does not work anymore for the simulation structure. 
+Comparison of results with grahpicalVAR is done in another script ("bggm-var-investigation.Rmd"). Here, we look at how well our model recovered the correct parameters. 
 ```{r recovery}
 rec_res <- list()
 # Loop over timepoint conditions
 for(t in 1:4){
   rec_res[[t]] <- compare_dgp(graph, est_bggm = l_res$graph1[[t]]$truegraph, comp_gvar = FALSE, est_gvar = NULL)
 }
-
 rec_res[[4]]
 
 ```
@@ -238,16 +270,16 @@ Use random samples from the posterior to simulate new datasets.
 
 Rewrite for simulation conditions:
 ```{r}
-# Create storage
-l_data <- list()
-l_data$graph3 <- l_data$graph2 <- l_data$graph1 <- list()
+
 
 before_simpost <- Sys.time()
 # Setup parallel
 ncores = parallel::detectCores() - 2
 cl = makeCluster(ncores)
 registerDoParallel(cl)
-
+# Create storage
+l_data <- list()
+l_data$graph3 <- l_data$graph2 <- l_data$graph1 <- list()
 # Loop over timepoint conditions
 for(t in seq_along(n_tp)){
   l_data$graph1[[t]] <- lapply(l_res$graph1[[t]], function(x){sim_from_post_parallel(
@@ -266,7 +298,7 @@ for(t in seq_along(n_tp)){
 stopCluster(cl)
 after_simpost <- Sys.time()
 
-# write_rds(l_data, "l_data.Rds")
+write_rds(l_data, "l_data_new.Rds")
 # l_data <- readRDS(here("l_data.Rds"))
 
 
@@ -289,7 +321,6 @@ registerDoParallel(cl)
 l_postres <- list()
 l_postres$graph3 <- l_postres$graph2 <- l_postres$graph1 <- list()
 for(t in seq_along(n_tp)){
-n = n_ind
   l_postres$graph1[[t]] <- lapply(l_data$graph1[[t]], function(x){fit_var_parallel_post(
                  data = x, n = n_ind, nds = n_postds,
                  rho_prior = rho_sd, beta_prior = beta_sd, seed = seed,
@@ -312,7 +343,7 @@ n = n_ind
 stopCluster(cl)
 after_par_fit <- Sys.time() - before_par_fit    # around 1h per graph (with 15 individuals)
 
-write_rds(l_postres, "l_postres.Rds")
+write_rds(l_postres, "l_postres_new.Rds")
 # l_postres <- readRDS(here("l_postres.Rds"))
 
 
@@ -322,13 +353,16 @@ write_rds(l_postres, "l_postres.Rds")
 ### Evaluation
 
 Then, start the evaluation. 
-Rewrite for all simulation conditions
+
+
+TODO: Maxdiff still throws an error here, which is indicative of non-convergence
+
 ```{r}
 # All possible model combinations
 comp_combinations <- expand_grid_unique(mod_a = seq(1, n_ind, 1),
                                  mod_b = seq(1, n_ind, 1))
 # number of data-generating processes
-n_dgp <- 3
+n_dgp <- 1
 # Number of comparison types
 n_c_types <- 3
 
@@ -338,9 +372,10 @@ n_g_types <- 7
 # Number of different tp conditions
 n_t_types <- 4
 
+
 dgp_names <- c("graph1", "graph2", "graph3")
 
-change_names <- c("truegraph", "change_1.2", "change_1.5", "change_1.7",
+change_names <- c("truegraph", "change_1.2", "change_1.4", "change_1.6",
                   "noise_0.1", "noise_0.2", "noise_0.3")
 
 
@@ -366,8 +401,6 @@ n_c_comb <- nrow(comp_combinations)
 #                                        rep("maxdiff", n_c_comb),
 #                                        rep("l1", n_c_comb)))
 
-
-# TODO maxdiff still throws an error here
 
 # Setup storage
 l_comp<- list()
@@ -418,12 +451,7 @@ for(d in seq(n_dgp)){
 ```
 
 
-Now evaluate the results: 
-We want:
-- Information about dgp
-- Information about timepoint condition
-- information about change of graph
-- information about which model
+
 
 Evaluation: 
 - number of posterior sample distances > empirical distance
@@ -461,15 +489,15 @@ df_eval <- rrapply::rrapply(l_eval, how = "bind")
 
 Now we can plot the results. First, power to detect true differences:
 ```{r}
-eval_plot <- df_eval %>% 
+eval_plot_diffgraph <- df_eval %>% 
   pivot_longer(cols = c("beta_a", "beta_b", "pcor_a", "pcor_b"), names_to = "res") %>% 
   # mutate(across(c(comp, dgp, tp, comp_graph, res),
                 # ~ as.factor(.))) %>% 
   filter(dgp == "graph1") %>% 
   # comp_graph == truegraph is comparison with same dgp, so null
   filter(comp_graph != "truegraph") %>% 
-  mutate(sig05 = ifelse(value < 5, 1, 0),
-         sig01 = ifelse(value < 1, 1, 0)) %>%
+  mutate(sig05 = ifelse(value <= 5, 1, 0),
+         sig01 = ifelse(value <= 1, 1, 0)) %>%
   group_by(comp, tp, comp_graph, res) %>%
   mutate(n_comp = n()) %>%  
   summarize(power05 = sum(sig05)/n_comp) %>% 
@@ -479,8 +507,10 @@ eval_plot <- df_eval %>%
   geom_line()+
   facet_grid(comp_graph ~ res)+
   theme_minimal()+
-  scale_color_okabe_ito()
-ggsave("eval_plot.svg", device = "svg", path = here("figures/"))  
+  scale_color_okabe_ito()+
+  labs(title = "Graph Fried (2020) as Comparison",
+       caption = "Rho_SD = 0.3, Beta_sd = 1")
+ggsave("eval_plot_diffgraph.svg", device = "svg", path = here("figures/"))  
 
 
 ```
@@ -505,10 +535,12 @@ post_diff %>%
 ```
 
 
+
 ## Compare with bootstrapped posterior models
 We now generate a distribution of posterior differences _within_ models. 
 ```{r posterior differences-within}
-wc_res <- within_compare(       mod_a = 1,
+wc_res <- within_compare(
+                      mod_a = 1,
                       mod_b = 2,
                       # [[1]] indexes the truegraph
                       fitpost_a = l_postres[[1]][[3]][[1]],
@@ -611,7 +643,7 @@ Now evaluate this: (does not work properly yet)
 ```{r}
 within_compare_eval <- function(l_res,
                                 pcor = TRUE){
-    ### Betas
+  ### Betas
   df_res <- as.data.frame(l_res$res)
   df_res_beta <- subset(df_res, mat == "beta")
   
@@ -627,7 +659,7 @@ within_compare_eval <- function(l_res,
     
   if(isTRUE(pcor)){
     ### Pcor
-    df_res_pcor <- subset(df_res, mat == "beta")
+    df_res_pcor <- subset(df_res, mat == "pcor")
     # Obtain model indexes
     model_ind_a <- unique(df_res_pcor$model_ind)[1]
     model_ind_b <- unique(df_res_pcor$model_ind)[2]
@@ -659,7 +691,7 @@ within_compare_eval(l_res = l_comp_within[[1]][[3]][[4]][[1]][[1]])
 l_eval_within <- list()
 # Loop over data-generating processes
 # TODO change back to seg(n_dgp)
-for(d in seq(1)){
+for(d in seq(n_dgp)){
   l_eval_within[[d]] <- list()
   # Loop over timepoint conditions
   for(t in seq(n_t_types)){
@@ -711,4 +743,139 @@ df_eval_within %>%
 
 ```
 
+
+
+# New Approach (25.01.2023): Posterior Comparison without Predictive
+The idea is to compare distances between matrices in the posterior as a reference distribution, without having to compute any posterior predictives.
+
+
+```{r}
+wc2 <- list()
+wc2$res <- within_compare(
+                      mod_a = 1,
+                      mod_b = 2,
+                      # [[]][[]][[1]] indexes the truegraph
+                      fitpost_a = l_res[[1]][[3]][[1]],
+                      fitpost_b = l_res[[1]][[3]][[4]],
+                      fitemp_a = l_res[[1]][[3]][[1]],
+                      fitemp_b = l_res[[1]][[3]][[4]],
+                      n_datasets = 100,
+                      comparison = "frob",
+                      n_draws = 1000,
+                      postpred = FALSE)
+
+
+
+```
+
+
+Compare all models:
+```{r}
+within_compare_eval(wc2)
+# Setup storage
+l_comp_within<- list()
+
+# Loop over data-generating processes
+for(d in seq(n_dgp)){
+  l_comp_within[[d]] <- list()
+  # Loop over timepoint conditions
+  for(t in seq(n_t_types)){
+    l_comp_within[[d]][[t]] <- list() 
+    # Loop over changed graphs
+    for(c in seq(n_g_types)){
+      l_comp_within[[d]][[t]][[c]] <- list()
+      # Loop over model combinations
+      for(m in seq(n_c_comb)){
+        l_comp_within[[d]][[t]][[c]][[m]] <- list()
+        # Loop over comparison types
+        for(c_type in seq(n_c_types)){
+          l_comp_within[[d]][[t]][[c]][[m]][[c_type]] <- list()
+          l_comp_within[[d]][[t]][[c]][[m]][[c_type]]$res <- within_compare(
+                      mod_a = comp_combinations[m, 1],
+                      mod_b = comp_combinations[m, 2],
+                      # [[1]] indexes the truegraph
+                      fitpost_a = l_res[[d]][[t]][[1]],
+                      fitpost_b = l_res[[d]][[t]][[c]],
+                      fitemp_a = l_res[[d]][[t]][[1]],
+                      fitemp_b = l_res[[d]][[t]][[c]],
+                      n_datasets = 100,
+                      n_draws = 1000,
+                      comparison = comp_names[c_type],
+                      postpred = FALSE)
+         # Store relevant parameters for evaluation
+         l_comp_within[[d]][[t]][[c]][[m]][[c_type]]$params <- list(
+           dgp = dgp_names[d],
+           tp = n_tp[t],
+           comp_graph = change_names[c]
+         )
+        } 
+
+        
+        
+      }
+    }
+  }
+}
+
+```
+
+Evaluate all models:
+```{r}
+# Set up for all simulation conditions
+l_eval_within <- list()
+# Loop over data-generating processes
+# TODO change back to seg(n_dgp)
+for(d in seq(n_dgp)){
+  l_eval_within[[d]] <- list()
+  # Loop over timepoint conditions
+  for(t in seq(n_t_types)){
+    l_eval_within[[d]][[t]] <- list() 
+    # Loop over changed graphs
+    for(c in seq(n_g_types)){
+      l_eval_within[[d]][[t]][[c]] <- list()
+      # Loop over model combinations
+      for(m in seq(n_c_comb)){
+        l_eval_within[[d]][[t]][[c]][[m]] <- list()
+        l_eval_within[[d]][[t]][[c]][[m]] <- lapply(l_comp_within[[d]][[t]][[c]][[m]],within_compare_eval)
+
+      }
+    }
+  }
+}
+
+
+# Now unpack
+df_eval_within <- rrapply::rrapply(l_eval_within, how = "bind")
+
+
+
+```
+
+
+Plot results
+```{r}
+plot_within_emppost <- df_eval_within %>% 
+  pivot_longer(cols = c("beta_a", "beta_b", "pcor_a", "pcor_b"), names_to = "res") %>% 
+  # mutate(across(c(comp, dgp, tp, comp_graph, res),
+                # ~ as.factor(.))) %>% 
+  filter(dgp == "graph1") %>% 
+  # comp_graph == truegraph is comparison with same dgp, so null
+  # filter(comp_graph != "truegraph") %>% 
+  mutate(sig05 = ifelse(value < 50, 1, 0),
+         sig01 = ifelse(value < 10, 1, 0)) %>%
+  group_by(comp, tp, comp_graph, res) %>%
+  mutate(n_comp = n()) %>%  
+  summarize(power05 = sum(sig05)/n_comp) %>% 
+  # somehow does not cut everything if I don't do this
+  summarize(power05 = mean(power05)) %>% 
+  ggplot(aes(x = tp, y = power05, col = comp)) + 
+  geom_line()+
+  facet_grid(comp_graph ~ res)+
+  theme_minimal()+
+  scale_color_okabe_ito()
+
+ggsave("plot_within_emppost.svg", plot_within_emppost, device = "svg", path = here("figures/"))  
+
+
+```
 
