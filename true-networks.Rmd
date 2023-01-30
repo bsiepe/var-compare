@@ -23,6 +23,94 @@ here::i_am("var-compare.Rproj")
 ```
 
 
+# Own simulated graph
+
+```{r}
+# Ground truth model is still generated with graphicalVAR 
+# could also use empirical data with varying sparsity
+set.seed(2022)    # does NOT help here with model creation! need to write own function
+og_graph <- randomGVARmodel(Nvar = 6, probKappaEdge = 0.5, probBetaEdge = 0.3)
+beta <- as.matrix(read.table(header = FALSE, colClasses = "numeric", text = "
+ 0.2266407 0.0000000  0.0000000 -0.2668593  0.0000000 0.0000000
+-0.7380388 0.2266407  0.0000000  0.0000000 -0.9288327 0.0000000
+ 0.0000000 0.0000000  0.2266407  0.9571318  0.2409225 0.5543485
+ 0.0000000 0.0000000  0.0000000  0.2266407 -0.7438448 0.0000000
+ 0.5214148 0.0000000  0.0000000  0.0000000  0.2266407 0.0000000
+ 0.0000000 0.0000000 -0.8903007  0.0000000  0.0000000 0.2266407"))
+kappa <- as.matrix(read.table(header = FALSE, colClasses = "numeric", text = "
+ 1.0000000  0.0000000  0.0000000 0.0000000  0.4018933 0.3717013
+ 0.0000000  1.0000000  0.2266407 0.5527593 -0.2654634 0.2593779
+ 0.0000000  0.2266407  1.0000000 0.0000000 -0.3318945 0.3175423
+ 0.0000000  0.5527593  0.0000000 1.0000000  0.0000000 0.0000000
+ 0.4018933 -0.2654634 -0.3318945 0.0000000  1.0000000 0.0000000
+ 0.3717013  0.2593779  0.3175423 0.0000000  0.0000000 1.0000000"))
+
+# compute partial correlations from kappa
+# in the case of only 1s on the diagonal of kappa, this just changes the sign
+pcc <- -cov2cor(kappa)
+graph <- list()
+graph$beta <- beta
+graph$kappa <- kappa
+graph$PCC <- pcc
+diag(graph$PCC) <- rep(0,6)
+dimnames(graph$beta) <- NULL
+dimnames(graph$kappa) <- NULL
+
+graph2 <- graph
+graph2$beta <- graph2$beta + runif(36, -0.05, 0.05)
+graph2$kappa <- graph2$kappa + runif(36, -0.05, 0.05)
+diag(graph2$kappa) <- c(1,1,1,1,1,1)
+graph2$kappa <- Matrix::forceSymmetric(graph2$kappa)
+l_graph <- list(graph = graph,
+                graph2 = graph2)
+
+write_rds(graph, here("data/graph.RDS"))
+
+```
+
+```
+
+
+
+# Epskamp 2018
+```{r dgp-epskamp2018}
+# take Kappa and Beta from Epskamp et al.(2018), having reproduced the analysis in their supplement 2
+# 7 Node graph ,especially beta is VERY sparse
+# Maybe this is TOO sparse and I should use the graphs from Mansueto et al. 
+beta_eps <- as.matrix(read.table(header = FALSE, colClasses = "numeric", text = "
+0        0            0                  0   0.000000       0.0000000             0.00000000
+0        0            0                  0   0.000000       0.0000000             0.00000000
+0        0            0                  0   0.000000       0.0000000             0.24128652
+0        0            0                  0   0.000000       0.0000000             0.00000000
+0        0            0                  0   0.243744       0.0000000             0.00000000
+0        0            0                  0   0.000000       0.2293295             0.07956604
+0        0            0                  0   0.000000       0.1099387             0.00000000"))
+# Correct small rounding differences (6th digit) in Kappa
+# correct by using lower diagonal, not rounded values
+kappa_eps <- as.matrix(read.table(header = FALSE, colClasses = "numeric", text = "
+ 1.167983844  0.134688900 0.009096612   -0.128603055  0.133407195  0.000000000        0.225946298
+ 0.134688940  1.130350300 0.000000000    0.000000000 -0.337813000  0.000000000       -0.064444800
+ 0.009096612  0.000000000 1.468400008    0.000000000  0.000000000  0.000000000        0.000000000
+-0.128603055  0.000000000 0.000000000    1.106057060  0.000000000  0.000000000        0.071637710
+ 0.133407195 -0.337813000 0.000000000    0.000000000  1.286898100  0.000000000        0.000000000
+ 0.000000000  0.000000000 0.000000000    0.000000000  0.000000000  1.256290950       -0.086044850
+ 0.225946298 -0.064444800 0.000000000    0.071637710  0.000000000 -0.086044850        1.159429540"))
+graph_eps <- list()
+graph_eps$beta <- beta_eps
+kappa_eps<- as.matrix(Matrix::forceSymmetric(kappa_eps, uplo = "L"))
+graph_eps$kappa <- kappa_eps
+pcc_eps <- -cov2cor(kappa_eps)
+graph_eps$PCC <- pcc_eps
+diag(graph_eps$PCC) <- rep(0,7)
+dimnames(graph_eps$beta) <- NULL
+dimnames(graph_eps$kappa) <- NULL
+```
+
+
+
+
+
+
 # Fried 2020
 
 Here, I use code by Mansueto et al. (2022) to obtain the mlVAR network and extract coefficients to simulate from. 
@@ -216,7 +304,7 @@ graph_fried[["pcor"]] <- omega_dataset2_9n
 graph_fried[["kappa"]] <- theta_dataset2_9n 
 graph_fried[["pdc"]] <- PDC6
 
-write_rds(graph_fried, here("data/graph_fried.Rds"))
+# write_rds(graph_fried, here("data/graph_fried.Rds"))
 
 ```
 
@@ -247,4 +335,5 @@ data_detrended %>%
 
 
 
-
+# Plot data-generating processes
+TODO
