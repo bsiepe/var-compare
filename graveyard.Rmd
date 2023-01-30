@@ -35,6 +35,49 @@ output: html_document
 # Add random noise to the network
 ```
 
+```{r}
+
+
+# Change Kappa ------------------------------------------------------------
+# Changes maximum value of kappa
+# 
+changemax_kappa <- function(m_kappa,
+                            change){
+  # Find the dimensions of the m_kappa
+  n <- nrow(m_kappa)
+  m <- ncol(m_kappa)
+  
+  # Initialize the largest element to be zero
+  largest_element <- 0
+  row <- NA
+  col <- NA
+  
+  # Loop through the m_kappa and find the largest off-diagonal element
+  for (i in 1:n) {
+    for (j in 1:m) {
+      # Skip the diagonal elements (i.e. the elements where i == j)
+      if (i != j) {
+        # Update the largest element if we find a larger one
+        if (abs(m_kappa[i,j]) > abs(largest_element)) {
+          largest_element <- m_kappa[i,j]
+          row <- i
+          col <- j
+        }
+      }
+    }
+  }
+  print(largest_element)
+  # change the element in the matrix on both sides of diagonal
+  m_kappa[row,col] <- m_kappa[row,col]*change
+  m_kappa[col,row] <- m_kappa[col,row]*change
+  
+  
+  
+  # Multiply the largest element by a factor and return the result
+  return(m_kappa)
+}
+
+```
 
 
 
@@ -156,6 +199,506 @@ to evaluate the prediction and not just the posterior mean. Maybe I should rewri
 # 
 # stopCluster(cl)
 ```
+
+# Prediction approach
+```{r}
+# Predict function for external data --------------------------------------
+# Taken from https://github.com/donaldRwilliams/BGGM/blob/master/R/predict.estimate.R
+# adapted for using external data for refitting of the model
+# data needs to be of the same length, which is no issue when using simulated data
+
+predict.var_estimate <- function(object,
+                                 data,
+                                 summary = TRUE,
+                                 cred = 0.95,
+                                 iter = NULL,
+                                 progress = TRUE,
+                                 ...){
+  
+  
+  # lower bound
+  lb <- (1 - cred) / 2
+  
+  # uppder bound
+  ub <- 1 - lb
+  
+  
+  # data matrix
+  # B: changed by me to accomodate external object
+  # needs to be in the proper (lagged) formatting
+  X <- data$X
+  n <- nrow(X)
+  
+  
+  if(is.null(iter)){
+    
+    iter <- object$iter
+    
+  }
+  
+  p <- object$p
+  
+  post_names <- sapply(1:p, function(x) paste0(
+    colnames(data$Y)[x], "_",  colnames(data$X))
+  )
+  
+  post_samps <- BGGM::posterior_samples(object)
+  
+  if(isTRUE(progress)){
+    pb <- utils::txtProgressBar(min = 0, max = p, style = 3)
+  }
+  
+  yhats <- lapply(1:p, function(x){
+    
+    yhat_p <- post_samps[, post_names[,x]] %*% t(X)
+    
+    
+    if(isTRUE(progress)){
+      utils::setTxtProgressBar(pb, x)
+    }
+    
+    yhat_p
+    
+  })
+  
+  if(isTRUE(summary)){
+    
+    
+    
+    fitted_array <- array(0, dim = c(n, 4, p))
+    
+    dimnames(fitted_array)[[2]] <- c("Post.mean",
+                                     "Post.sd",
+                                     "Cred.lb",
+                                     "Cred.ub")
+    
+    dimnames(fitted_array)[[3]] <- colnames(data$Y)
+    
+    
+    for(i in 1:p){
+      
+      fitted_array[,,i] <- cbind(colMeans(yhats[[i]]),
+                                 apply(yhats[[i]], 2, sd),
+                                 apply(yhats[[i]], 2, quantile, lb),
+                                 apply(yhats[[i]], 2, quantile, ub)
+      )
+    }
+    
+    
+  } else {
+    
+    fitted_array <- array(0, dim = c(iter, n, p))
+    
+    dimnames(fitted_array)[[3]] <- colnames(data$Y)
+    
+    for(i in 1:p){
+      
+      fitted_array[,,i] <- t(as.matrix(yhats[[i]]))
+      
+    }
+    
+  }
+  
+  return(fitted_array)
+  
+}
+
+
+
+
+
+# Predict with posterior mean ---------------------------------------------
+# IDEA: add option to manually provide a beta matrix with posterior means
+# instead of building the mean of the posterior samples
+
+# Change the function above to only use posterior mean for prediction
+predict_pmu.var_estimate <- function(object,
+                                 data,
+                                 summary = TRUE,
+                                 cred = 0.95,
+                                 iter = NULL,
+                                 progress = TRUE,
+                                 ...){
+  
+  
+  # lower bound
+  lb <- (1 - cred) / 2
+  
+  # uppder bound
+  ub <- 1 - lb
+  
+  
+  # data matrix
+  # B: changed by me to accomodate external object
+  # needs to be in the proper (lagged) formatting
+  X <- data$X
+  n <- nrow(X)
+  
+  
+  if(is.null(iter)){
+    
+    iter <- object$iter
+    
+  }
+  
+  p <- object$p
+  
+  post_names <- sapply(1:p, function(x) paste0(
+    colnames(data$Y)[x], "_",  colnames(data$X))
+  )
+  
+  post_samps <- BGGM::posterior_samples(object)
+  
+  # Only use relevant Beta samples
+  post_samps_b <- post_samps[,post_names]
+  colnames(post_samps_b) <- post_names
+  post_samps_mu <- matrix(colMeans(post_samps_b), ncol = 6)
+  # Very important: Do I need to do byrow TRUE or not?
+  # I don't think so, because it is done variable-wise
+  # so the first 6 values are the the coefficients on V1
+  
+  
+  if(isTRUE(progress)){
+    pb <- utils::txtProgressBar(min = 0, max = p, style = 3)
+  }
+  
+  yhats <- lapply(1:p, function(x){
+    
+    yhat_p <- post_samps_mu[,x] %*% t(X)
+    
+    
+    if(isTRUE(progress)){
+      utils::setTxtProgressBar(pb, x)
+    }
+    
+    yhat_p
+    
+  })
+  
+  if(isTRUE(summary)){
+    
+    
+    
+    fitted_array <- array(0, dim = c(n, 1, p))
+    
+    dimnames(fitted_array)[[2]] <- c("Post.mean")
+    
+    dimnames(fitted_array)[[3]] <- colnames(data$Y)
+    
+    
+    for(i in 1:p){
+      
+      fitted_array[,,i] <- cbind(colMeans(yhats[[i]])
+      )
+    }
+    
+    
+  } else {
+    
+    fitted_array <- array(0, dim = c(iter, n, p))
+    
+    dimnames(fitted_array)[[3]] <- colnames(data$Y)
+    
+    for(i in 1:p){
+      
+      fitted_array[,,i] <- t(as.matrix(yhats[[i]]))
+      
+    }
+    
+  }
+  
+  return(fitted_array)
+  
+}
+
+```
+
+
+
+
+## Older manual way of posterior comparisons
+TODO: This will need changes when we add multiple simulation conditions. 
+```{r generate-rawdata}
+# Storage
+l_raw <- list()
+# Simulation conditions
+n_ind <- 100   # number of individuals (so models to create)
+n_tp <- 100     # number of timepoints per time series
+n_postds <- 130     # number of posterior datasets
+
+
+# Think about if I actually need to standardize here
+# because everything will be standardized by var_estimate anyway
+ncores = parallel::detectCores() - 4
+cl = makeCluster(ncores)
+registerDoParallel(cl)
+l_raw$graph <- lapply(l_changed_graphs$graph1, 
+                      function(x) {sim_raw_parallel(
+                                dgp = x, n = n_postds, 
+                                tp = n_tp, means = 0,
+                                standardize = TRUE)})
+# l_raw$graph2 <- lapply(l_changed_graphs$graph2, 
+#                       function(x) {sim_raw_parallel(
+#                                 dgp = x, n = n_postds, 
+#                                 tp = n_tp, means = 0,
+#                                 standardize = TRUE)})
+# l_raw$graph3 <- lapply(l_changed_graphs$graph3, 
+#                       function(x) {sim_raw_parallel(
+#                                 dgp = x, n = n_postds, 
+#                                 tp = n_tp, means = 0,
+#                                 standardize = TRUE)})
+
+stopCluster(cl)
+```
+
+```{r estimate-models}
+# Bayesian model parameters
+rho_sd <- 0.5      # Prior for covariance matrix
+beta_sd <- 1       # Prior for regression matrix
+seed <- 2022
+n_iter <- 5000
+
+
+l_res <- list()
+l_res2 <- list()
+ncores = parallel::detectCores() - 2
+cl = makeCluster(ncores)
+registerDoParallel(cl)
+l_res <- fit_var_parallel(data = l_raw$graph, n = n_ind,
+                 rho_prior = rho_sd, beta_prior = beta_sd, seed = seed,
+                 iterations = n_iter)
+l_res2 <- fit_var_parallel(data = l_raw$graph2, n = n_ind,
+                 rho_prior = rho_sd, beta_prior = beta_sd, seed = seed,
+                 iterations = n_iter)
+stopCluster(cl)
+# write_rds(l_res, "l_res.Rds")
+# l_res <- read_rds("l_res.Rds")
+# write_rds(l_res2, "l_res2.Rds")
+# l_res2 <- read_rds("l_res2.Rds")
+```
+
+
+```{r simulate-from-posterior}
+## data generation first dgp
+ncores = parallel::detectCores() - 2
+cl = makeCluster(ncores)
+registerDoParallel(cl)
+l_data <- list()
+l_data <- sim_from_post_parallel(fitobj = l_res, n = n_ind, n_datasets = n_postds, tp = n_tp,
+                       iterations = n_iter, means = 0, convert_bggm = FALSE)
+stopCluster(cl)
+
+## second dgp
+ncores = parallel::detectCores() - 2
+cl = makeCluster(ncores)
+registerDoParallel(cl)
+l_data2 <- list()
+l_data2 <- sim_from_post_parallel(fitobj = l_res2, n = n_ind, n_datasets = n_postds, tp = n_tp,
+                       iterations = n_iter, means = 0, convert_bggm = FALSE)
+stopCluster(cl)
+# write_rds(l_data, "l_data.Rds")
+# write_rds(l_data2, "l_data2.Rds")
+# l_data <- read_rds("l_data.Rds")
+# l_data2 <- read_rds("l_data2.Rds")
+
+```
+
+First, fit VAR model to posterior sample data. 
+```{r fit-posterior}
+# Fit the model to posterior data samples
+rho_sd <- 0.5
+beta_sd <- 1
+seed <- 2022
+n_iter <- 5000
+
+
+ncores = parallel::detectCores() - 4
+cl = makeCluster(ncores)
+registerDoParallel(cl)
+l_postresfull <- list()
+before_par2 <- Sys.time()
+l_postres_all <- fit_var_parallel_post(data = l_data, n = 100, nds = n_postds,
+                 rho_prior = rho_sd, beta_prior = beta_sd, seed = seed,
+                 iterations = n_iter, posteriorsamples = TRUE, pruneresults = TRUE) 
+after_par2 <- before_par2 - Sys.time()
+stopCluster(cl)
+# Cut away failed attempts, always get 100 fitted results
+l_postres <- lapply(l_postres_all, function(x) x[!sapply(x, is.null)])
+
+# write_rds(l_postres, "l_postres.Rds")
+# l_postres <- read_rds("l_postres.Rds")
+
+# # Another DGP
+# Use new function
+ncores = parallel::detectCores() - 4
+cl = makeCluster(ncores)
+registerDoParallel(cl)
+l_postresfull <- list()
+before_par2 <- Sys.time()
+l_postres2_full <- fit_var_parallel_post(data = l_data2, n = 100, nds = n_postds,
+                 rho_prior = rho_sd, beta_prior = beta_sd, seed = seed,
+                 iterations = n_iter, posteriorsamples = TRUE, pruneresults = TRUE) 
+after_par2 <- before_par - Sys.time()
+stopCluster(cl)
+
+# Cut away failed attempts, always get 100 fitted results
+l_postres2 <- lapply(l_postres2_full, function(x) x[!sapply(x, is.null)])
+
+# write_rds(l_postres2, "l_postres2.Rds")
+# l_postres2 <- read_rds("l_postres2.Rds")
+
+
+
+```
+
+
+Cross compare does not need fitpost_b and fitemp_b anymore. 
+```{r same-dgp}
+# Compare all possible combinations
+# Need to add the different DGPs into this
+comp_combinations <- expand_grid_unique(mod_a = seq(1, n_ind, 1),
+                                 mod_b = seq(1, n_ind, 1))
+# Number of comparison types
+n_c_types <- 3
+
+# Number of comparison combinations
+n_c_comb <- nrow(comp_combinations)
+
+comp_conditions <- data.frame(
+                        postpost = rep(FALSE, n_c_comb*n_c_types),
+                        mod_a = rep(comp_combinations[,1], n_c_types),
+                        mod_b = rep(comp_combinations[,2], n_c_types),
+                        fitpost_a = rep("l_postres", n_c_comb*n_c_types),
+                        fitpost_b = rep("l_postres", n_c_comb*n_c_types),
+                        fitemp_a = rep("l_res", n_c_comb*n_c_types),
+                        fitemp_b = rep("l_res", n_c_comb*n_c_types),
+                        n_datasets = rep(100, n_c_comb*n_c_types),
+                        comparison = c(rep("frob", n_c_comb), 
+                                       rep("maxdiff", n_c_comb),
+                                       rep("l1", n_c_comb)))
+ncores = parallel::detectCores() - 4
+cl = makeCluster(ncores)
+registerDoParallel(cl)
+starttime <- Sys.time()
+cross_compare_res <- list()
+cross_compare_res <- 
+  lapply(c(1:nrow(comp_conditions)), function(i){
+    args <- comp_conditions[i,]
+    cross_compare(
+      mod_a = args$mod_a, 
+      mod_b = args$mod_b,
+      fitpost_a = eval(as.name(paste(args$fitpost_a))),
+      fitpost_b = eval(as.name(paste(args$fitpost_b))), 
+      fitemp_a = eval(as.name(paste(args$fitemp_a))), 
+      fitemp_b = eval(as.name(paste(args$fitemp_b))), 
+      n_datasets = args$n_datasets, 
+      comparison = args$comparison
+    )
+    }
+  )
+stoptime <- Sys.time()-starttime    # ~16 seconds for 4950 comparisons!
+stopCluster(cl)
+
+# Build plot for results
+eval_res <- lapply(cross_compare_res, cross_compare_eval)
+df_eval_res <- as.data.frame(do.call(rbind, eval_res))
+# write_rds(df_eval_res, "df_eval_res.Rds")
+# df_eval_res <- read_rds("df_eval_res.Rds")
+
+df_eval_res %>% 
+  mutate(beta_a = as.numeric(beta_a),
+         beta_b = as.numeric(beta_b),
+         pcor_a = as.numeric(pcor_a),
+         pcor_b = as.numeric(pcor_b),
+         comp = as.factor(as.character(comp))) %>% 
+  group_by(comp) %>% 
+  # number of tries per condition
+  add_count(comp) %>% 
+  summarize(sig_beta = sum(beta_a < 5 & beta_b < 5)/n,
+            sig_pcor = sum(pcor_a < 5 & pcor_b < 5)/n) %>% 
+  ungroup() %>% 
+  distinct(comp, sig_beta, sig_pcor)
+plot_test_samedgp_75 <- df_eval_res %>% 
+  pivot_longer(cols = c(beta_a, beta_b, pcor_a, pcor_b), names_to = "res") %>% 
+  mutate(value = as.numeric(value),
+         comp = as.character(comp)) %>% 
+  ggplot(aes(x = value, color = comp, fill = comp))+
+  geom_bar()+
+  theme_minimal()+
+  scale_fill_okabe_ito()+
+  scale_color_okabe_ito()+
+  labs(title = "Count of posterior differences larger than empirical",
+       subtitle = "Simulating from same DGP (Epskamp, 2018)",
+       caption = "200 Timepoints, 100 Individuals")+
+  facet_wrap(~comp)+
+  theme(legend.position = "none")
+# ggsave("figures/plot_test_samedgp_eps200.svg", plot_test_samedgp_eps500,  device = "svg",
+       # height = 12, width = 16, units = "cm")
+```
+
+
+Then look at different DGP. 
+```{r different-dgp}
+# Compare all possible combinations
+comp_combinations2 <- expand_grid_unique(mod_a = seq(1, n_ind, 1),
+                                 mod_b = seq(1, n_ind, 1))
+comp_conditions2 <- data.frame(
+                        postpost = rep(FALSE, nrow(comp_combinations2)*3),
+                        mod_a = rep(comp_combinations2[,1], 3),
+                        mod_b = rep(comp_combinations2[,2], 3),
+                        fitpost_a = rep("l_postres", nrow(comp_combinations2)*3),
+                        fitpost_b = rep("l_postres2", nrow(comp_combinations2)*3), 
+                        fitemp_a = rep("l_res", nrow(comp_combinations2)*3),
+                        fitemp_b = rep("l_res2", nrow(comp_combinations2)*3),
+                        n_datasets = rep(100, nrow(comp_combinations2)*3),
+                        comparison = c(rep("frob", nrow(comp_combinations2)), 
+                                       rep("maxdiff", nrow(comp_combinations2)),
+                                       rep("l1", nrow(comp_combinations2))))
+ncores = parallel::detectCores() - 4
+cl = makeCluster(ncores)
+registerDoParallel(cl)
+starttime <- Sys.time()
+cross_compare_res2 <- list()
+cross_compare_res2 <- 
+  lapply(c(1:nrow(comp_conditions2)), function(i){
+    args <- comp_conditions2[i,]
+    cross_compare(
+      mod_a = args$mod_a, 
+      mod_b = args$mod_b,
+      fitpost_a = eval(as.name(paste(args$fitpost_a))),
+      fitpost_b = eval(as.name(paste(args$fitpost_b))), 
+      fitemp_a = eval(as.name(paste(args$fitemp_a))), 
+      fitemp_b = eval(as.name(paste(args$fitemp_b))), 
+      n_datasets = args$n_datasets, 
+      comparison = args$comparison
+    )
+    }
+  )
+stoptime <- Sys.time()-starttime    # ~16 seconds for 4950 comparisons!
+stopCluster(cl)
+# Build plot separated by PCOR and BETA and by comparison type
+eval_res2 <- lapply(cross_compare_res2, cross_compare_eval)
+df_eval_res2 <- as.data.frame(do.call(rbind, eval_res2))
+plot_test_comp2 <- df_eval_res2 %>% 
+  pivot_longer(cols = -comp, 
+               names_to = c("matrix", ".value"),
+               names_sep = "_") %>% 
+  pivot_longer(cols = c(a,b), values_to = "value", names_to = "ref_model") %>% 
+  mutate(value = as.numeric(value),
+         comp = as.character(comp)) %>% 
+  ggplot(aes(x = value, color = comp, fill = comp))+
+  geom_histogram(bins = 100, alpha =0.8)+
+  theme_minimal()+
+  scale_fill_okabe_ito()+
+  scale_color_okabe_ito()+
+  labs(title = "Count of posterior differences larger than empirical",
+       subtitle = "Simulating from different DGP (random uniform noise [-0.05, 0.05])",
+       caption = "75 Timepoints, 100 Individuals")+
+  facet_grid(comp~matrix)
+ggsave("figures/plot_test_runifnoise75.svg", plot_test_comp2,  device = "svg",
+       height = 12, width = 16, units = "cm")
+```
+
 
 
 
@@ -381,6 +924,7 @@ Another idea: compute something like absolute difference between network results
 ```{r}
 
 ```
+
 
 
 Functions of refitting approach: 
@@ -644,5 +1188,17 @@ f_rel <- function(beta, covmat){
 
 
 
+```{r}
+
+# Plot error distribution -------------------------------------------------
+plot_error_dist <- function(dat, errorcol = mse){
+  ggplot(dat, aes(x = {{errorcol}}))+
+  ggdist::stat_dist_halfeye(fill = ggokabeito::palette_okabe_ito()[2],
+                            color = "black")+
+  theme_minimal()
+}
+
+
+```
 
 
