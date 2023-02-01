@@ -109,6 +109,7 @@ change_graphs <- function(truegraph = NULL,
     }
     ## Checking
     # values outside unit circle
+    # TODO adapt to not setting kappa diagonal to 1
     l_out_change <- lapply(l_out_change, function(x){
       lapply(x, function(mat) {
         mat[mat > 1] <- 1
@@ -769,7 +770,6 @@ fit_var_parallel_merged <- function(data,
 
 # Sim from posterior ------------------------------------------------------
 # TODO save function arguments
-# TODO Double check transposing for qgraph
 
 #' Simulate from Posterior Samples
 #' This function simulates a specified number of datasets from the posterior
@@ -812,6 +812,7 @@ sim_from_post_parallel <- function(fitobj,
     # Loop over number of datasets to create from posterior
     for(j in seq(n_datasets)){
       # get random posterior sample
+      # Needs transposing of beta matrix!
       smp <- sample(iterations, size = 1)
       dat[[j]] <- try(as.data.frame(graphicalVAR::graphicalVARsim(nTime = tp,
                                                                   beta = t(l_params[[i]]$beta[,,smp]),
@@ -1268,7 +1269,8 @@ post_distance_within <- function(post,
   
   
   ## Draw two random models
-  # Draw pairs of models
+  # Draw pairs of models, spaced far apart so we don't have autocorrelation
+  # delete burn-in iterations (to 50)
   mod_pairs <- replicate(draws, sample(1:n_mod, size = 2, replace = TRUE))
   
 for(i in seq(draws)){
@@ -1488,13 +1490,6 @@ within_compare <- function(
                                    pred = postpred)
     
 
-  # else{     
-  #   # non predictive approach
-  #   null_a <- post_distance_within(post = fitpost_a[[mod_a]], 
-  #                                      comp = comparison, draws = n_draws)
-  #   null_b <- post_distance_within(post = fitpost_b[[mod_b]], 
-  #                                      comp = comparison, draws = n_draws)
-  # }
 
   
   # Compute empirical distance as test statistic
@@ -1505,6 +1500,9 @@ within_compare <- function(
       # Compute Distance of empirical pcors between a and b
       emp_pcor <- tryCatch(norm(fitemp_a[[mod_a]]$pcor_mu - fitemp_b[[mod_b]]$pcor_mu, type = normtype), error = function(e) {NA})
       
+      # Compute Distance of empirical kappas between a and b
+      emp_kappa <- tryCatch(norm(fitemp_a[[mod_a]]$kappa_mu - fitemp_b[[mod_b]]$kappa_mu, type = normtype), error = function(e) {NA})
+      
     }
     
     if(comparison == "maxdiff"){
@@ -1514,6 +1512,8 @@ within_compare <- function(
       # Compute maxdiff of empirical pcors between a and b
       emp_pcor <- tryCatch(max(abs(fitemp_a[[mod_a]]$pcor_mu - fitemp_b[[mod_b]]$pcor_mu)), error = function(e) {NA})
       
+      # Compute maxdiff of empirical kappas between a and b
+      emp_kappa <- tryCatch(max(abs(fitemp_a[[mod_a]]$kappa_mu - fitemp_b[[mod_b]]$kappa_mu)), error = function(e) {NA})
     }
     
     if(comparison == "l1"){
@@ -1523,7 +1523,8 @@ within_compare <- function(
       # Compute l1 of empirical pcors between a and b
       emp_pcor <- tryCatch(sum(abs(fitemp_a[[mod_a]]$pcor_mu - fitemp_b[[mod_b]]$pcor_mu)), error = function(e) {NA})
       
-      
+      # Compute l1 of empirical kappas between a and b
+      emp_kappa <- tryCatch(sum(abs(fitemp_a[[mod_a]]$kappa_mu - fitemp_b[[mod_b]]$kappa_mu)), error = function(e) {NA})
     }
     
     # Save results
@@ -1540,12 +1541,19 @@ within_compare <- function(
                               comp = rep(comparison, n_draws*2),
                               type = rep("postemp", n_draws*2))
     
+    cc_res_kappa <- data.frame(model_ind = c(rep(mod_a, n_draws), rep(mod_b, n_draws)),
+                              null = c(unlist(null_a[["kappa"]]), unlist(null_b[["kappa"]])),
+                              emp = rep(emp_kappa, n_draws*2),
+                              comp = rep(comparison, n_draws*2),
+                              type = rep("postemp", n_draws*2))
+    
     
  
   
   l_cc_res <- list()
   l_cc_res[["beta"]] <- cc_res_beta
   l_cc_res[["pcor"]] <- cc_res_pcor
+  l_cc_res[["kappa"]] <- cc_res_kappa
   
   cc_res <- dplyr::bind_rows(l_cc_res, .id = "mat")
   
@@ -1635,6 +1643,70 @@ cross_compare_eval <- function(l_res){
 
 
 
+
+
+
+
+# Evaluate Within-Comparison ----------------------------------------------
+within_compare_eval <- function(l_res,
+                                pcor = TRUE,
+                                kappa = TRUE){
+  ### Betas
+  df_res <- as.data.frame(l_res$res)
+  df_res_beta <- subset(df_res, mat == "beta")
+  
+  # Obtain model indexes
+  model_ind_a <- unique(df_res_beta$model_ind)[1]
+  model_ind_b <- unique(df_res_beta$model_ind)[2]
+  
+  # Number of posterior difference > empirical difference
+  teststat_a_beta <- sum(df_res_beta$null[df_res_beta$model_ind == model_ind_a] > df_res_beta$emp[df_res_beta$model_ind == model_ind_a], na.rm = TRUE)
+  teststat_b_beta <- sum(df_res_beta$null[df_res_beta$model_ind == model_ind_b] > df_res_beta$emp[df_res_beta$model_ind == model_ind_b], na.rm = TRUE)
+  
+  
+  
+  if(isTRUE(pcor)){
+    ### Pcor
+    df_res_pcor <- subset(df_res, mat == "pcor")
+    # Obtain model indexes
+    model_ind_a <- unique(df_res_pcor$model_ind)[1]
+    model_ind_b <- unique(df_res_pcor$model_ind)[2]
+    
+    # Number of posterior difference > empirical difference
+    teststat_a_pcor <- sum(df_res_pcor$null[df_res_pcor$model_ind == model_ind_a] > df_res_pcor$emp[df_res_pcor$model_ind == model_ind_a], na.rm = TRUE)
+    teststat_b_pcor <- sum(df_res_pcor$null[df_res_pcor$model_ind == model_ind_b] > df_res_pcor$emp[df_res_pcor$model_ind == model_ind_b], na.rm = TRUE)
+    
+  }
+  
+  if(isTRUE(kappa)){
+    ### kappa
+    df_res_kappa <- subset(df_res, mat == "kappa")
+    # Obtain model indexes
+    model_ind_a <- unique(df_res_kappa$model_ind)[1]
+    model_ind_b <- unique(df_res_kappa$model_ind)[2]
+    
+    # Number of posterior difference > empirical difference
+    teststat_a_kappa <- sum(df_res_kappa$null[df_res_kappa$model_ind == model_ind_a] > df_res_kappa$emp[df_res_kappa$model_ind == model_ind_a], na.rm = TRUE)
+    teststat_b_kappa <- sum(df_res_kappa$null[df_res_kappa$model_ind == model_ind_b] > df_res_kappa$emp[df_res_kappa$model_ind == model_ind_b], na.rm = TRUE)
+    
+  }
+  
+  
+  
+  
+  
+  wcompres <- list(beta_a = teststat_a_beta,
+                   beta_b = teststat_b_beta,
+                   pcor_a = teststat_a_pcor,
+                   pcor_b = teststat_b_pcor,
+                   kappa_a = teststat_a_kappa, 
+                   kappa_b = teststat_b_kappa,
+                   comp = df_res_beta$comp[[1]], # get type of comparison
+                   dgp = l_res$params$dgp,
+                   tp = l_res$params$tp,
+                   comp_graph = l_res$params$comp_graph)  
+  wcompres
+}
 
 
 
