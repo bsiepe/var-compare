@@ -68,12 +68,72 @@ write_rds(graph, here("data/graph.RDS"))
 
 ```
 
+
+Try out if graphicalVAR needs to be transposed or not
+```{r}
+# Without transposing
+cool <- graphicalVARsim(2000, beta = t(graph$beta), kappa = graph$kappa)
+cool_res <- graphicalVAR(cool)
+cool_res$beta[,-1]-graph$beta
+
+# With transposing
+coolt <- graphicalVARsim(2000, beta = t(graph$beta), kappa = graph$kappa)
+coolt_res <- graphicalVAR(coolt)
+coolt_res$beta[,-1]-graph$beta
+
+
 ```
+
+# Non-sparse graph
+Obtain a graph without weights set to 0, as this would be the input for actual empirical applications. Set many of the effects close to zero. 
+Another idea would be to create data from a sparse graph and fit a BGGM var_estimate model to it, as that will also not set coefficients to zero. 
+```{r}
+# Obtain random GVARmodel
+full_graph <- randomGVARmodel(6, probKappaEdge = .3, probBetaEdge = .3)
+
+# Generate data 
+full_graph_dat <- graphicalVARsim(5000, beta = full_graph$beta, kappa = full_graph$kappa, mean = 0)
+full_graph_dat <- as.data.frame(full_graph_dat)
+
+# Reestimate a graph on this data set
+full_graph_est_bggm <- BGGM::var_estimate(as.data.frame(full_graph_dat),
+                                     beta_sd = 1,
+                                     rho_sd = .3)
+
+# Obtain kappa_mu
+full_graph_est_bggm$fit$kappa <- array(apply(full_graph_est_bggm$fit$Sigma, 3, solve),
+                                       dim = dim(full_graph_est_bggm$fit$Sigma))
+
+# Calculate mean of kappa
+full_graph_est_bggm$kappa_mu <- apply(full_graph_est_bggm$fit$kappa, c(1,2), mean)
+
+# This gives us shitty kappas. Instead, fit unregularized graphicalVAR to obtain estimates
+# This actually gives us very similar kappas!
+full_graph_est <- graphicalVAR(full_graph_dat, lambda_beta = 0, lambda_kappa = 0)
+
+# What happens in regularization?
+full_graph_est_reg <- graphicalVAR(full_graph_dat)
+
+# Compare to bggm
+full_graph_est$kappa
+full_graph_est_bggm$kappa_mu
+
+
+-cov2cor(full_graph$kappa)
+full_graph$PCC
+
+write_rds(full_graph_est_bggm, "full_graph.RDS")
+
+```
+
+
+
 
 
 
 # Epskamp 2018
 ```{r dgp-epskamp2018}
+
 # take Kappa and Beta from Epskamp et al.(2018), having reproduced the analysis in their supplement 2
 # 7 Node graph ,especially beta is VERY sparse
 # Maybe this is TOO sparse and I should use the graphs from Mansueto et al. 
@@ -104,6 +164,7 @@ graph_eps$PCC <- pcc_eps
 diag(graph_eps$PCC) <- rep(0,7)
 dimnames(graph_eps$beta) <- NULL
 dimnames(graph_eps$kappa) <- NULL
+
 ```
 
 
@@ -291,7 +352,6 @@ omega_dataset2_9n <- res3$results$Theta$pcor$mean * (cont6 != 0)
 
 # precision matrix
 # TODO DOUBLE CHECK - WHY THETA, NOT KAPPA?
-# DON'T GET THIS
 theta_dataset2_9n <- res3$results$Theta$prec$mean * (cont6 != 0 | diag(ncol(cont6)) == 1)
 
 # Compute PDC as well
