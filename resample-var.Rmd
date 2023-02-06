@@ -59,6 +59,9 @@ graph_fried$beta <- fried_net$beta
 graph_fried$kappa <- fried_net$kappa
 
 
+
+
+
 ```
 
 
@@ -67,10 +70,17 @@ graph_fried$kappa <- fried_net$kappa
 # Create a chain graph, which is good to estimate with VAR models
 # Not done yet
 
+
+
+
+
 ```
 
 ```{r own-graph}
 graph <- readRDS(here("data/graph.RDS"))
+
+# delete PCC (not needed)
+graph <- graph[-3]
 
 ```
 
@@ -81,25 +91,41 @@ Create another graph with the same structure, as "graph", but very different par
 
 ```
 
+Graph with non-sparsity
+```{r}
+graph_full_f <- readRDS("full_graph.RDS")
+
+graph_full <- list(
+  beta = graph_full_f$beta_mu,
+  kappa = graph_full_f$kappa_mu
+)
+# Non-symmetric Kappa due to rounding errors
+graph_full$kappa <- as.matrix(Matrix::forceSymmetric(graph_full$kappa))
 
 
 
+```
+
+
+## Change Graphs
 Now we can change all graphs according to the simulation conditions.
 ```{r change-graphs}
 
 # Store graphs as list
-l_graphs <- list(graph1 = graph, 
-                 graph2 = graph, 
-                 graph3 = graph)
+l_graphs <- list(graph1 = graph,
+                 graph2 = graph_full, 
+                 graph3 = graph_fried)
 
 # Apply change function to every graph
+# TODO needs to check for positive semidefiniteness somehow! does not work for graph (with small kappa varianceds)
 l_changed_graphs <- lapply(l_graphs, 
                            function(x) {change_graphs(
                                             truegraph = x, 
                                             changemax = c(1.2, 1.4, 1.6),
                                             noise = c(0.1,0.2,0.3),
-                                            seed = seed)})
+                                            seed = seed)} )
 
+change_graphs(truegraph = graph, changemax = c(1.2, 1.4, 1.6), noise = c(0.1, 0.2, 0.3), seed = seed)
 
 # Create one graph that is completely different
 # diff_graph <- randomGVARmodel(Nvar = 6, probKappaEdge = 0.3, probBetaEdge = 0.5)
@@ -112,33 +138,44 @@ graph_fried$beta[1:6, 1:6]
 norm(graph$beta - graph_fried$beta[1:6, 1:6], type = "F")
 norm(graph$beta - l_changed_graphs$graph1$noise_0.3$beta, type = "F")
 
-# Save in list
-l_changed_graphs$graph1$diffgraph <- list(
-  beta = graph_fried$beta[1:6, 1:6],
-  kappa = graph_fried$kappa[1:6, 1:6]
-)
+# # Save in list
+# l_changed_graphs$graph1$diffgraph <- list(
+#   beta = graph_fried$beta[1:6, 1:6],
+#   kappa = graph_fried$kappa[1:6, 1:6]
+# )
 
-# Delete other graphs
-l_changed_graphs$graph1[["change_1.2"]] <- NULL
-l_changed_graphs$graph1[["change_1.4"]] <- NULL
-l_changed_graphs$graph1[["change_1.6"]] <- NULL
-l_changed_graphs$graph1[["noise_0.1"]] <- NULL
-
+# # Delete other graphs
+# l_changed_graphs$graph1[["change_1.2"]] <- NULL
+# l_changed_graphs$graph1[["change_1.4"]] <- NULL
+# l_changed_graphs$graph1[["change_1.6"]] <- NULL
+# l_changed_graphs$graph1[["noise_0.1"]] <- NULL
+# write_rds(l_changed_graphs, "l_changed_graphs.RDS")
 
 ```
 
 
 
-Then, generate rawdata from data-generating processes. We create more posterior datasets than we fit in the end, because some of them do not converge. 
 
-Rewrite this to handle multiple data-generating processes at once: 
+
+
+
+## Simulate Raw Data
+Then, generate rawdata from data-generating processes. We create more posterior datasets than we fit in the end, because some of them may not converge when using the posterior predictive approach. 
+
 ```{r generate-rawdata-parallel}
 
 # Simulation conditions
-n_ind <- 15 # number of individuals(so models to create) TODO change back to 100
+n_ind <- 50 # number of individuals(so models to create) 
 n_tp <- c(50,100,200,400) # number of timepoints
 n_postds <- 130 # number of posterior datasets
 seed <- 2022
+
+# Bayesian model parameters
+rho_sd <- 0.5      # Prior for partial correlations
+beta_sd <- 1       # Prior for regression matrix
+seed <- 2022
+n_iter <- 5000
+
 
 # Think about if I actually need to standardize here
 # because everything will be standardized by var_estimate anyway
@@ -147,7 +184,7 @@ seed <- 2022
 # Changed: instead of n_ind, we create n_postds datasets 
 # because some models don't converge
 before_simraw <- Sys.time()
-ncores = parallel::detectCores() - 2
+ncores = parallel::detectCores() - 4
 cl = makeCluster(ncores)
 registerDoParallel(cl)
 l_raw <- list()
@@ -189,8 +226,8 @@ stopCluster(cl)
 
 after_simraw <- Sys.time()-before_simraw  # less than 4 minutes
 
-write_rds(l_raw, "l_raw_new.RDS")
-# l_raw <- readRDS(here("l_raw.RDS"))
+# write_rds(l_raw, "l_raw_new.RDS")
+# l_raw <- readRDS(here("l_raw_new.RDS"))
 
 
 ```
@@ -200,18 +237,10 @@ write_rds(l_raw, "l_raw_new.RDS")
 # Bayesian approach
 Fit a VAR model to each raw dataset. 
 
-Rewrite to handle all simulation conditions.
-TODO: This also needs to be changed to iterate until all models converge!
-And also return how often estimation failed. 
-
 ```{r}
-# Bayesian model parameters
-rho_sd <- 0.3      # Prior for partial correlations
-beta_sd <- 1       # Prior for regression matrix
-seed <- 2022
-n_iter <- 5000
-
-
+# for testing
+n_ind = 5
+nds = 5
 
 before_fitraw <- Sys.time()
 ncores = parallel::detectCores() - 2
@@ -220,29 +249,43 @@ registerDoParallel(cl)
 l_res <- list()
 l_res$graph3 <- l_res$graph2 <- l_res$graph1 <-  list()
 
+# for(t in seq_along(n_tp)){
+#     l_res$graph1[[t]] <- lapply(l_raw$graph1[[t]], function(x){fit_var_parallel_merged(
+#     data = x, n = n_ind, nds = n_postds, rho_prior = rho_sd, beta_prior = beta_sd, seed = seed,
+#     iterations = n_iter, pruneresults = TRUE, dgp_name = "graph1", save_files = TRUE
+#   )})
+#     l_res$graph2[[t]] <- lapply(l_raw$graph2[[t]], function(x){fit_var_parallel_merged(
+#     data = x, n = n_ind, nds = n_postds, rho_prior = rho_sd, beta_prior = beta_sd, seed = seed,
+#     iterations = n_iter, pruneresults = TRUE, dgp_name = "graph2", save_files = TRUE
+#   )})
+#     l_res$graph3[[t]] <- lapply(l_raw$graph3[[t]], function(x){fit_var_parallel_merged(
+#     data = x, n = n_ind, nds = n_postds, rho_prior = rho_sd, beta_prior = beta_sd, seed = seed,
+#     iterations = n_iter, pruneresults = TRUE, dgp_name = "graph3", save_files = TRUE
+#   )}) 
+#   
+# }
+
 for(t in seq_along(n_tp)){
-    l_res$graph1[[t]] <- lapply(l_raw$graph1[[t]], function(x){fit_var_parallel_merged(
+    lapply(l_raw$graph1[[t]], function(x){fit_var_parallel_merged(
     data = x, n = n_ind, nds = n_postds, rho_prior = rho_sd, beta_prior = beta_sd, seed = seed,
-    iterations = n_iter, pruneresults = TRUE
+    iterations = n_iter, pruneresults = TRUE, dgp_name = "graph1", save_files = TRUE
   )})
-    l_res$graph2[[t]] <- lapply(l_raw$graph2[[t]], function(x){fit_var_parallel_merged(
+    lapply(l_raw$graph2[[t]], function(x){fit_var_parallel_merged(
     data = x, n = n_ind, nds = n_postds, rho_prior = rho_sd, beta_prior = beta_sd, seed = seed,
-    iterations = n_iter, pruneresults = TRUE
+    iterations = n_iter, pruneresults = TRUE, dgp_name = "graph2", save_files = TRUE
   )})
-    l_res$graph3[[t]] <- lapply(l_raw$graph3[[t]], function(x){fit_var_parallel_merged(
+    lapply(l_raw$graph3[[t]], function(x){fit_var_parallel_merged(
     data = x, n = n_ind, nds = n_postds, rho_prior = rho_sd, beta_prior = beta_sd, seed = seed,
-    iterations = n_iter, pruneresults = TRUE
-  )}) 
-  
+    iterations = n_iter, pruneresults = TRUE, dgp_name = "graph3", save_files = TRUE
+  )})
+
 }
-
-
 stopCluster(cl)
 after_fitraw <- Sys.time()-before_fitraw
 
 
-write_rds(l_res, "l_res_new.Rds")
-# l_res <- readRDS(here("l_res.Rds"))
+# write_rds(l_res, "l_res_new.Rds")
+# l_res <- readRDS(here("l_res_new.Rds"))
 
 
 
@@ -250,7 +293,7 @@ write_rds(l_res, "l_res_new.Rds")
 ```
 
 
-Comparison of results with grahpicalVAR is done in another script ("bggm-var-investigation.Rmd"). Here, we look at how well our model recovered the correct parameters. 
+Comparison of results with grahpicalVAR is done in another script ("bggm-var-investigation.Rmd"). Here, we can look at how well our model recovered the correct parameters. 
 ```{r recovery}
 rec_res <- list()
 # Loop over timepoint conditions
@@ -258,6 +301,7 @@ for(t in 1:4){
   rec_res[[t]] <- compare_dgp(graph, est_bggm = l_res$graph1[[t]]$truegraph, comp_gvar = FALSE, est_gvar = NULL)
 }
 rec_res[[4]]
+median(as.matrix(abs(rec_res[[4]]$diff_beta_mean$true_bggm)))
 
 ```
 
@@ -270,8 +314,6 @@ Use random samples from the posterior to simulate new datasets.
 
 Rewrite for simulation conditions:
 ```{r}
-
-
 before_simpost <- Sys.time()
 # Setup parallel
 ncores = parallel::detectCores() - 2
@@ -304,15 +346,27 @@ write_rds(l_data, "l_data_new.Rds")
 
 ```
 
+Double check simulation: 
+```{r}
+sim_check <- graphicalVARsim(3000, beta = t(l_res$graph1[[4]]$truegraph[[1]]$beta_mu), kappa = l_res$graph1[[4]]$truegraph[[1]]$kappa_mu)
+sim_check <- as.data.frame(sim_check)
+sim_check_res <- var_estimate(sim_check)
+
+sim_check_res$beta_mu-l_res$graph1[[4]]$truegraph[[1]]$beta_mu
+
+```
 
 
 
 
-## Norm Approach
+
+
+
+
+# Posterior Predictive Simulation Approach
 Compute different norms between models on resampled datasets compared to reference model and then compare to actual difference between two models. 
 
 
-Rewrite Code for multiple simulation conditions
 ```{r}
 before_par_fit <- Sys.time()
 ncores = parallel::detectCores() - 3
@@ -353,9 +407,7 @@ write_rds(l_postres, "l_postres_new.Rds")
 ### Evaluation
 
 Then, start the evaluation. 
-
-
-TODO: Maxdiff still throws an error here, which is indicative of non-convergence
+Maxdiff still throws an error here, which is indicative of non-convergence
 
 ```{r}
 # All possible model combinations
@@ -374,32 +426,13 @@ n_t_types <- 4
 
 
 dgp_names <- c("graph1", "graph2", "graph3")
-
 change_names <- c("truegraph", "change_1.2", "change_1.4", "change_1.6",
                   "noise_0.1", "noise_0.2", "noise_0.3")
-
-
 comp_names <- c("frob","maxdiff", "l1")
-
 
 
 # Number of comparison combinations
 n_c_comb <- nrow(comp_combinations)
-
-# comp_conditions <- data.frame(
-#                         postpost = rep(FALSE, n_c_comb*n_c_types*n_g_types),
-#                         mod_a = rep(comp_combinations[,1], n_c_types),
-#                         mod_b = rep(comp_combinations[,2], n_c_types),
-#                         # fitpost_a is always the reference true graph
-#                         fitpost_a = rep("l_postres$truegraph", n_c_comb*n_c_types*n_g_types),
-#                         fitpost_b = rep(paste0("l_postres$", change_names), each = n_c_comb*n_c_types),
-#                         # fitemp_a is always the reference true graph
-#                         fitemp_a = rep("l_res$truegraph", n_c_comb*n_c_types),
-#                         fitemp_b = rep("l_res", n_c_comb*n_c_types),
-#                         n_datasets = rep(100, n_c_comb*n_c_types),
-#                         comparison = c(rep("frob", n_c_comb), 
-#                                        rep("maxdiff", n_c_comb),
-#                                        rep("l1", n_c_comb)))
 
 
 # Setup storage
@@ -563,7 +596,6 @@ wc_res %>%
 ```
 
 Do this for all models.
-Still throws an error sometimes
 ```{r}
 # All possible model combinations
 comp_combinations <- expand_grid_unique(mod_a = seq(1, n_ind, 1),
@@ -581,13 +613,11 @@ n_t_types <- 4
 
 dgp_names <- c("graph1", "graph2", "graph3")
 
-change_names <- c("truegraph", "change_1.2", "change_1.5", "change_1.7",
+change_names <- c("truegraph", "change_1.2", "change_1.4", "change_1.6",
                   "noise_0.1", "noise_0.2", "noise_0.3")
 
 
 comp_names <- c("frob","maxdiff", "l1")
-
-
 
 # Number of comparison combinations
 n_c_comb <- nrow(comp_combinations)
@@ -639,52 +669,9 @@ for(d in seq(n_dgp)){
 
 ```
 
-Now evaluate this: (does not work properly yet)
+Now evaluate this: 
 ```{r}
-within_compare_eval <- function(l_res,
-                                pcor = TRUE){
-  ### Betas
-  df_res <- as.data.frame(l_res$res)
-  df_res_beta <- subset(df_res, mat == "beta")
-  
-  # Obtain model indexes
-  model_ind_a <- unique(df_res_beta$model_ind)[1]
-  model_ind_b <- unique(df_res_beta$model_ind)[2]
-  
-  # Number of posterior difference > empirical difference
-  teststat_a_beta <- sum(df_res_beta$null[df_res_beta$model_ind == model_ind_a] > df_res_beta$emp[df_res_beta$model_ind == model_ind_a], na.rm = TRUE)
-  teststat_b_beta <- sum(df_res_beta$null[df_res_beta$model_ind == model_ind_b] > df_res_beta$emp[df_res_beta$model_ind == model_ind_b], na.rm = TRUE)
-  
-    
-    
-  if(isTRUE(pcor)){
-    ### Pcor
-    df_res_pcor <- subset(df_res, mat == "pcor")
-    # Obtain model indexes
-    model_ind_a <- unique(df_res_pcor$model_ind)[1]
-    model_ind_b <- unique(df_res_pcor$model_ind)[2]
-    
-    # Number of posterior difference > empirical difference
-    teststat_a_pcor <- sum(df_res_pcor$null[df_res_pcor$model_ind == model_ind_a] > df_res_pcor$emp[df_res_pcor$model_ind == model_ind_a], na.rm = TRUE)
-    teststat_b_pcor <- sum(df_res_pcor$null[df_res_pcor$model_ind == model_ind_b] > df_res_pcor$emp[df_res_pcor$model_ind == model_ind_b], na.rm = TRUE)
-    
-  }
-
-  testres <- list(beta_a = teststat_a_beta,
-                  beta_b = teststat_b_beta,
-                  pcor_a = teststat_a_pcor,
-                  pcor_b = teststat_b_pcor,
-                  comp = df_res_beta$comp[[1]], # get type of comparison
-                  dgp = l_res$params$dgp,
-                  tp = l_res$params$tp,
-                  comp_graph = l_res$params$comp_graph)  
-  testres
-}
-
-
-
 within_compare_eval(l_res = l_comp_within[[1]][[3]][[4]][[1]][[1]])
-
 
 
 # Set up for all simulation conditions
@@ -748,33 +735,53 @@ df_eval_within %>%
 # New Approach (25.01.2023): Posterior Comparison without Predictive
 The idea is to compare distances between matrices in the posterior as a reference distribution, without having to compute any posterior predictives.
 
-
-```{r}
-wc2 <- list()
-wc2$res <- within_compare(
-                      mod_a = 1,
-                      mod_b = 2,
-                      # [[]][[]][[1]] indexes the truegraph
-                      fitpost_a = l_res[[1]][[3]][[1]],
-                      fitpost_b = l_res[[1]][[3]][[4]],
-                      fitemp_a = l_res[[1]][[3]][[1]],
-                      fitemp_b = l_res[[1]][[3]][[4]],
-                      n_datasets = 100,
-                      comparison = "frob",
-                      n_draws = 1000,
-                      postpred = FALSE)
-
-
-
-```
-
-
 Compare all models:
 ```{r}
-within_compare_eval(wc2)
 # Setup storage
-l_comp_within<- list()
+l_comp_within <- list()
 
+# Setup list of conditions
+# All possible model combinations
+comp_combinations <- expand_grid_unique(mod_a = seq(1, n_ind, 1),
+                                 mod_b = seq(1, n_ind, 1))
+# number of data-generating processes
+n_dgp <- 3
+# Number of comparison types
+n_c_types <- 3
+
+# Number of different changed graph structures
+n_g_types <- 7
+
+# Number of different tp conditions
+n_t_types <- 4
+
+dgp_names <- c("graph1", "graph2", "graph3")
+
+change_names <- c("truegraph", "change_1.2", "change_1.4", "change_1.6",
+                  "noise_0.1", "noise_0.2", "noise_0.3")
+
+
+comp_names <- c("frob","maxdiff", "l1")
+
+comp_grid_mod <- expand.grid(mod_a = seq(1, n_ind, 1),
+            mod_b = seq(1, n_ind, 1),
+            dgp = dgp_names, 
+            change = change_names,
+            tp = n_tp,
+            comp = comp_names)
+
+# Filter redundant comparisons within truegraph
+comp_grid_mod <- comp_grid_mod %>% 
+  filter(!c(mod_a == mod_b & change == "truegraph")) 
+
+
+# Number of comparison combinations
+n_c_comb <- nrow(comp_grid_mod)
+
+
+# as many clusters as n_g_types
+cl = makeCluster(n_g_types)
+registerDoParallel(cl)
 # Loop over data-generating processes
 for(d in seq(n_dgp)){
   l_comp_within[[d]] <- list()
@@ -817,14 +824,181 @@ for(d in seq(n_dgp)){
   }
 }
 
+# write_rds(l_comp_within, "l_comp_within.RDS")
+
+
 ```
+
+
+### New comparison with loading files
+Previous model objects became too large, now we read them in instead of keeping them in memory.
+```{r}
+# TODO
+# Think of how we can do this efficiently without re-loading data too often
+# Probably loop over all the truegraphs and then all the changed ones
+comp_grid <- expand.grid(dgp = dgp_names, 
+            change = change_names, 
+            comp = comp_names,
+            tp = n_tp)
+  
+# Add filenames
+comp_grid <- comp_grid %>% 
+  mutate(ref_file = paste0("fit_", dgp, "_","truegraph","_",tp,".RDS"),
+         comp_file = paste0("fit_", dgp, "_",change,"_",tp,".RDS"))
+
+
+# for testing
+comp_grid <- expand.grid(dgp = "graph1", 
+            change = change_names, 
+            comp = comp_names,
+            tp = n_tp)
+  
+# Add filenames
+comp_grid <- comp_grid %>% 
+  mutate(ref_file = paste0("fit_", dgp, "_","truegraph","_",tp,".RDS"),
+         comp_file = paste0("fit_", dgp, "_",change,"_",tp,".RDS"))
+
+
+lapply(c(1:nrow(comp_grid)), function(n){
+  
+  ## Get args
+  dgp_it <- comp_grid$dgp[n]
+  change_it <- comp_grid$change[n]
+  tp_it <- comp_grid$tp[n]
+  
+  ## Read files
+  
+  l_ref <- readRDS(file = here::here(paste0("data/compare_sim_data/", comp_grid$ref_file[n])))
+  l_comp <- readRDS(file = here::here(paste0("data/compare_sim_data/", comp_grid$comp_file[n])))
+
+  ## Perform comparison 
+  # Loop over all possible model combinations
+  comp_ind <- comp_grid_mod %>% 
+    filter(as.character(dgp) == as.character(dgp_it) &
+           as.character(change) == as.character(change_it) & 
+           as.numeric(as.character(tp)) == as.numeric(as.character(tp_it)))
+    
+  wc_res <- list()
+  lapply(c(1:nrow(comp_ind)), function(x){
+    wc_res[[x]] <- list()
+    wc_res[[x]] <- within_compare(mod_a = comp_ind$mod_a[x],
+                      mod_b = comp_ind$mod_b[x],
+                      fitpost_a = l_ref,
+                      fitpost_b = l_comp,
+                      fitemp_a = l_ref,
+                      fitemp_b = l_comp,
+                      n_datasets = 100,
+                      n_draws = 1000,
+                      comparison = comp_ind$comp[x],
+                      postpred = FALSE)
+  })
+  print(wc_res)
+  
+  # Save output
+  return(wc_res)
+  
+  
+})
+
+
+
+
+l_ref <- readRDS(file = here::here(paste0("data/compare_sim_data/", comp_grid$ref_file[1])))
+l_comp <- readRDS(file = here::here(paste0("data/compare_sim_data/", comp_grid$comp_file[1])))
+
+
+within_compare(mod_a = 1,
+                      mod_b = 2,
+                      fitpost_a = l_ref,
+                      fitpost_b = l_comp,
+                      fitemp_a = l_ref,
+                      fitemp_b = l_comp,
+                      n_datasets = 100,
+                      n_draws = 1000,
+                      comparison = "frob",
+                      postpred = FALSE)
+
+```
+
+
+
+
+
+Visualize reference distributions and empirical value
+```{r}
+plot_test <- function(comp_obj,
+                      modmat,
+                      ref_dist = null,
+                      emp_diff = emp,
+                      ind = model_ind,
+                      comp_type = comp){
+  
+  # Store params
+  pr <- comp_obj$params
+  
+  # get comp type
+  ct <- comp_obj$res %>% distinct({{comp_type}})
+  
+  # Get matrix as character
+  c_matrix <- deparse(substitute(modmat))
+
+  
+  comp_obj$res %>% 
+    filter(mat == c_matrix) %>%  
+    ggplot()+
+    geom_histogram(aes(x = {{ref_dist}}, fill = as.factor({{ind}})), alpha = 0.65,  position = "identity", bins = 100)+
+    geom_vline(aes(xintercept = max({{emp_diff}})))+
+    theme_minimal()+
+    labs(x = paste0(ct, " Norm Value"),
+         fill = "Model",
+         caption = paste0("DGP: ", pr$dgp,", TP: ", pr$tp, ", Comparison Graph: ", pr$comp_graph, ", Matrix: ", c_matrix))+
+    ggokabeito::scale_fill_okabe_ito()
+
+}
+
+pdf(file = "figures/distributions/reference_dists_xlim10.pdf")
+for(i in 1:4){
+  for(j in 1:7){
+    for(c in 1:3){
+          b <- plot_test(l_comp_within[[1]][[i]][[j]][[5]][[c]], modmat = beta)
+          plot(b)
+          p <- plot_test(l_comp_within[[1]][[i]][[j]][[5]][[c]], modmat = pcor)
+          plot(p)      
+      }
+  }
+}
+dev.off()
+
+
+```
+
+Then, try approximating the norm distribution with known densities. 
+```{r}
+ref_dist <- l_comp_within[[1]][[3]][[6]][[5]][[1]]$res %>% 
+  as.data.frame() %>% 
+  filter(mat == "beta") %>% 
+  filter(model_ind == 1) %>% 
+  pull(null)
+
+hist(ref_dist, breaks = 40)
+
+
+cs_res<- MASS::fitdistr(ref_dist, densfun = "chi-squared", start = list(df = 1))
+no_res <- MASS::fitdistr(ref_dist, densfun = "normal")
+
+```
+
+
+
+
+
 
 Evaluate all models:
 ```{r}
 # Set up for all simulation conditions
 l_eval_within <- list()
 # Loop over data-generating processes
-# TODO change back to seg(n_dgp)
+
 for(d in seq(n_dgp)){
   l_eval_within[[d]] <- list()
   # Loop over timepoint conditions
@@ -852,10 +1026,11 @@ df_eval_within <- rrapply::rrapply(l_eval_within, how = "bind")
 ```
 
 
-Plot results
+Plot results.
+TODO: This needs to take the amount of nonconverged models into account
 ```{r}
 plot_within_emppost <- df_eval_within %>% 
-  pivot_longer(cols = c("beta_a", "beta_b", "pcor_a", "pcor_b"), names_to = "res") %>% 
+  pivot_longer(cols = c("beta_a", "beta_b", "pcor_a", "pcor_b", "kappa_a", "kappa_b"), names_to = "res") %>% 
   # mutate(across(c(comp, dgp, tp, comp_graph, res),
                 # ~ as.factor(.))) %>% 
   filter(dgp == "graph1") %>% 
@@ -874,7 +1049,7 @@ plot_within_emppost <- df_eval_within %>%
   theme_minimal()+
   scale_color_okabe_ito()
 
-ggsave("plot_within_emppost.svg", plot_within_emppost, device = "svg", path = here("figures/"))  
+ggsave("plot_within_emppost2.svg", plot_within_emppost, device = "svg", path = here("figures/"))  
 
 
 ```
