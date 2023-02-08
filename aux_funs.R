@@ -107,8 +107,8 @@ change_graphs <- function(truegraph = NULL,
         
       }
       l_out_change[[c]]$kappa <- tmp_kappa
-      l_out_change[[c]]$args <- paste0("change_", changemax[c])
-      names(l_out_change)[[c]] <- paste0("change_", changemax[c])
+      l_out_change[[c]]$args <- paste0("change", changemax[c])
+      names(l_out_change)[[c]] <- paste0("change", changemax[c])
     }
   #   ## Checking
   #   # values outside unit circle
@@ -177,8 +177,8 @@ change_graphs <- function(truegraph = NULL,
       
       
       l_out_noise[[n]]$kappa <- tmp_kappa
-      l_out_noise[[n]]$args <- paste0("noise_", noise[n])
-      names(l_out_noise)[[n]] <- paste0("noise_", noise[n])
+      l_out_noise[[n]]$args <- paste0("noise", noise[n])
+      names(l_out_noise)[[n]] <- paste0("noise", noise[n])
     }
   #   ## Checking
   #   # values outside unit circle
@@ -651,7 +651,7 @@ fit_var_parallel_merged <- function(data,
     }
     # If outputs should be saved as RDS
     if(isTRUE(save_files)){
-      saveRDS(fit, file = here::here(paste0("data/compare_sim_data/fit_",dgp_name, "_", fit[[1]]$args$dgp, "_", fit[[1]]$args$tp,".RDS")))
+      saveRDS(fit, file = here::here(paste0("data/compare_sim_fits/fit_",dgp_name, "_", fit[[1]]$args$dgp, "_", fit[[1]]$args$tp,".RDS")))
       
     }
     
@@ -1265,6 +1265,8 @@ post_distance_within <- function(post,
   # delete burn-in iterations (to 50)
   # n_mod <- n_mod[-c(1:50)]
   
+  # TODO: actually, "samples" would be more fitting here than "models"
+  # "model" is still a residue from posterior predictive approach
   # Draw models spaced apart so that we don't have autocorrelation from sampling
   mod_pairs <- array(NA, dim = c(2, draws))
   # draw from first half of samples
@@ -1623,13 +1625,26 @@ within_compare <- function(
     n_datasets = 100,
     comparison = "frob",
     n_draws = 1000,
-    postpred = TRUE,          # do we use the posterior predictive approach?
+    postpred = FALSE,          # do we use the posterior predictive approach?
     # parallel = FALSE,
     # ncores = NULL, 
     ...){
   if(!is.numeric(mod_a) | !is.numeric(mod_b)){
     stop("Error: Model needs to have numerical index")
   }
+  
+  # If one of the models did not converge
+  if(isFALSE(postpred) && length(fitpost_a[[mod_a]]$fit) == 0 |
+     isFALSE(postpred) && length(fitpost_a[[mod_b]]$fit) == 0 ){
+    cc_res <- data.frame(mat = c("beta", "pcor", "beta", "pcor"),
+                         null = c(NA, NA, NA, NA),
+                         model_ind = c(mod_a, mod_a, mod_b, mod_b),
+                         mod = c("mod_a", "mod_a", "mod_b", "mod_b"),
+                         emp = c(NA, NA, NA, NA),
+                         comp = rep(comparison, 4))
+    return(cc_res)
+  }
+  
   
   if(comparison == "frob"){
     normtype = "F"
@@ -1706,11 +1721,15 @@ within_compare <- function(
     
     # Save results
     cc_res_beta <- data.frame(null = c(unlist(null_a[["beta"]]), unlist(null_b[["beta"]])),
+                              model_ind = c(rep(mod_a, n_draws), rep(mod_b, n_draws)),
+                              mod = c(rep("mod_a", n_draws), rep("mod_b", n_draws)),
                               emp = rep(emp_beta, n_draws*2),
                               comp = rep(comparison, n_draws*2))
     
     
     cc_res_pcor <- data.frame(null = c(unlist(null_a[["pcor"]]), unlist(null_b[["pcor"]])),
+                              model_ind = c(rep(mod_a, n_draws), rep(mod_b, n_draws)),
+                              mod = c(rep("mod_a", n_draws), rep("mod_b", n_draws)),
                               emp = rep(emp_pcor, n_draws*2),
                               comp = rep(comparison, n_draws*2))
     
@@ -1824,63 +1843,69 @@ cross_compare_eval <- function(l_res){
 
 
 # Evaluate Within-Comparison ----------------------------------------------
+# Change 07.02.:  deleted $res, no longer necessary. also changed model_ind == to mod == , which fixes errors when both model indicators are identical
 within_compare_eval <- function(l_res,
                                 pcor = TRUE,
                                 kappa = TRUE){
   ### Betas
-  df_res <- as.data.frame(l_res$res)
+  df_res <- as.data.frame(l_res)
   df_res_beta <- subset(df_res, mat == "beta")
   
   # Obtain model indexes
   model_ind_a <- unique(df_res_beta$model_ind)[1]
   model_ind_b <- unique(df_res_beta$model_ind)[2]
   
-  # Number of posterior difference > empirical difference
-  teststat_a_beta <- sum(df_res_beta$null[df_res_beta$model_ind == model_ind_a] > df_res_beta$emp[df_res_beta$model_ind == model_ind_a], na.rm = TRUE)
-  teststat_b_beta <- sum(df_res_beta$null[df_res_beta$model_ind == model_ind_b] > df_res_beta$emp[df_res_beta$model_ind == model_ind_b], na.rm = TRUE)
+  # if both indexes are the same, there is only one unique element
+  if(length(unique(df_res_beta$model_ind)) == 1){
+    model_ind_b <- unique(df_res_beta$model_ind)[1]
+  }
   
+  # Number of posterior difference > empirical difference
+  teststat_a_beta <- sum(df_res_beta$null[df_res_beta$mod == "mod_a"] > df_res_beta$emp[df_res_beta$mod == "mod_a"], na.rm = TRUE)
+  teststat_b_beta <- sum(df_res_beta$null[df_res_beta$mod == "mod_b"] > df_res_beta$emp[df_res_beta$mod == "mod_b"], na.rm = TRUE)
   
   
   if(isTRUE(pcor)){
     ### Pcor
     df_res_pcor <- subset(df_res, mat == "pcor")
-    # Obtain model indexes
-    model_ind_a <- unique(df_res_pcor$model_ind)[1]
-    model_ind_b <- unique(df_res_pcor$model_ind)[2]
+    # # Obtain model indexes
+    # "mod_a" <- unique(df_res_pcor$mod)[1]
+    # "mod_b" <- unique(df_res_pcor$mod)[2]
     
     # Number of posterior difference > empirical difference
-    teststat_a_pcor <- sum(df_res_pcor$null[df_res_pcor$model_ind == model_ind_a] > df_res_pcor$emp[df_res_pcor$model_ind == model_ind_a], na.rm = TRUE)
-    teststat_b_pcor <- sum(df_res_pcor$null[df_res_pcor$model_ind == model_ind_b] > df_res_pcor$emp[df_res_pcor$model_ind == model_ind_b], na.rm = TRUE)
+    teststat_a_pcor <- sum(df_res_pcor$null[df_res_pcor$mod == "mod_a"] > df_res_pcor$emp[df_res_pcor$mod == "mod_a"], na.rm = TRUE)
+    teststat_b_pcor <- sum(df_res_pcor$null[df_res_pcor$mod == "mod_b"] > df_res_pcor$emp[df_res_pcor$mod == "mod_b"], na.rm = TRUE)
     
   }
   
   if(isTRUE(kappa)){
     ### kappa
     df_res_kappa <- subset(df_res, mat == "kappa")
-    # Obtain model indexes
-    model_ind_a <- unique(df_res_kappa$model_ind)[1]
-    model_ind_b <- unique(df_res_kappa$model_ind)[2]
+    # # Obtain model indexes
+    # "mod_a" <- unique(df_res_kappa$mod)[1]
+    # "mod_b" <- unique(df_res_kappa$mod)[2]
     
     # Number of posterior difference > empirical difference
-    teststat_a_kappa <- sum(df_res_kappa$null[df_res_kappa$model_ind == model_ind_a] > df_res_kappa$emp[df_res_kappa$model_ind == model_ind_a], na.rm = TRUE)
-    teststat_b_kappa <- sum(df_res_kappa$null[df_res_kappa$model_ind == model_ind_b] > df_res_kappa$emp[df_res_kappa$model_ind == model_ind_b], na.rm = TRUE)
+    teststat_a_kappa <- sum(df_res_kappa$null[df_res_kappa$mod == "mod_a"] > df_res_kappa$emp[df_res_kappa$mod == "mod_a"], na.rm = TRUE)
+    teststat_b_kappa <- sum(df_res_kappa$null[df_res_kappa$mod == "mod_b"] > df_res_kappa$emp[df_res_kappa$mod == "mod_b"], na.rm = TRUE)
     
   }
+
   
   
-  
-  
-  
+
   wcompres <- list(beta_a = teststat_a_beta,
                    beta_b = teststat_b_beta,
                    pcor_a = teststat_a_pcor,
                    pcor_b = teststat_b_pcor,
                    kappa_a = teststat_a_kappa, 
                    kappa_b = teststat_b_kappa,
-                   comp = df_res_beta$comp[[1]], # get type of comparison
-                   dgp = l_res$params$dgp,
-                   tp = l_res$params$tp,
-                   comp_graph = l_res$params$comp_graph)  
+                   mod_a = model_ind_a, 
+                   mod_b = model_ind_b,
+                   comp = df_res_beta$comp[[1]]) # get type of comparison
+                   # dgp = l_res$params$dgp,
+                   # tp = l_res$params$tp,
+                   # comp_graph = l_res$params$comp_graph)  
   wcompres
 }
 
