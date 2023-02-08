@@ -1202,3 +1202,59 @@ plot_error_dist <- function(dat, errorcol = mse){
 ```
 
 
+
+
+
+# Within Compare
+
+```{r}
+## Looping is deprecated
+# # as many clusters as n_g_types
+# cl = makeCluster(n_g_types)
+# registerDoParallel(cl)
+# # Loop over data-generating processes
+# for(d in seq(n_dgp)){
+#   l_comp_within[[d]] <- list()
+#   # Loop over timepoint conditions
+#   for(t in seq(n_t_types)){
+#     l_comp_within[[d]][[t]] <- list() 
+#     # Loop over changed graphs
+#     for(c in seq(n_g_types)){
+#       l_comp_within[[d]][[t]][[c]] <- list()
+#       # Loop over model combinations
+#       for(m in seq(n_c_comb)){
+#         l_comp_within[[d]][[t]][[c]][[m]] <- list()
+#         # Loop over comparison types
+#         for(c_type in seq(n_c_types)){
+#           l_comp_within[[d]][[t]][[c]][[m]][[c_type]] <- list()
+#           l_comp_within[[d]][[t]][[c]][[m]][[c_type]]$res <- within_compare(
+#                       mod_a = comp_combinations[m, 1],
+#                       mod_b = comp_combinations[m, 2],
+#                       # [[1]] indexes the truegraph
+#                       fitpost_a = l_res[[d]][[t]][[1]],
+#                       fitpost_b = l_res[[d]][[t]][[c]],
+#                       fitemp_a = l_res[[d]][[t]][[1]],
+#                       fitemp_b = l_res[[d]][[t]][[c]],
+#                       n_datasets = 100,
+#                       n_draws = 1000,
+#                       comparison = comp_names[c_type],
+#                       postpred = FALSE)
+#          # Store relevant parameters for evaluation
+#          l_comp_within[[d]][[t]][[c]][[m]][[c_type]]$params <- list(
+#            dgp = dgp_names[d],
+#            tp = n_tp[t],
+#            comp_graph = change_names[c]
+#          )
+#         } 
+# 
+#         
+#         
+#       }
+#     }
+#   }
+# }
+# 
+# # write_rds(l_comp_within, "l_comp_within.RDS")
+
+```
+
