@@ -239,8 +239,9 @@ sim_raw_parallel <- function(dgp,
   # cl = makeCluster(ncores)
   # registerDoParallel(cl)
   
-  # Reproducible loops
-  registerDoRNG(seed)
+  # Reproducible loops - not used anymore, as we need different seeds
+  # across conditions. 
+  # registerDoRNG(seed)
   
   data <- foreach(i = seq(n), .packages = "graphicalVAR") %dopar% {
     raw_data <- list()
@@ -563,6 +564,7 @@ fit_var_parallel_merged <- function(data,
                                      iterations,
                                      get_kappa = TRUE,
                                      posteriorsamples = FALSE,
+                                     multigroup = FALSE,
                                      pruneresults = FALSE, 
                                      save_files = FALSE,
                                      dgp_name = NULL){     # option to return as .rds
@@ -573,7 +575,7 @@ fit_var_parallel_merged <- function(data,
   require(doParallel)
 
   # reproducible parallelization
-  registerDoRNG(seed)
+  doRNG::registerDoRNG(seed)
   
 
   # if we take simulated data in a list object
@@ -581,11 +583,11 @@ fit_var_parallel_merged <- function(data,
   # Count number of non-converged estimations
   # n_nonconv <- 0
   
-  if(isFALSE(posteriorsamples)){
+  if(isFALSE(posteriorsamples) && isFALSE(multigroup)){
     fit <- foreach(i = seq(nds), .packages = "BGGM") %dopar% {
       fit_ind <- list()
       if(is.list(data[[i]]$data) | is.numeric(data[[i]]$data)){
-        fit_ind <- tryCatch({BGGM::var_estimate(data[[i]]$data,
+        fit_ind <- tryCatch({BGGM::var_estimate(as.data.frame(data[[i]]$data),
                                                 rho_sd = rho_prior,
                                                 beta_sd = beta_prior,
                                                 iter = iterations,
@@ -609,8 +611,8 @@ fit_var_parallel_merged <- function(data,
         }
         # prune results for comparison purposes
         if(isTRUE(pruneresults) & is.list(fit_ind)){
-          beta <- fit_ind$fit$beta
-          kappa <- fit_ind$fit$kappa
+          # beta <- fit_ind$fit$beta
+          # kappa <- fit_ind$fit$kappa
           beta_mu <- fit_ind$beta_mu 
           pcor_mu <- fit_ind$pcor_mu
           kappa_mu <- fit_ind$kappa_mu
@@ -623,8 +625,8 @@ fit_var_parallel_merged <- function(data,
           fit_ind$kappa_mu <- kappa_mu
           fit_ind$args <- args
           # fit_ind$n_nonconv <- n_nonconv
-          fit_ind$fit$beta <- beta
-          fit_ind$fit$kappa <- kappa
+          # fit_ind$fit$beta <- beta
+          # fit_ind$fit$kappa <- kappa
 
         } 
         
@@ -745,6 +747,106 @@ fit_var_parallel_merged <- function(data,
     
     
   } # end isTRUE posteriorsamples
+  if(isTRUE(multigroup)){
+    print("Fitting to multigroup posterior samples")
+    
+    # counter for converged models 
+    m <- list()
+    # counter for attempted models
+    c <- list()
+    
+    fit <- list()
+    
+    # Progressbar
+    pb <- utils::txtProgressBar(0, nds, style = 3)
+    
+    # loop across samples
+    fit <- foreach(i = seq(nds), .packages = "BGGM") %dopar% {
+      utils:: setTxtProgressBar(pb, i)
+      
+      # TODO reimplement!
+      # # Counter for converged models
+      # m[[i]] <- 0
+      # # Counter for estimated models
+      # c[[i]] <- 0
+      fit_ind <- list()
+      # loop across groups
+      for(d in seq(n)) {
+        # if(m[[i]] >= 100){
+        #   break 
+        # }
+        
+        if(is.list(data[[i]])){
+          if(is.list(data[[i]][[d]])){
+            fit_ind[[d]] <- tryCatch({BGGM::var_estimate(as.data.frame(data[[i]][[d]]$data),
+                                                         rho_sd = rho_prior,
+                                                         beta_sd = beta_prior,
+                                                         iter = iterations,
+                                                         progress = FALSE,
+                                                         seed = seed)}, error = function(e) NA)
+            # # Add to counter for estimated models
+            # c[[i]] <- c[[i]]+1
+            
+            # check if fitting worked (length condition needed when first d iteration
+            # fails and list is empty)
+            if(length(fit_ind) > 0){
+              if(is.list(fit_ind[[d]])){
+                # m[[i]] <- m[[i]]+1
+                # print(m[[i]])
+                
+                
+                if(isTRUE(get_kappa)){
+                  # Invert covariance matrix of residuals to obtain precision matrix
+                  fit_ind[[d]]$fit$kappa <- array(apply(fit_ind[[d]]$fit$Sigma, 3, solve), 
+                                                  dim = dim(fit_ind[[d]]$fit$Sigma))
+                  # Calculate mean of kappa
+                  fit_ind[[d]]$kappa_mu <- apply(fit_ind[[d]]$fit$kappa, c(1,2), mean)
+                  
+                }
+                
+                
+                # prune results for comparison purposes
+                # When fitting to posterior data, we no longer need 
+                # raw kappa/beta matrizes
+                if(isTRUE(pruneresults)){
+                  # kappa <- fit_ind[[d]]$fit$kappa
+                  # beta <- fit_ind[[d]]$fit$beta
+                  beta_mu <- fit_ind[[d]]$beta_mu 
+                  kappa_mu <- fit_ind[[d]]$kappa_mu
+                  pcor_mu <- fit_ind[[d]]$pcor_mu
+                  # n_attempts <- c[[i]]
+                  fit_ind[[d]] <- list()
+                  # fit_ind[[d]]$fit <- list()
+                  fit_ind[[d]]$beta_mu <- beta_mu
+                  fit_ind[[d]]$kappa_mu <- kappa_mu
+                  fit_ind[[d]]$pcor_mu <- pcor_mu
+                  # fit_ind[[d]]$n_attempts <- n_attempts
+                  # fit_ind[[d]]$fit$beta <- beta
+                  # fit_ind[[d]]$fit$kappa <- kappa
+                  
+                } # end isTRUE(pruneresults)
+                
+                
+              }    # end is.list(fit_ind)
+            }
+            
+            
+            
+          } # end is.list(data[[i]])  
+        }
+        
+        
+        
+      } # end loop across groups 
+      
+      return(fit_ind)
+      
+    } # end foreach 
+    return(fit)
+    
+  } # end isTRUE multigroup
+  
+  
 
   
 }  
