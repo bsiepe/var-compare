@@ -5,4 +5,533 @@ date: "2023-01-30"
 output: html_document
 ---
 
+We use data from Fisher et al. (2017), downloaded from https://github.com/jmbh/EmotionTimeSeries/blob/master/DataClean/Fisher2017/data_Fisher2017.RDS. 
+
+# Preparation and Data Cleaning
+```{r}
+library(BGGM)
+library(qgraph)
+library(tidyverse)
+data <- readRDS("data_Fisher2017.RDS")
+
+
+
+# Number of observations per model
+n_obs <- data %>% 
+  count(subj_id)
+
+# Use 6 items
+short_data <- data %>% 
+  # dplyr::filter(subj_id %in% rel_ids) %>% 
+  dplyr::select(subj_id, content, worried, anhedonia, positive, fatigue, accepted) %>% 
+  group_by(subj_id) %>% 
+  mutate(tp = row_number()) %>% 
+  ungroup() %>% 
+  split(.$subj_id)
+
+
+short_data <- data %>% 
+  # dplyr::filter(subj_id %in% rel_ids) %>% 
+  dplyr::select(subj_id, reassure, down, anhedonia, enthusiastic, hopeless, accepted) %>% 
+  group_by(subj_id) %>% 
+  mutate(tp = row_number()) %>% 
+  ungroup() %>% 
+  split(.$subj_id)
+
+
+
+```
+
+
+## Detrending
+
+TODO: Double check if this worked
+```{r}
+# Relevant variables
+rel_vars <- c("content", "worried", "anhedonia", "positive", "fatigue", "accepted")
+rel_vars <- c("reassure", "down", "anhedonia", "enthusiastic", "hopeless", "accepted")
+
+data_detrend <- lapply(short_data, function(x){
+  for (v in 1:length(rel_vars)){
+  # Respektive Variable auf die Zeit regressieren
+  lm_form <- as.formula(paste0(rel_vars[v], "~ tp"))
+  # lineares Modell rechnen
+  lm_res <- summary(lm(lm_form, data = x))
+  # wenn der Zeittrend signifikant ist, detrenden wir mit den Residuen
+  # [,4] greift auf die Spalte der p-Werte zu
+  # [2] auf den p-Wert des Regressionsgewichts des Datums
+  if(lm_res$coefficients[,4][2] < 0.05){
+    print(paste0("Detrende Variable: ", rel_vars[v]))
+    x[!is.na(x[rel_vars[v]]),rel_vars[v]] <- residuals(lm_res)
+  }
+  
+}
+return(x)
+})
+
+
+
+
+
+```
+
+
+
+
+Fit all models
+```{r}
+rho_prior = 0.5
+beta_prior = 1
+iterations = 15000
+seed = 2022
+
+l_fits <- list()
+l_fits <- lapply(data_detrend, function(x){
+  tryCatch(BGGM::var_estimate(x[,-c(1, 8)],      # delete id column and tp column for fitting
+                     rho_sd = rho_prior,
+                     beta_sd = beta_prior,
+                     iterations = iterations, 
+                     seed = seed), error = function(e) NA)
+})
+
+# delete nonconverged
+# l_fits <- l_fits[sapply(l_fits, is.list)]
+# get param names
+param_names <- BGGM::convergence(l_fits[[1]], print_names = TRUE)
+
+# Trace Plots
+BGGM::convergence(l_fits[[1]], type = "trace",  param = "reassure--accepted")
+
+# ACF
+BGGM::convergence(l_fits[[1]], type = "acf", param = "down--enthusiastic")
+
+
+pdf("convergence_empirical.pdf")
+for(i in 1:10){
+  for(n in param_names){
+
+  print(BGGM::convergence(l_fits[[1]], type = "acf", param = n))
+  
+}
+}
+dev.off()
+
+
+```
+
+
+## Plot all networks
+
+```{r}
+plot_net <- function(fit_obj){
+  par(mfrow=c(1,2))
+  qgraph::qgraph(fit_obj$beta_mu, title = "Temporal", theme = "colorblind", layout = "circle")
+  qgraph::qgraph(fit_obj$pcor_mu, title = "Contemporaneous", theme = "colorblind", layout = "circle")
+}
+
+
+```
+
+
+
+
+
+
+Temporary new function for post distance within without kappa and compare_var
+
+TODO just write summary method for compare function
+```{r}
+post_distance_within_nokap <- function(post, 
+                                 comp,
+                                 pred,         # posterior predictive?
+                                 draws = 1000){
+  
+  # storage
+  dist_out <- list()
+  
+  
+  # for posterior predictive approach
+  if(isTRUE(pred)){
+    # define the distance function based on comp
+    distance_fn_beta <- switch(comp,
+                               frob =   {function(x, y, mod_one, mod_two) norm(x$fit[[mod_one]]$beta_mu-y$fit[[mod_two]]$beta_mu, type = "F")},
+                               maxdiff = {function(x, y, mod_one, mod_two) max(abs((x$fit[[mod_one]]$beta_mu-y$fit[[mod_two]]$beta_mu)))},
+                               l1 = {function(x, y, mod_one, mod_two) sum(abs((x$fit[[mod_one]]$beta_mu-y$fit[[mod_two]]$beta_mu)))}
+    )
+    distance_fn_pcor <- switch(comp,
+                               frob = {function(x, y, mod_one, mod_two) norm(x$fit[[mod_one]]$pcor_mu-y$fit[[mod_two]]$pcor_mu, type = "F")},
+                               maxdiff = {function(x, y, mod_one, mod_two) max(abs((x$fit[[mod_one]]$pcor_mu-y$fit[[mod_two]]$pcor_mu)))},
+                               l1 = {function(x, y, mod_one, mod_two) sum(abs((x$fit[[mod_one]]$pcor_mu-y$fit[[mod_two]]$pcor_mu)))}
+    )
+
+    
+    
+    
+    # Obtain number of models
+    n_mod <- length(post$fit)
+    
+  }
+
+  
+  # for posteriors of empirical models
+  if(isFALSE(pred)){
+    # define the distance function based on comp
+    # draw from all posterior samples
+    
+    # Convert Kappas to Pcors
+
+    
+    
+    distance_fn_beta <- switch(comp,
+                               frob =   {function(x, y, mod_one, mod_two) norm(x$fit$beta[,,mod_one]-y$fit$beta[,,mod_two], type = "F")},
+                               maxdiff = {function(x, y, mod_one, mod_two) max(abs((x$fit$beta[,,mod_one]-y$fit$beta[,,mod_two])))},
+                               l1 = {function(x, y, mod_one, mod_two) sum(abs((x$fit$beta[,,mod_one]-y$fit$beta[,,mod_two])))}
+    )
+    distance_fn_pcor <- switch(comp,
+                               frob = {function(x, y, mod_one, mod_two) norm(x$fit$pcors[,,mod_one]-y$fit$pcors[,,mod_two], type = "F")},
+                               maxdiff = {function(x, y, mod_one, mod_two) max(abs((x$fit$pcors[,,mod_one]-y$fit$pcors[,,mod_two])))},
+                               l1 = {function(x, y, mod_one, mod_two) sum(abs((x$fit$pcors[,,mod_one]-y$fit$pcors[,,mod_two])))}
+    )
+
+    # Obtain number of posterior samples
+    n_mod <- dim(post$fit$beta)[3]
+    
+  }
+  
+  
+  
+  ## Draw two random models
+  # delete burn-in iterations (to 50)
+  # n_mod <- n_mod[-c(1:50)]
+  
+  # TODO: actually, "samples" would be more fitting here than "models"
+  # "model" is still a residue from posterior predictive approach
+  # Draw models spaced apart so that we don't have autocorrelation from sampling
+  mod_pairs <- array(NA, dim = c(2, draws))
+  # draw from first half of samples
+  mod_pairs[1,1:(draws)] <- seq(51, draws+50, by = 1)
+  
+  # draw from second half of samples
+  mod_pairs[2,1:(draws)] <- seq((n_mod/2)+51, (n_mod/2)+50+(draws), by = 1)
+  
+  # mod_pairs <- replicate(draws, sample(1:n_mod, size = 2, replace = TRUE))
+  
+for(i in seq(draws)){
+  # storage
+  dist_out[[i]] <- list()
+  mod_one <- mod_pairs[1,i]
+  mod_two <- mod_pairs[2,i]
+  
+# if mod_one and mod_two are equal, redraw
+  if(mod_one == mod_two){
+    mod_two <- sample(1:n_mod, size = 1)
+}
+  
+  ## Check if estimation worked
+  # Should be unneccessary if non-converged attempts were deleted
+  if(isTRUE(pred)){
+    if(!is.list(post$fit[[mod_one]]) | !is.list(post$fit[[mod_two]])){
+      beta_distance <- NA
+      pcor_distance <- NA
+      stop("Not a list.")
+      
+      
+    } 
+    # if both elements are lists
+    else{
+      beta_distance <- distance_fn_beta(post, post, mod_one, mod_two)
+      pcor_distance <- distance_fn_pcor(post, post, mod_one, mod_two)
+
+    }  
+  }
+  
+  if(isFALSE(pred)){
+    if(!is.list(post) | !is.list(post)){
+      beta_distance <- NA
+      pcor_distance <- NA
+
+      stop("Not a list.")
+      
+    } 
+    # if both elements are lists
+    else{
+      beta_distance <- distance_fn_beta(post, post, mod_one, mod_two)
+      pcor_distance <- distance_fn_pcor(post, post, mod_one, mod_two)
+
+    }  
+  }
+  
+
+
+
+  dist_out[[i]]$comp <- comp
+  dist_out[[i]]$mod_one <- mod_one
+  dist_out[[i]]$mod_two <- mod_two
+  dist_out[[i]]$beta <- beta_distance
+  dist_out[[i]]$pcor <- pcor_distance  
+
+  
+} # end for loop  
+  out <- do.call(rbind, dist_out)
+  out <- as.data.frame(out)
+  
+  
+  return(out)
+}
+
+
+
+compare_var <- function(fit_a, 
+                        fit_b, 
+                        cutoff = 5,           # percentage level of test
+                        dec_rule = "OR",
+                        n_draws = 1000,
+                        comp = "frob"){
+  
+  ## Create reference distributions for both models
+  ref_a <- post_distance_within_nokap(fit_a, comp = comp, pred = FALSE, draws = n_draws)
+  ref_b <- post_distance_within_nokap(fit_b, comp = comp, pred = FALSE, draws = n_draws)
+  
+  ## Empirical distance
+    # Compute empirical distance as test statistic
+    if(comp == "frob"){
+      normtype = "F"
+      # Compute Distance of empirical betas between a and b
+      emp_beta <- tryCatch(norm(fit_a$beta_mu - fit_b$beta_mu, type = normtype), error = function(e) {NA})
+      
+      # Compute Distance of empirical pcors between a and b
+      emp_pcor <- tryCatch(norm(fit_a$pcor_mu - fit_b$pcor_mu, type = normtype), error = function(e) {NA})
+      
+    }
+    
+    if(comp == "maxdiff"){
+      # Compute maxdiff of empirical betas between a and b
+      emp_beta <- tryCatch(max(abs(fit_a$beta_mu - fit_b$beta_mu)), error = function(e) {NA})
+      
+      # Compute maxdiff of empirical pcors between a and b
+      emp_pcor <- tryCatch(max(abs(fit_a$pcor_mu - fit_b$pcor_mu)), error = function(e) {NA})
+
+    }
+    
+    if(comp == "l1"){
+      # Compute l1 of empirical betas between a and b
+      emp_beta <- tryCatch(sum(abs(fit_a$beta_mu - fit_b$beta_mu)), error = function(e) {NA})
+      
+      # Compute l1 of empirical pcors between a and b
+      emp_pcor <- tryCatch(sum(abs(fit_a$pcor_mu - fit_b$pcor_mu)), error = function(e) {NA})
+
+    }
+  ## Combine results
+    res_beta <- data.frame(null = c(unlist(ref_a[["beta"]]), unlist(ref_b[["beta"]])),
+                              mod = c(rep("mod_a", n_draws), rep("mod_b", n_draws)),
+                              emp = rep(emp_beta, n_draws*2),
+                              comp = rep(comp, n_draws*2))
+    
+    
+    res_pcor <- data.frame(null = c(unlist(ref_a[["pcor"]]), unlist(ref_b[["pcor"]])),
+                              mod = c(rep("mod_a", n_draws), rep("mod_b", n_draws)),
+                              emp = rep(emp_pcor, n_draws*2),
+                              comp = rep(comp, n_draws*2))
+  
+  ## Implement decision rule "OR"
+  if(dec_rule == "OR"){
+    suppressWarnings(sig_beta <- res_beta %>% 
+      group_by(mod) %>% 
+      summarize(sum_larger = sum(null > emp)) %>% 
+      summarize(sig = ifelse(sum_larger < cutoff * (n_draws/100), 1, 0)) %>% 
+      summarize(sig_decision = sum(sig)) %>% 
+      pull(sig_decision))
+    
+    suppressWarnings(larger_beta <- res_beta %>% 
+      group_by(mod) %>% 
+      summarize(sum_larger = sum(null > emp))) %>% 
+      pull(sum_larger)
+    
+    suppressWarnings(sig_pcor <- res_pcor %>% 
+      group_by(mod) %>% 
+      summarize(sum_larger = sum(null > emp)) %>% 
+      summarize(sig = ifelse(sum_larger < cutoff * (n_draws/100), 1, 0)) %>% 
+      summarize(sig_decision = sum(sig)) %>% 
+      pull(sig_decision))
+    
+    suppressWarnings(larger_pcor<- res_pcor %>% 
+      group_by(mod) %>% 
+      summarize(sum_larger = sum(null > emp))) %>% 
+      pull(sum_larger)
+    
+      
+  }
+  l_res <- list(sig_beta = sig_beta,
+                sig_pcor = sig_pcor,
+                res_beta = res_beta,
+                res_pcor = res_pcor,
+                emp_beta = emp_beta,
+                emp_pcor = emp_pcor)
+
+  return(l_res)
+  
+
+  
+}
+
+# Plotting method
+# THIS IS ONLY TEMPORARY!!!!!
+plot.compare_var <- function(compres,
+                             ...){
+  require(ggplot2)
+  require(cowplot)
+  # create df
+  # dat <- rbind(compres$res_beta, compres$res_pcor)
+  
+  
+  
+  # Plotting
+  plt_beta <- ggplot(compres$res_beta, 
+                aes(x = null, fill = mod))+
+    geom_density(alpha = .7)+
+    theme_classic()+
+    ggokabeito::scale_fill_okabe_ito()+
+    geom_vline(aes(xintercept = compres$emp_beta), 
+               col = "red", lty = 1, linewidth = .75)+
+    labs(title = "Temporal")
+  
+  plt_pcor <- ggplot(compres$res_pcor, 
+                aes(x = null, fill = mod))+
+    geom_density(alpha = .7)+
+    theme_classic()+
+    ggokabeito::scale_fill_okabe_ito()+
+    geom_vline(aes(xintercept = compres$emp_pcor), 
+               col = "red", lty = 1, linewidth = .75)+
+    labs(title = "Contemporaneous")
+  
+  leg <- get_legend(plt_beta)
+  
+  # Plot
+  plt_tmp <- cowplot::plot_grid(plt_beta + theme(legend.position = "none"),
+                            plt_pcor + theme(legend.position = "none"))
+
+  # Add legend
+  plt <- plot_grid(plt_tmp, leg, rel_widths = c(3, .4))
+  plt
+  
+}
+
+
+
+
+
+```
+
+
+
+
+
+
+
+Test across all participants
+```{r}
+fit_grid <- expand.grid(fit_a = as.numeric(names(l_fits)), fit_b = as.numeric(names(l_fits)))
+l_comps <- list()
+l_comps <- pbapply::pblapply(c(1:nrow(fit_grid)), function(x){
+  
+  a <- fit_grid$fit_a[x]
+  b <- fit_grid$fit_b[x]
+  
+  if(is.list(l_fits[[a]]) & is.list(l_fits[[b]])){
+    compare_var(l_fits[[a]],l_fits[[b]], comp = "l1")
+  }
+  
+})
+comps <- do.call(rbind.data.frame, l_comps)
+# delete nonconverged attempts
+r_nonconv <- which(sapply(l_comps, function(x) length(x) == 0))
+# fit_grid_conv <- fit_grid[-r_nonconv,]
+
+df_comps <- cbind(comps, fit_grid)
+
+
+```
+
+Extract interesting cases
+```{r}
+# Find interesting cases with similar amount of observations
+# nonsignificant 
+df_comps %>% 
+  filter(sig_beta == 0 & sig_pcor  == 0) %>% 
+  filter(fit_a != fit_b) %>% 
+  left_join(n_obs, by = join_by(fit_a == subj_id)) %>% 
+  left_join(n_obs, by = join_by(fit_b == subj_id), suffix = c("_a", "_b")) %>% 
+  mutate(diff_n = abs(n_a - n_b)) %>% 
+  arrange(diff_n)
+
+
+# Both significant
+df_comps %>% 
+  filter(sig_beta > 1 & sig_pcor  > 1) %>% 
+  filter(fit_a != fit_b) %>% 
+  left_join(n_obs, by = join_by(fit_a == subj_id)) %>% 
+  left_join(n_obs, by = join_by(fit_b == subj_id), suffix = c("_a", "_b")) %>% 
+  mutate(diff_n = abs(n_a - n_b)) %>% 
+  arrange(diff_n) %>% View()
+
+
+```
+
+
+
+
+
+
+
+Visualize distributions of empirical differences
+```{r}
+df_comps %>% 
+  filter(fit_a != fit_b) %>% 
+  pivot_longer(cols = c("emp_beta", "emp_pcor"), names_to = "mat") %>% 
+  ggplot(aes(x = value, fill = as.factor(mat))) +
+  geom_density()
+```
+
+
+
+
+# Example A: Evidence for differences
+27 and 3
+```{r}
+compare_var(l_fits[[8]], l_fits[[27]])
+plot_net(l_fits[[8]])
+plot_net(l_fits[[27]])
+
+
+# Visualize differences
+it_diff <- which(df_comps$fit_a == 8 & df_comps$fit_b == 27)
+plot.compare_var(l_comps[[it_diff]])
+
+```
+
+
+
+
+
+
+# Example B: No evidence for differences
+8 and 29
+```{r}
+compare_var(l_fits[[8]], l_fits[[29]])
+
+plot_net(l_fits[[8]])
+plot_net(l_fits[[29]])
+
+
+# Visualize Differences
+# Find iteration number
+it_nodiff <- which(df_comps$fit_a == 8 & df_comps$fit_b == 29)
+
+plot.compare_var(l_comps[[it_nodiff]])
+
+
+```
+
+
+
 
