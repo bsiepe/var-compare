@@ -1333,11 +1333,7 @@ post_distance_within <- function(post,
                                maxdiff = {function(x, y, mod_one, mod_two) max(abs((x$fit[[mod_one]]$pcor_mu-y$fit[[mod_two]]$pcor_mu)))},
                                l1 = {function(x, y, mod_one, mod_two) sum(abs((x$fit[[mod_one]]$pcor_mu-y$fit[[mod_two]]$pcor_mu)))}
     )
-    distance_fn_kappa <- switch(comp,
-                               frob = {function(x, y, mod_one, mod_two) norm(x$fit[[mod_one]]$kappa_mu-y$fit[[mod_two]]$kappa_mu, type = "F")},
-                               maxdiff = {function(x, y, mod_one, mod_two) max(abs((x$fit[[mod_one]]$kappa_mu-y$fit[[mod_two]]$kappa_mu)))},
-                               l1 = {function(x, y, mod_one, mod_two) sum(abs((x$fit[[mod_one]]$kappa_mu-y$fit[[mod_two]]$kappa_mu)))}
-    )
+    
     
     
     
@@ -1345,7 +1341,7 @@ post_distance_within <- function(post,
     n_mod <- length(post$fit)
     
   }
-
+  
   
   # for posteriors of empirical models
   if(isFALSE(pred)){
@@ -1353,7 +1349,6 @@ post_distance_within <- function(post,
     # draw from all posterior samples
     
     # Convert Kappas to Pcors
-    post$fit$pcor<- array(apply(post$fit$kappa, 3, function(x){-1*cov2cor(x)}), dim = dim(post$fit$kappa))
     
     
     
@@ -1363,14 +1358,9 @@ post_distance_within <- function(post,
                                l1 = {function(x, y, mod_one, mod_two) sum(abs((x$fit$beta[,,mod_one]-y$fit$beta[,,mod_two])))}
     )
     distance_fn_pcor <- switch(comp,
-                               frob = {function(x, y, mod_one, mod_two) norm(x$fit$pcor[,,mod_one]-y$fit$pcor[,,mod_two], type = "F")},
-                               maxdiff = {function(x, y, mod_one, mod_two) max(abs((x$fit$pcor[,,mod_one]-y$fit$pcor[,,mod_two])))},
-                               l1 = {function(x, y, mod_one, mod_two) sum(abs((x$fit$pcor[,,mod_one]-y$fit$pcor[,,mod_two])))}
-    )
-    distance_fn_kappa <- switch(comp,
-                               frob = {function(x, y, mod_one, mod_two) norm(x$fit$kappa[,,mod_one]-y$fit$kappa[,,mod_two], type = "F")},
-                               maxdiff = {function(x, y, mod_one, mod_two) max(abs((x$fit$kappa[,,mod_one]-y$fit$kappa[,,mod_two])))},
-                               l1 = {function(x, y, mod_one, mod_two) sum(abs((x$fit$kappa[,,mod_one]-y$fit$kappa[,,mod_two])))}
+                               frob = {function(x, y, mod_one, mod_two) norm(x$fit$pcors[,,mod_one]-y$fit$pcors[,,mod_two], type = "F")},
+                               maxdiff = {function(x, y, mod_one, mod_two) max(abs((x$fit$pcors[,,mod_one]-y$fit$pcors[,,mod_two])))},
+                               l1 = {function(x, y, mod_one, mod_two) sum(abs((x$fit$pcors[,,mod_one]-y$fit$pcors[,,mod_two])))}
     )
     
     # Obtain number of posterior samples
@@ -1396,70 +1386,68 @@ post_distance_within <- function(post,
   
   # mod_pairs <- replicate(draws, sample(1:n_mod, size = 2, replace = TRUE))
   
-for(i in seq(draws)){
-  # storage
-  dist_out[[i]] <- list()
-  mod_one <- mod_pairs[1,i]
-  mod_two <- mod_pairs[2,i]
-  
-# if mod_one and mod_two are equal, redraw
-  if(mod_one == mod_two){
-    mod_two <- sample(1:n_mod, size = 1)
-}
-  
-  ## Check if estimation worked
-  # Should be unneccessary if non-converged attempts were deleted
-  if(isTRUE(pred)){
-    if(!is.list(post$fit[[mod_one]]) | !is.list(post$fit[[mod_two]])){
-      beta_distance <- NA
-      pcor_distance <- NA
-      kappa_distance <- NA
-      stop("Not a list.")
-      
-      
-    } 
-    # if both elements are lists
-    else{
-      beta_distance <- distance_fn_beta(post, post, mod_one, mod_two)
-      pcor_distance <- distance_fn_pcor(post, post, mod_one, mod_two)
-      kappa_distance <- distance_fn_kappa(post, post, mod_one, mod_two)
-    }  
-  }
-  
-  if(isFALSE(pred)){
-    if(!is.list(post) | !is.list(post)){
-      beta_distance <- NA
-      pcor_distance <- NA
-      kappa_distance <- NA
-      stop("Not a list.")
-      
-    } 
-    # if both elements are lists
-    else{
-      beta_distance <- distance_fn_beta(post, post, mod_one, mod_two)
-      pcor_distance <- distance_fn_pcor(post, post, mod_one, mod_two)
-      kappa_distance <- distance_fn_kappa(post, post, mod_one, mod_two)
-    }  
-  }
-  
-
-
-
-  dist_out[[i]]$comp <- comp
-  dist_out[[i]]$mod_one <- mod_one
-  dist_out[[i]]$mod_two <- mod_two
-  dist_out[[i]]$beta <- beta_distance
-  dist_out[[i]]$pcor <- pcor_distance  
-  dist_out[[i]]$kappa <- kappa_distance
-  
-} # end for loop  
+  for(i in seq(draws)){
+    # storage
+    dist_out[[i]] <- list()
+    mod_one <- mod_pairs[1,i]
+    mod_two <- mod_pairs[2,i]
+    
+    # if mod_one and mod_two are equal, redraw
+    if(mod_one == mod_two){
+      mod_two <- sample(1:n_mod, size = 1)
+    }
+    
+    ## Check if estimation worked
+    # Should be unneccessary if non-converged attempts were deleted
+    if(isTRUE(pred)){
+      if(!is.list(post$fit[[mod_one]]) | !is.list(post$fit[[mod_two]])){
+        beta_distance <- NA
+        pcor_distance <- NA
+        stop("Not a list.")
+        
+        
+      } 
+      # if both elements are lists
+      else{
+        beta_distance <- distance_fn_beta(post, post, mod_one, mod_two)
+        pcor_distance <- distance_fn_pcor(post, post, mod_one, mod_two)
+        
+      }  
+    }
+    
+    if(isFALSE(pred)){
+      if(!is.list(post) | !is.list(post)){
+        beta_distance <- NA
+        pcor_distance <- NA
+        
+        stop("Not a list.")
+        
+      } 
+      # if both elements are lists
+      else{
+        beta_distance <- distance_fn_beta(post, post, mod_one, mod_two)
+        pcor_distance <- distance_fn_pcor(post, post, mod_one, mod_two)
+        
+      }  
+    }
+    
+    
+    
+    
+    dist_out[[i]]$comp <- comp
+    dist_out[[i]]$mod_one <- mod_one
+    dist_out[[i]]$mod_two <- mod_two
+    dist_out[[i]]$beta <- beta_distance
+    dist_out[[i]]$pcor <- pcor_distance  
+    
+    
+  } # end for loop  
   out <- do.call(rbind, dist_out)
   out <- as.data.frame(out)
   
   
   return(out)
 }
-
 
 
 
