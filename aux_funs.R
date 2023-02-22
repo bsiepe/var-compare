@@ -566,6 +566,7 @@ fit_var_parallel_merged <- function(data,
                                      posteriorsamples = FALSE,
                                      multigroup = FALSE,
                                      pruneresults = FALSE, 
+                                     select = FALSE,       # apply selection based on CI, currently only supported for non single dataset fitting
                                      save_files = FALSE,
                                      dgp_name = NULL){     # option to return as .rds
   
@@ -577,14 +578,17 @@ fit_var_parallel_merged <- function(data,
   # reproducible parallelization
   doRNG::registerDoRNG(seed)
   
-
-  # if we take simulated data in a list object
-  # We sequence along number of posterior datasets and then cut away redundant datasets afterwards
-  # Count number of non-converged estimations
-  # n_nonconv <- 0
   
-  if(isFALSE(posteriorsamples) && isFALSE(multigroup)){
-    fit <- foreach(i = seq(nds), .packages = "BGGM") %dopar% {
+  # Input checks
+  if(isTRUE(select) & isTRUE(pruneresults)){
+    stop("Using select and pruneresults at the same time is not supported.")
+  }
+  
+
+  if(isFALSE(posteriorsamples) & isFALSE(multigroup)){
+    print("Fitting to raw data")
+    fit <- foreach(i = seq(nds), .packages = "BGGM", .export = "sim_select") %dopar% {
+
       fit_ind <- list()
       if(is.list(data[[i]]$data) | is.numeric(data[[i]]$data)){
         fit_ind <- tryCatch({BGGM::var_estimate(as.data.frame(data[[i]]$data),
@@ -609,6 +613,7 @@ fit_var_parallel_merged <- function(data,
           # }
           # fit_ind$n_nonconv <- n_nonconv
         }
+        
         # prune results for comparison purposes
         if(isTRUE(pruneresults) & is.list(fit_ind)){
           # beta <- fit_ind$fit$beta
@@ -619,7 +624,7 @@ fit_var_parallel_merged <- function(data,
           args <- data[[i]]$args
           # n_nonconv <- fit_ind$n_nonconv
           fit_ind <- list()
-          fit_ind$fit <- list()
+          # fit_ind$fit <- list()       - this is probably why everything got deleted below!
           fit_ind$beta_mu <- beta_mu
           fit_ind$pcor_mu <- pcor_mu
           fit_ind$kappa_mu <- kappa_mu
@@ -628,23 +633,35 @@ fit_var_parallel_merged <- function(data,
           # fit_ind$fit$beta <- beta
           # fit_ind$fit$kappa <- kappa
 
-        } 
+        } # end if isTRUE 
         
-      }
-      else fit_ind <- NA
+        if(isTRUE(select) & is.list(fit_ind)){
+          sel <- sim_select(fit_ind)
+          fit_ind <- list()
+          fit_ind <- stats::setNames(sel, names(sel))
+          fit_ind$args <- data[[i]]$args
+          
+        } # end isTRUE select
+        
+      } # end if is.list
+      # else fit_ind <- NA
       
-      fit_ind  
+      return(fit_ind)  
     } # end foreach
     # Cut away nonconverged attempts
-    lapply(fit, function(x){
-      if(length(x$fit) == 0){
-        warning("Some models did not converge!")}
-    })
-    fit <- fit[!sapply(fit, function(x) length(x$fit) == 0)]
-    
-    
-    # Return list with desired length
-    fit <- fit[c(1:n)]
+    # only for non-select
+    if(isFALSE(select)){
+      lapply(fit, function(x){
+        if(length(x$fit) == 0){
+          warning("Some models did not converge!")}
+      })
+      fit <- fit[!sapply(fit, function(x) length(x$fit) == 0)]
+      
+      
+      # Return list with desired length
+      fit <- fit[c(1:n)]
+    }
+
 
     
     if(isFALSE(save_files)){
@@ -2096,7 +2113,112 @@ expand_grid_unique <- function(mod_a, mod_b){
 
 
 
+# Effective Sample Size VAR -----------------------------------------------
+var_ess <- function(fitobj,
+                    burnin = 50){
+  # Input Information
+  it <- fitobj$iter
+  p <- fitobj$p
+  
+  ## Get samples
+  beta <- fitobj$fit$beta[,,(burnin+1):(iterations+burnin)]
+  pcor <- fitobj$fit$pcors[,,(burnin+1):(iterations+burnin)]
+  
+  # Transform to mcmc objects
+  mcmc_beta <- coda::as.mcmc(t(matrix(beta, p*p, iterations)))
+  mcmc_pcor <- coda::as.mcmc(t(matrix(pcor, p*p, iterations)))
+  
+  # correct variable names
+  # column after column 
+  cnames <- colnames(fitobj$Y)
+  cnames_lag <- paste0(colnames(fitobj$Y), ".l1")
+  
+  beta_names <- c(sapply(cnames, paste, cnames_lag, sep = "--"))
+  pcor_names <- c(sapply(cnames, paste, cnames, sep = "--"))
+  
+  ## Calculate ESS
+  ess_beta <- coda::effectiveSize(mcmc_beta)
+  ess_pcor <- coda::effectiveSize(mcmc_pcor)
+  
+  names(ess_beta) <- beta_names
+  names(ess_pcor) <- pcor_names
+  
+  ## Return
+  l_out <- list(
+    ess_beta = ess_beta,
+    ess_pcor = ess_pcor
+  )
+  return(l_out)
+  
+}
 
+
+
+
+
+
+
+
+# -------------------------------------------------------------------------
+# BGGM-VAR-Simulation -----------------------------------------------------
+# -------------------------------------------------------------------------
+
+
+
+# Sim Select --------------------------------------------------------------
+# Loop over all graphs, extract BGGM fitting object and apply the selection function 
+# extend select function to also include the lower and upper bound 
+# https://github.com/donaldRwilliams/BGGM/blob/master/R/select.VAR_estimate.R
+sim_select <- function(simobj,
+                       cred = 0.95,
+                       include_ci = TRUE){
+  
+  # Input check 
+  
+  ## Use BGGM select
+  sel <- BGGM::select(simobj, cred = 0.95, alternative = "two.sided")
+  
+  # Prune results
+  pcor_adj <- sel$pcor_adj
+  beta_adj <- sel$beta_adj
+  pcor_weighted_adj <- sel$pcor_weighted_adj
+  beta_weighted_adj <- sel$beta_weighted_adj
+  pcor_mu <- sel$pcor_mu
+  beta_mu <- sel$beta_mu
+  
+  
+  ## Confidence Intervals
+  # Extract samples
+  pcors <- simobj$fit$pcors[,,51:(simobj$iter +50)]
+  beta <- simobj$fit$beta[,,51:(simobj$iter +50)]
+  
+  # Define bounds
+  lb <- (1-cred)/2
+  ub <- 1-lb
+  
+  # Obtain CIs
+  lb_pcor <- apply(pcors, 1:2, quantile, lb)
+  ub_pcor <- apply(pcors, 1:2, quantile, ub)
+  lb_beta <- apply(beta, 1:2, quantile, lb)
+  ub_beta <- apply(beta, 1:2, quantile, ub)
+  
+  
+  ## Return
+  res <- list(
+    pcor_adj = pcor_adj,
+    beta_adj = beta_adj,
+    pcor_weighted_adj = pcor_weighted_adj,
+    beta_weighted_adj = beta_weighted_adj,
+    pcor_mu = pcor_mu,
+    beta_mu = beta_mu,
+    lb_pcor = lb_pcor,
+    ub_pcor = ub_pcor,
+    lb_beta = lb_beta,
+    ub_beta = ub_beta
+  )
+  return(res)
+  
+}
 
 
 
