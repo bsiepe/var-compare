@@ -77,12 +77,12 @@ return(x)
 
 
 
-
+# Fitting
 Fit all models
 ```{r}
 rho_prior = 0.5
 beta_prior = 1
-iterations = 15000
+iterations = 50000
 seed = 2022
 
 l_fits <- list()
@@ -90,7 +90,7 @@ l_fits <- lapply(data_detrend, function(x){
   tryCatch(BGGM::var_estimate(x[,-c(1, 8)],      # delete id column and tp column for fitting
                      rho_sd = rho_prior,
                      beta_sd = beta_prior,
-                     iterations = iterations, 
+                     iter = iterations, 
                      seed = seed), error = function(e) NA)
 })
 
@@ -99,6 +99,15 @@ l_fits <- lapply(data_detrend, function(x){
 # get param names
 param_names <- BGGM::convergence(l_fits[[1]], print_names = TRUE)
 
+
+
+
+```
+
+
+## Convergence 
+
+```{r}
 # Trace Plots
 BGGM::convergence(l_fits[[1]], type = "trace",  param = "reassure--accepted")
 
@@ -106,16 +115,33 @@ BGGM::convergence(l_fits[[1]], type = "trace",  param = "reassure--accepted")
 BGGM::convergence(l_fits[[1]], type = "acf", param = "down--enthusiastic")
 
 
-pdf("convergence_empirical.pdf")
-for(i in 1:10){
-  for(n in param_names){
+# pdf("convergence_empirical.pdf")
+# for(i in 1:10){
+#   for(n in param_names){
+# 
+#   print(BGGM::convergence(l_fits[[1]], type = "acf", param = n))
+#   
+# }
+# }
+# dev.off()
 
-  print(BGGM::convergence(l_fits[[1]], type = "acf", param = n))
-  
-}
-}
-dev.off()
+# Try to calculate effective sample size
+bet <- l_fits[[1]]$fit$beta[,,51:iterations+50]
 
+# Convert to matrix where each col is a variable
+m_bet <- t(matrix(bet, 6*6, iterations))
+mcmc_bet <- as.mcmc(m_bet)
+coda::effectiveSize(mcmc_bet)
+
+# Same for pcor
+pcor <- l_fits[[1]]$fit$pcors[,,51:iterations+50]
+m_pcor <- t(matrix(pcor, 6*6, iterations))
+mcmc_pcor <- as.mcmc(m_pcor)
+ces <- coda::effectiveSize(mcmc_pcor)
+
+
+
+var_ess(l_fits[[1]])
 
 ```
 
