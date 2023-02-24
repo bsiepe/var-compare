@@ -12,8 +12,10 @@ We use data from Fisher et al. (2017), downloaded from https://github.com/jmbh/E
 library(BGGM)
 library(qgraph)
 library(tidyverse)
-data <- readRDS("data_Fisher2017.RDS")
+library(foreach)
+library(doParallel)
 
+data <- readRDS("data_Fisher2017.RDS")
 
 
 # Number of observations per model
@@ -80,12 +82,38 @@ return(x)
 # Fitting
 Fit all models
 ```{r}
-rho_prior = 0.5
-beta_prior = 1
+rho_prior = 0.25
+beta_prior = .5
 iterations = 50000
 seed = 2022
 
+df_prior <- data.frame(
+  rho_prior = c(0.1, 0.25, 0.5),
+  beta_prior = c(0.25, 0.5, 1)
+)
+
+
 l_fits <- list()
+
+cl = makeCluster(3)
+registerDoParallel(cl)
+l_fits <- foreach(i = 1:nrow(df_prior), .packages = "BGGM") %dopar% {
+  fit <- lapply(data_detrend, function(x){
+  tryCatch(BGGM::var_estimate(x[,-c(1, 8)],      # delete id column and tp column for fitting
+                     rho_sd = df_prior[i,"rho_prior"],
+                     beta_sd = df_prior[i, "beta_prior"],
+                     iter = iterations, 
+                     seed = seed), error = function(e) NA)
+  
+})
+  return(fit)
+}
+
+stopCluster(cl)  
+  
+  
+
+# Fitting with one prior 
 l_fits <- lapply(data_detrend, function(x){
   tryCatch(BGGM::var_estimate(x[,-c(1, 8)],      # delete id column and tp column for fitting
                      rho_sd = rho_prior,
@@ -140,8 +168,8 @@ mcmc_pcor <- as.mcmc(m_pcor)
 ces <- coda::effectiveSize(mcmc_pcor)
 
 
-
-var_ess(l_fits[[1]])
+# Get ESS for all samples
+l_ess <- lapply(l_fits, var_ess)
 
 ```
 
@@ -165,147 +193,8 @@ plot_net <- function(fit_obj){
 
 Temporary new function for post distance within without kappa and compare_var
 
-TODO just write summary method for compare function
+TODO write summary method for compare function
 ```{r}
-post_distance_within_nokap <- function(post, 
-                                 comp,
-                                 pred,         # posterior predictive?
-                                 draws = 1000){
-  
-  # storage
-  dist_out <- list()
-  
-  
-  # for posterior predictive approach
-  if(isTRUE(pred)){
-    # define the distance function based on comp
-    distance_fn_beta <- switch(comp,
-                               frob =   {function(x, y, mod_one, mod_two) norm(x$fit[[mod_one]]$beta_mu-y$fit[[mod_two]]$beta_mu, type = "F")},
-                               maxdiff = {function(x, y, mod_one, mod_two) max(abs((x$fit[[mod_one]]$beta_mu-y$fit[[mod_two]]$beta_mu)))},
-                               l1 = {function(x, y, mod_one, mod_two) sum(abs((x$fit[[mod_one]]$beta_mu-y$fit[[mod_two]]$beta_mu)))}
-    )
-    distance_fn_pcor <- switch(comp,
-                               frob = {function(x, y, mod_one, mod_two) norm(x$fit[[mod_one]]$pcor_mu-y$fit[[mod_two]]$pcor_mu, type = "F")},
-                               maxdiff = {function(x, y, mod_one, mod_two) max(abs((x$fit[[mod_one]]$pcor_mu-y$fit[[mod_two]]$pcor_mu)))},
-                               l1 = {function(x, y, mod_one, mod_two) sum(abs((x$fit[[mod_one]]$pcor_mu-y$fit[[mod_two]]$pcor_mu)))}
-    )
-
-    
-    
-    
-    # Obtain number of models
-    n_mod <- length(post$fit)
-    
-  }
-
-  
-  # for posteriors of empirical models
-  if(isFALSE(pred)){
-    # define the distance function based on comp
-    # draw from all posterior samples
-    
-    # Convert Kappas to Pcors
-
-    
-    
-    distance_fn_beta <- switch(comp,
-                               frob =   {function(x, y, mod_one, mod_two) norm(x$fit$beta[,,mod_one]-y$fit$beta[,,mod_two], type = "F")},
-                               maxdiff = {function(x, y, mod_one, mod_two) max(abs((x$fit$beta[,,mod_one]-y$fit$beta[,,mod_two])))},
-                               l1 = {function(x, y, mod_one, mod_two) sum(abs((x$fit$beta[,,mod_one]-y$fit$beta[,,mod_two])))}
-    )
-    distance_fn_pcor <- switch(comp,
-                               frob = {function(x, y, mod_one, mod_two) norm(x$fit$pcors[,,mod_one]-y$fit$pcors[,,mod_two], type = "F")},
-                               maxdiff = {function(x, y, mod_one, mod_two) max(abs((x$fit$pcors[,,mod_one]-y$fit$pcors[,,mod_two])))},
-                               l1 = {function(x, y, mod_one, mod_two) sum(abs((x$fit$pcors[,,mod_one]-y$fit$pcors[,,mod_two])))}
-    )
-
-    # Obtain number of posterior samples
-    n_mod <- dim(post$fit$beta)[3]
-    
-  }
-  
-  
-  
-  ## Draw two random models
-  # delete burn-in iterations (to 50)
-  # n_mod <- n_mod[-c(1:50)]
-  
-  # TODO: actually, "samples" would be more fitting here than "models"
-  # "model" is still a residue from posterior predictive approach
-  # Draw models spaced apart so that we don't have autocorrelation from sampling
-  mod_pairs <- array(NA, dim = c(2, draws))
-  # draw from first half of samples
-  mod_pairs[1,1:(draws)] <- seq(51, draws+50, by = 1)
-  
-  # draw from second half of samples
-  mod_pairs[2,1:(draws)] <- seq((n_mod/2)+51, (n_mod/2)+50+(draws), by = 1)
-  
-  # mod_pairs <- replicate(draws, sample(1:n_mod, size = 2, replace = TRUE))
-  
-for(i in seq(draws)){
-  # storage
-  dist_out[[i]] <- list()
-  mod_one <- mod_pairs[1,i]
-  mod_two <- mod_pairs[2,i]
-  
-# if mod_one and mod_two are equal, redraw
-  if(mod_one == mod_two){
-    mod_two <- sample(1:n_mod, size = 1)
-}
-  
-  ## Check if estimation worked
-  # Should be unneccessary if non-converged attempts were deleted
-  if(isTRUE(pred)){
-    if(!is.list(post$fit[[mod_one]]) | !is.list(post$fit[[mod_two]])){
-      beta_distance <- NA
-      pcor_distance <- NA
-      stop("Not a list.")
-      
-      
-    } 
-    # if both elements are lists
-    else{
-      beta_distance <- distance_fn_beta(post, post, mod_one, mod_two)
-      pcor_distance <- distance_fn_pcor(post, post, mod_one, mod_two)
-
-    }  
-  }
-  
-  if(isFALSE(pred)){
-    if(!is.list(post) | !is.list(post)){
-      beta_distance <- NA
-      pcor_distance <- NA
-
-      stop("Not a list.")
-      
-    } 
-    # if both elements are lists
-    else{
-      beta_distance <- distance_fn_beta(post, post, mod_one, mod_two)
-      pcor_distance <- distance_fn_pcor(post, post, mod_one, mod_two)
-
-    }  
-  }
-  
-
-
-
-  dist_out[[i]]$comp <- comp
-  dist_out[[i]]$mod_one <- mod_one
-  dist_out[[i]]$mod_two <- mod_two
-  dist_out[[i]]$beta <- beta_distance
-  dist_out[[i]]$pcor <- pcor_distance  
-
-  
-} # end for loop  
-  out <- do.call(rbind, dist_out)
-  out <- as.data.frame(out)
-  
-  
-  return(out)
-}
-
-
 
 compare_var <- function(fit_a, 
                         fit_b, 
@@ -315,8 +204,8 @@ compare_var <- function(fit_a,
                         comp = "frob"){
   
   ## Create reference distributions for both models
-  ref_a <- post_distance_within_nokap(fit_a, comp = comp, pred = FALSE, draws = n_draws)
-  ref_b <- post_distance_within_nokap(fit_b, comp = comp, pred = FALSE, draws = n_draws)
+  ref_a <- post_distance_within(fit_a, comp = comp, pred = FALSE, draws = n_draws)
+  ref_b <- post_distance_within(fit_b, comp = comp, pred = FALSE, draws = n_draws)
   
   ## Empirical distance
     # Compute empirical distance as test statistic
@@ -453,10 +342,13 @@ plot.compare_var <- function(compres,
 
 
 
-
-Test across all participants
+ 
+Test across all participants and across different priors. 
 ```{r}
-fit_grid <- expand.grid(fit_a = as.numeric(names(l_fits)), fit_b = as.numeric(names(l_fits)))
+fit_grid <- expand.grid(fit_a = as.numeric(names(l_fits[[1]])), 
+                        fit_b = as.numeric(names(l_fits[[1]])), 
+                        priors = seq(nrow(df_prior), 1), 
+                        comp = c("l1", "frob", "maxdiff"))
 l_comps <- list()
 l_comps <- pbapply::pblapply(c(1:nrow(fit_grid)), function(x){
   
@@ -468,9 +360,60 @@ l_comps <- pbapply::pblapply(c(1:nrow(fit_grid)), function(x){
   }
   
 })
-comps <- do.call(rbind.data.frame, l_comps)
+
+cl = makeCluster(14)
+registerDoParallel(cl)
+# Rewrite in parallel
+l_comps <- foreach(i = 1:nrow(fit_grid), .export = c("compare_var", "post_distance_within")) %dopar% {
+  
+  # Extract information
+  a <- fit_grid$fit_a[i]
+  b <- fit_grid$fit_b[i]
+  p_ind <- fit_grid$priors[i]
+  comp <-  as.character(fit_grid$comp[i])
+  
+
+  
+  # Compare
+  if(is.list(l_fits[[p_ind]][[a]]) & is.list(l_fits[[p_ind]][[b]])){
+  comp_res  <- compare_var(l_fits[[p_ind]][[a]],l_fits[[p_ind]][[b]], comp = comp)
+  
+  return(comp_res)
+  }
+  else
+    return(NA)
+  
+  
+    
+  
+  
+}
+stopCluster(cl)
+
+
+
+
+
+
+
+# optional: delete full beta results
+# Names of subelements to delete
+subelement_names <- c("res_beta", "res_pcor")
+l_comps_short <- list()
+
+# Loop over each element of the list
+for (i in seq_along(l_comps)) {
+  # Get the names of the subelements for the current element
+  current_subelement_names <- names(l_comps[[i]])
+  # Determine which subelements to keep
+  keep_indices <- !current_subelement_names %in% subelement_names
+  # Use the subset operator to keep only the desired subelements
+  l_comps_short[[i]] <- l_comps[[i]][keep_indices]
+}
+
+comps <- do.call(rbind.data.frame, l_comps_short)
 # delete nonconverged attempts
-r_nonconv <- which(sapply(l_comps, function(x) length(x) == 0))
+# r_nonconv <- which(sapply(l_comps, function(x) length(x) == 0))
 # fit_grid_conv <- fit_grid[-r_nonconv,]
 
 df_comps <- cbind(comps, fit_grid)
@@ -482,6 +425,8 @@ Extract interesting cases
 ```{r}
 # Find interesting cases with similar amount of observations
 # nonsignificant 
+# L1
+# for rho 0.5, beta 1: 304
 df_comps %>% 
   filter(sig_beta == 0 & sig_pcor  == 0) %>% 
   filter(fit_a != fit_b) %>% 
@@ -491,14 +436,51 @@ df_comps %>%
   arrange(diff_n)
 
 
-# Both significant
+# Both fully significant (both 2)
+# L1
+# for rho 0.5, beta 1: 100
 df_comps %>% 
   filter(sig_beta > 1 & sig_pcor  > 1) %>% 
   filter(fit_a != fit_b) %>% 
   left_join(n_obs, by = join_by(fit_a == subj_id)) %>% 
   left_join(n_obs, by = join_by(fit_b == subj_id), suffix = c("_a", "_b")) %>% 
   mutate(diff_n = abs(n_a - n_b)) %>% 
-  arrange(diff_n) %>% View()
+  arrange(diff_n) 
+
+# Both significant according to or rule
+# L1
+# for rho 0.5, beta 1: 442
+df_comps %>% 
+  filter(sig_beta > 0 & sig_pcor  > 0) %>% 
+  filter(fit_a != fit_b) %>% 
+  left_join(n_obs, by = join_by(fit_a == subj_id)) %>% 
+  left_join(n_obs, by = join_by(fit_b == subj_id), suffix = c("_a", "_b")) %>% 
+  mutate(diff_n = abs(n_a - n_b)) %>% 
+  arrange(diff_n) 
+
+
+
+# Only beta significant
+# L1
+# for rho 0.5, beta 1: 248
+df_comps %>% 
+  filter(sig_beta > 0 & sig_pcor == 0) %>% 
+  filter(fit_a != fit_b) %>% 
+  left_join(n_obs, by = join_by(fit_a == subj_id)) %>% 
+  left_join(n_obs, by = join_by(fit_b == subj_id), suffix = c("_a", "_b")) %>% 
+  mutate(diff_n = abs(n_a - n_b)) %>% 
+  arrange(diff_n)
+
+# Only pcor significant
+# L1
+# for rho 0.5, beta 1: 566
+df_comps %>% 
+  filter(sig_beta == 0 & sig_pcor > 0) %>% 
+  filter(fit_a != fit_b) %>% 
+  left_join(n_obs, by = join_by(fit_a == subj_id)) %>% 
+  left_join(n_obs, by = join_by(fit_b == subj_id), suffix = c("_a", "_b")) %>% 
+  mutate(diff_n = abs(n_a - n_b)) %>% 
+  arrange(diff_n)
 
 
 ```
@@ -554,6 +536,109 @@ plot_net(l_fits[[29]])
 it_nodiff <- which(df_comps$fit_a == 8 & df_comps$fit_b == 29)
 
 plot.compare_var(l_comps[[it_nodiff]])
+
+
+```
+
+
+
+
+# Plot Distances visualized as Network
+
+Extract distances: 
+```{r}
+df_emp <- data.frame(emp_beta = rep(NA, 1600),
+                     emp_pcor = rep(NA, 1600))
+for(n in 1:length(l_comps)){
+  df_emp[n,1] <- l_comps[[n]]$emp_beta
+  df_emp[n,2] <- l_comps[[n]]$emp_pcor
+}
+# Combine with model information
+df_emp <- cbind(df_emp, fit_grid)
+
+# Filter irrelevant comparisons
+df_emp <- df_emp %>% 
+  filter(fit_a != fit_b)
+
+
+# Correct data structure: 40 by 40 matrix
+dist_beta_emp <- df_emp %>% 
+  dplyr::select(emp_beta, fit_a, fit_b) %>% 
+  reshape2::acast(., fit_a ~ fit_b, value.var = "emp_beta")
+
+
+dist_pcor_emp <- df_emp %>% 
+  dplyr::select(emp_pcor, fit_a, fit_b) %>% 
+  reshape2::acast(., fit_a ~ fit_b, value.var = "emp_pcor")
+
+
+```
+
+
+Now visualize with qgraph
+```{r}
+# The shorter the distance, the larger the connection should be!
+# Convert distance to similarity matrix
+simil_beta_emp <- 1/mat_beta_emp
+simil_pcor_emp <- 1/mat_pcor_emp
+
+svg("emp_example_similarity_net.svg", width = 15, height = 12)
+par(mfrow = c(1,2))
+qgraph(simil_beta_emp, layout = "spring", title = "Beta")
+qgraph(simil_pcor_emp, layout = "spring", title = "PCOR")
+dev.off()
+
+
+```
+
+
+Also visualize with heatmap
+```{r}
+# Levels
+id_lvls <- as.character(1:40)
+
+# Get min and max similarities
+min(simil_beta_emp, na.rm = TRUE)
+min(simil_pcor_emp, na.rm = TRUE)
+max(simil_beta_emp, na.rm = TRUE)
+max(simil_pcor_emp, na.rm = TRUE)
+
+
+
+p1 <- simil_beta_emp %>% 
+  as.data.frame() %>% 
+  rownames_to_column("id") %>% 
+  pivot_longer(-c(id), names_to = "id2", values_to = "sim") %>% 
+  mutate(id = fct_relevel(id, id_lvls),
+         id2 = fct_relevel(id2, id_lvls)) %>% 
+  ggplot(aes(x = id, y = id2, fill = sim))+
+  geom_raster()+
+  scale_fill_viridis_c(limits = c(0.1, 0.6))+
+  labs(x = "ID",
+       y = "ID",
+       title = "Similarity Matrix Beta Weights",
+       caption = "Frobenius Norm",
+       fill = "Similarity")
+
+
+p2 <- simil_pcor_emp %>% 
+  as.data.frame() %>% 
+  rownames_to_column("id") %>% 
+  pivot_longer(-c(id), names_to = "id2", values_to = "sim") %>% 
+  mutate(id = fct_relevel(id, id_lvls),
+         id2 = fct_relevel(id2, id_lvls)) %>% 
+  ggplot(aes(x = id, y = id2, fill = sim))+
+  geom_raster()+
+  scale_fill_viridis_c(limits = c(0.1, 0.6))+
+  labs(x = "ID",
+       y = "ID",
+       title = "Similarity Matrix pcor Weights",
+       caption = "Frobenius Norm",
+       fill = "Similarity")
+
+p <- cowplot::plot_grid(p1, p2)
+ggsave("similarity_matrix_empirical_example.svg", p, device = "svg", path = here("figures/"), width = 15)
+
 
 
 ```
