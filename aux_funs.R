@@ -205,7 +205,64 @@ change_graphs <- function(truegraph = NULL,
 
 
 
+# Permute matrix columns --------------------------------------------------
+# This permutes matrix columns while keeping diagonal elements on the diagonal
 
+permute_mat_col <- function(mat,
+                            permute_index = NULL){
+  # number of matrix columns
+  p <- ncol(mat)
+  
+  # if no index is provided
+  if(is.null(permute_index)){
+    permute_index <- sample(p, p, replace = FALSE)
+  }
+  
+  # Create a matrix
+  diag_m <- diag(mat)
+  
+  # Permutation index for columns
+  perm_ind <- permute_index
+  
+  # Permute the matrix
+  perm_mat <- mat[, perm_ind]
+  
+  # Give new index
+  new_ind <- 1:p
+  
+  # Calculate difference between old and new index
+  diff_ind <- perm_ind - new_ind
+  
+  # Setup new matrix
+  perm_mat_c <- perm_mat
+  
+  # Change position of diagonal elements
+  for(i in 1:ncol(mat)){
+    # value that should be on the diagonal
+    diag_val <- diag_m[perm_ind[i]]
+    
+    # value that currently is on diagonal 
+    swap_val <- diag(perm_mat)[i]
+    
+    
+    # Set correct diagonal value
+    perm_mat_c[i, i] <- diag_val
+    perm_mat_c[i+diff_ind[i], i] <- swap_val
+    
+  }
+  
+  # Double check
+  id_check <- identical(sort(diag(mat)), sort(diag(perm_mat_c)))
+  if(!id_check){
+    stop("Something went wrong. Diagonal not correct.")
+  }
+  
+  
+  return(perm_mat_c)
+  
+  
+  
+}
 
 
 # Simulate raw data -------------------------------------------------------
