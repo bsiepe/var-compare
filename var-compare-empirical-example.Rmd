@@ -14,6 +14,8 @@ library(qgraph)
 library(tidyverse)
 library(foreach)
 library(doParallel)
+library(parallel)
+source("aux_funs.R")
 
 data <- readRDS("data_Fisher2017.RDS")
 
@@ -95,37 +97,71 @@ df_prior <- data.frame(
 
 l_fits <- list()
 
+# Delete id and tp column for fitting
+data_detrend <- lapply(data_detrend, function(x){
+  x <- x[,-c(1,8)]
+  x
+})
+
 cl = makeCluster(3)
 registerDoParallel(cl)
 l_fits <- foreach(i = 1:nrow(df_prior), .packages = "BGGM") %dopar% {
-  fit <- lapply(data_detrend, function(x){
-  tryCatch(BGGM::var_estimate(x[,-c(1, 8)],      # delete id column and tp column for fitting
-                     rho_sd = df_prior[i,"rho_prior"],
-                     beta_sd = df_prior[i, "beta_prior"],
-                     iter = iterations, 
-                     seed = seed), error = function(e) NA)
+  r_p <- df_prior[i,"rho_prior"]
+  b_p <- df_prior[i, "beta_prior"]
   
+  fit <- lapply(data_detrend, function(x){
+  tryCatch(BGGM::var_estimate(Y = x,      # delete id column and tp column for fitting
+                     rho_sd = r_p,
+                     beta_sd = b_p,
+                     iter = 50000,
+                     seed = 2022), error = function(e) NA)
+  # BGGM::var_estimate(Y = as.data.frame(x),
+  #                    rho_sd = r_p,
+  #                    beta_sd = b_p,
+  #                    iter = 50000,
+  #                    seed = 2022)
+    
+    
 })
+  # if(is.list(fit)){
+  #   lapply(fit, function(x){
+  #     x$fit$Sigma <- NULL
+  #     x$fit$fisher_z <- NULL
+  #   })
+
+  # }
   return(fit)
 }
 
 stopCluster(cl)  
   
+l_fits_c <- list()
+for(i in 1:3){
+  l_fits_c[[i]] <- lapply(l_fits[[i]], function(x){
+  x$fit$Sigma <- NULL
+  x$fit$fisher_z <- NULL
+  x
+})
+  
+}
+
+
+
   
 
-# Fitting with one prior 
-l_fits <- lapply(data_detrend, function(x){
-  tryCatch(BGGM::var_estimate(x[,-c(1, 8)],      # delete id column and tp column for fitting
-                     rho_sd = rho_prior,
-                     beta_sd = beta_prior,
-                     iter = iterations, 
-                     seed = seed), error = function(e) NA)
-})
-
-# delete nonconverged
-# l_fits <- l_fits[sapply(l_fits, is.list)]
-# get param names
-param_names <- BGGM::convergence(l_fits[[1]], print_names = TRUE)
+# # Fitting with one prior 
+# l_fits <- lapply(data_detrend, function(x){
+#   tryCatch(BGGM::var_estimate(x[,-c(1, 8)],      # delete id column and tp column for fitting
+#                      rho_sd = rho_prior,
+#                      beta_sd = beta_prior,
+#                      iter = iterations, 
+#                      seed = seed), error = function(e) NA)
+# })
+# 
+# # delete nonconverged
+# # l_fits <- l_fits[sapply(l_fits, is.list)]
+# # get param names
+# param_names <- BGGM::convergence(l_fits[[1]], print_names = TRUE)
 
 
 
@@ -201,7 +237,10 @@ compare_var <- function(fit_a,
                         cutoff = 5,           # percentage level of test
                         dec_rule = "OR",
                         n_draws = 1000,
-                        comp = "frob"){
+                        comp = "frob",
+                        return_all = FALSE){  # return all distributions?
+   
+  require(magrittr)
   
   ## Create reference distributions for both models
   ref_a <- post_distance_within(fit_a, comp = comp, pred = FALSE, draws = n_draws)
@@ -251,37 +290,62 @@ compare_var <- function(fit_a,
   ## Implement decision rule "OR"
   if(dec_rule == "OR"){
     suppressWarnings(sig_beta <- res_beta %>% 
-      group_by(mod) %>% 
-      summarize(sum_larger = sum(null > emp)) %>% 
-      summarize(sig = ifelse(sum_larger < cutoff * (n_draws/100), 1, 0)) %>% 
-      summarize(sig_decision = sum(sig)) %>% 
-      pull(sig_decision))
+      dplyr::group_by(mod) %>% 
+      dplyr::summarize(sum_larger = sum(null > emp)) %>% 
+      dplyr::summarize(sig = ifelse(sum_larger < cutoff * (n_draws/100), 1, 0)) %>% 
+      dplyr::summarize(sig_decision = sum(sig)) %>% 
+      dplyr::pull(sig_decision))
     
     suppressWarnings(larger_beta <- res_beta %>% 
-      group_by(mod) %>% 
-      summarize(sum_larger = sum(null > emp))) %>% 
-      pull(sum_larger)
+      dplyr::group_by(mod) %>% 
+      dplyr::summarize(sum_larger = sum(null > emp))) %>% 
+      dplyr::pull(sum_larger)
     
     suppressWarnings(sig_pcor <- res_pcor %>% 
-      group_by(mod) %>% 
-      summarize(sum_larger = sum(null > emp)) %>% 
-      summarize(sig = ifelse(sum_larger < cutoff * (n_draws/100), 1, 0)) %>% 
-      summarize(sig_decision = sum(sig)) %>% 
-      pull(sig_decision))
+      dplyr::group_by(mod) %>% 
+      dplyr::summarize(sum_larger = sum(null > emp)) %>% 
+      dplyr::summarize(sig = ifelse(sum_larger < cutoff * (n_draws/100), 1, 0)) %>% 
+      dplyr::summarize(sig_decision = sum(sig)) %>% 
+      dplyr::pull(sig_decision))
     
     suppressWarnings(larger_pcor<- res_pcor %>% 
-      group_by(mod) %>% 
-      summarize(sum_larger = sum(null > emp))) %>% 
-      pull(sum_larger)
+      dplyr::group_by(mod) %>% 
+      dplyr::summarize(sum_larger = sum(null > emp))) %>% 
+      dplyr::pull(sum_larger)
     
       
   }
-  l_res <- list(sig_beta = sig_beta,
-                sig_pcor = sig_pcor,
-                res_beta = res_beta,
-                res_pcor = res_pcor,
-                emp_beta = emp_beta,
-                emp_pcor = emp_pcor)
+    
+    # sig_beta <- as.numeric(sig_beta)
+    # larger_beta <- as.numeric(larger_beta)
+    # sig_pcor <- as.numeric(sig_pcor)
+    # larger_pcor <- as.numeric(larger_pcor)
+    
+    
+  if(!return_all){
+        l_res <- list(sig_beta = sig_beta,
+                  sig_pcor = sig_pcor,
+                  # res_beta = res_beta,
+                  # res_pcor = res_pcor,
+                  emp_beta = emp_beta,
+                  emp_pcor = emp_pcor,
+                  larger_beta = larger_beta,
+                  larger_pcor = larger_pcor)
+    
+  }
+  if(isTRUE(return_all)){
+        l_res <- list(sig_beta = sig_beta,
+                  sig_pcor = sig_pcor,
+                  res_beta = res_beta,
+                  res_pcor = res_pcor,
+                  emp_beta = emp_beta,
+                  emp_pcor = emp_pcor,
+                  larger_beta = larger_beta,
+                  larger_pcor = larger_pcor)
+    
+  }
+
+
 
   return(l_res)
   
@@ -345,39 +409,59 @@ plot.compare_var <- function(compres,
  
 Test across all participants and across different priors. 
 ```{r}
+l_fits <- l_fits_c
 fit_grid <- expand.grid(fit_a = as.numeric(names(l_fits[[1]])), 
                         fit_b = as.numeric(names(l_fits[[1]])), 
                         priors = seq(nrow(df_prior), 1), 
                         comp = c("l1", "frob", "maxdiff"))
 l_comps <- list()
-l_comps <- pbapply::pblapply(c(1:nrow(fit_grid)), function(x){
-  
-  a <- fit_grid$fit_a[x]
-  b <- fit_grid$fit_b[x]
-  
-  if(is.list(l_fits[[a]]) & is.list(l_fits[[b]])){
-    compare_var(l_fits[[a]],l_fits[[b]], comp = "l1")
-  }
-  
-})
+# l_comps <- pbapply::pblapply(c(1:nrow(fit_grid)), function(x){
+#   
+#   a <- fit_grid$fit_a[x]
+#   b <- fit_grid$fit_b[x]
+#   
+#   if(is.list(l_fits[[a]]) & is.list(l_fits[[b]])){
+#     compare_var(l_fits[[a]],l_fits[[b]], comp = "l1")
+#   }
+#   
+# })
 
-cl = makeCluster(14)
+cl = makeCluster(13)
 registerDoParallel(cl)
+clusterExport(cl, c("compare_var", "post_distance_within"))
 # Rewrite in parallel
-l_comps <- foreach(i = 1:nrow(fit_grid), .export = c("compare_var", "post_distance_within")) %dopar% {
+l_fits_1 <- l_fits[[1]]
+l_fits_2 <- l_fits[[2]]
+l_fits_3 <- l_fits[[3]]
+fit_grid_1 <- fit_grid %>% 
+  filter(priors == 1)
+fit_grid_2 <- fit_grid %>% 
+  filter(priors == 2)
+fit_grid_3 <- fit_grid %>% 
+  filter(priors == 3)
+
+
+l_comps <- foreach(i = 1:nrow(fit_grid_3)) %dopar% {
   
   # Extract information
-  a <- fit_grid$fit_a[i]
-  b <- fit_grid$fit_b[i]
-  p_ind <- fit_grid$priors[i]
-  comp <-  as.character(fit_grid$comp[i])
-  
+  a <- fit_grid_3$fit_a[i]
+  b <- fit_grid_3$fit_b[i]
+  p_ind <- fit_grid_3$priors[i]
+  compa <-  as.character(fit_grid_3$comp[i])
 
   
   # Compare
-  if(is.list(l_fits[[p_ind]][[a]]) & is.list(l_fits[[p_ind]][[b]])){
-  comp_res  <- compare_var(l_fits[[p_ind]][[a]],l_fits[[p_ind]][[b]], comp = comp)
+  # if(is.list(l_fits[[p_ind]][[a]]) & is.list(l_fits[[p_ind]][[b]])){
+  # # comp_res  <- tryCatch({compare_var(l_fits_3[[a]],l_fits_3[[b]], pred = FALSE, comp = comp)},
+  #                       # error = function(e) NULL)
+  # comp_res  <- compare_var(l_fits[[p_ind]][[a]],l_fits[[p_ind]][[b]], comp = comp)
   
+  
+  if(is.list(l_fits_3[[a]]) & is.list(l_fits_3[[b]])){
+  # comp_res  <- tryCatch({compare_var(l_fits_3[[a]],l_fits_3[[b]], pred = FALSE, comp = comp)},
+                        # error = function(e) NULL)
+  comp_res  <- compare_var(l_fits_3[[a]],l_fits_3[[b]], comp = compa)
+
   return(comp_res)
   }
   else
@@ -390,37 +474,75 @@ l_comps <- foreach(i = 1:nrow(fit_grid), .export = c("compare_var", "post_distan
 }
 stopCluster(cl)
 
+df_comps_1 <- do.call(rbind, l_comps)
+df_comps_2 <- do.call(rbind, l_comps)
+df_comps_3 <- do.call(rbind, l_comps)
+
+# Add prior information
+df_comps_1c <- df_comps_1 %>% 
+  cbind(fit_grid_1)
+df_comps_2c <- df_comps_2 %>% 
+  cbind(fit_grid_2)
+df_comps_3c <- df_comps_3 %>% 
+  cbind(fit_grid_3)
 
 
 
+df_compsc <- as.data.frame(rbind(df_comps_1c, df_comps_2c, df_comps_3c))
+
+# delete unnecessary columns
+df_comps <- df_compsc %>% 
+  dplyr::select(-c(larger_beta, larger_pcor))
 
 
+# saveRDS(df_comps, "df_comps.RDS")
+# df_comps %>% 
+#   mutate(across(everything()),
+#          ~as.numeric(.))
 
 # optional: delete full beta results
 # Names of subelements to delete
-subelement_names <- c("res_beta", "res_pcor")
-l_comps_short <- list()
-
-# Loop over each element of the list
-for (i in seq_along(l_comps)) {
-  # Get the names of the subelements for the current element
-  current_subelement_names <- names(l_comps[[i]])
-  # Determine which subelements to keep
-  keep_indices <- !current_subelement_names %in% subelement_names
-  # Use the subset operator to keep only the desired subelements
-  l_comps_short[[i]] <- l_comps[[i]][keep_indices]
-}
-
-comps <- do.call(rbind.data.frame, l_comps_short)
+# subelement_names <- c("res_beta", "res_pcor")
+# subelement_names <- c("larger_beta", "larger_pcor")
+# l_comps_short <- list()
+# 
+# # Loop over each element of the list
+# for (i in seq_along(l_comps)) {
+#   # Get the names of the subelements for the current element
+#   current_subelement_names <- names(l_comps[[i]])
+#   # Determine which subelements to keep
+#   keep_indices <- !current_subelement_names %in% subelement_names
+#   # Use the subset operator to keep only the desired subelements
+#   l_comps_short[[i]] <- l_comps[[i]][keep_indices]
+# }
+# 
+# comps <- do.call(rbind.data.frame, l_comps_short)
 # delete nonconverged attempts
 # r_nonconv <- which(sapply(l_comps, function(x) length(x) == 0))
 # fit_grid_conv <- fit_grid[-r_nonconv,]
 
-df_comps <- cbind(comps, fit_grid)
+# df_comps <- cbind(comps, fit_grid)
+
+
+
 
 
 ```
 
+### Prior Sensitivity Plot
+```{r}
+df_comps %>% 
+  filter(fit_a != fit_b) %>% 
+  group_by(priors, comp) %>% 
+  summarize(sum_sig_beta = sum(ifelse(sig_beta >0, 1, 0)),
+            sum_sig_pcor = sum(ifelse(sig_pcor >0, 1, 0)),
+            mean_emp_beta = mean(emp_beta))
+```
+
+
+
+
+### Find significant and nonsignificant
 Extract interesting cases
 ```{r}
 # Find interesting cases with similar amount of observations
