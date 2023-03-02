@@ -21,9 +21,9 @@
 #'
 change_graphs <- function(truegraph = NULL, 
                           changemax = NULL,
-                          # changeall = NULL,
                           noise,
-                          seed){
+                          permute_index = NULL,
+                          seed = 2022){
   
   set.seed(seed)
   
@@ -180,25 +180,21 @@ change_graphs <- function(truegraph = NULL,
       l_out_noise[[n]]$args <- paste0("noise", noise[n])
       names(l_out_noise)[[n]] <- paste0("noise", noise[n])
     }
-  #   ## Checking
-  #   # values outside unit circle
-  #   l_out_noise <- lapply(l_out_noise, function(x){
-  #     lapply(x, function(mat) {
-  #       mat[mat > 1] <- 1
-  #       mat[mat < -1] <- -1
-  #       mat
-  #     })
-  #     })
-  # 
-  #   
-  }
+  } # end noise
   
-
+  
+  ### Permute matrix
+  l_out_perm <- list()
+  l_out_perm[[1]] <- list()
+  l_out_perm[[1]]$beta <- permute_mat_col(m_beta, permute_index)
+  l_out_perm[[1]]$kappa <- permute_mat_col(m_kappa, permute_index)  
+  l_out_perm[[1]]$args <- "perm"
+  names(l_out_perm) <- "perm"
   
   
   ### Output
   # Combine truegraph, maxchange, and added noise
-  l_out <- c(l_out, l_out_change, l_out_noise)
+  l_out <- c(l_out, l_out_change, l_out_noise, l_out_perm)
   return(l_out)
   
 }
@@ -207,11 +203,16 @@ change_graphs <- function(truegraph = NULL,
 
 # Permute matrix columns --------------------------------------------------
 # This permutes matrix columns while keeping diagonal elements on the diagonal
-
 permute_mat_col <- function(mat,
-                            permute_index = NULL){
+                            permute_index = NULL,
+                            remove_names = TRUE){    # names removed for identical check
   # number of matrix columns
   p <- ncol(mat)
+  
+  if(remove_names){
+    colnames(mat) <- NULL
+    rownames(mat) <- NULL
+  }
   
   # if no index is provided
   if(is.null(permute_index)){
@@ -259,9 +260,7 @@ permute_mat_col <- function(mat,
   
   
   return(perm_mat_c)
-  
-  
-  
+
 }
 
 
@@ -707,17 +706,17 @@ fit_var_parallel_merged <- function(data,
     } # end foreach
     # Cut away nonconverged attempts
     # only for non-select
-    if(isFALSE(select)){
-      lapply(fit, function(x){
-        if(length(x$fit) == 0){
-          warning("Some models did not converge!")}
-      })
-      fit <- fit[!sapply(fit, function(x) length(x$fit) == 0)]
-      
-      
-      # Return list with desired length
-      fit <- fit[c(1:n)]
-    }
+    # if(isFALSE(select)){
+    #   lapply(fit, function(x){
+    #     if(length(x$fit) == 0){
+    #       warning("Some models did not converge!")}
+    #   })
+    #   fit <- fit[!sapply(fit, function(x) length(x$fit) == 0)]
+    #   
+    #   
+    #   # Return list with desired length
+    #   fit <- fit[c(1:n)]
+    # }
 
 
     
