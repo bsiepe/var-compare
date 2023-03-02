@@ -623,6 +623,7 @@ fit_var_parallel_merged <- function(data,
                                      multigroup = FALSE,
                                      pruneresults = FALSE, 
                                      summarize_post = TRUE, # summarize posterior samples into intervals 
+                                     cred_int = 0.95,       # credible interval for posterior summary
                                      select = FALSE,       # apply selection based on CI, currently only supported for non single dataset fitting
                                      save_files = FALSE,
                                      dgp_name = NULL){     # option to return as .rds
@@ -689,11 +690,35 @@ fit_var_parallel_merged <- function(data,
         
         if(isTRUE(select) & is.list(fit_ind)){
           sel <- sim_select(fit_ind)
+          if(isTRUE(summarize_post)){
+            cred_interval <- summarize_post(fit_ind, cred = cred_int)
+          }
           fit_ind <- list()
           fit_ind <- stats::setNames(sel, names(sel))
           fit_ind$args <- data[[i]]$args
+          if(isTRUE(summarize_post)){
+            fit_ind$cred_interval <- cred_interval
+          }
+          
           
         } # end isTRUE select
+        
+        if(isFALSE(select) & isTRUE(summarize_post) & is.list(fit_ind)){
+          beta_mu <- fit_ind$beta_mu 
+          pcor_mu <- fit_ind$pcor_mu
+          kappa_mu <- fit_ind$kappa_mu
+          args <- data[[i]]$args
+          cred_interval <- summarize_post(fit_ind, cred = cred_int)
+          fit_ind <- list()
+          fit_ind$beta_mu <- beta_mu
+          fit_ind$pcor_mu <- pcor_mu
+          fit_ind$kappa_mu <- kappa_mu
+          fit_ind$cred_interval <- cred_interval
+          fit_ind$args <- args
+          
+        }
+        
+
         
       } # end if is.list
       # else fit_ind <- NA
@@ -1003,29 +1028,78 @@ sim_from_post_parallel <- function(fitobj,
 
 
 # Summarize posterior -----------------------------------------------------
-summarize_post <- function(res,
-                           cred = 0.95){
-  
-  # Lower and upper bound
-  lb <- (1-cred)/2
-  ub <- 1-lb
-  
-  # for beta
-  beta_lb <- apply(res$fit$beta, c(1,2), stats::quantile, lb)
-  beta_ub <- apply(res$fit$beta, c(1,2), stats::quantile, ub)
-  
-  # for pcor
-  pcor_lb <- apply(res$fit$pcors, c(1,2), stats::quantile, lb)
-  pcor_ub <- apply(res$fit$pcors, c(1,2), stats::quantile, ub)  
-  
-  # Output
-  out <- list(beta_lb = beta_lb,
-              beta_ub = beta_ub, 
-              pcor_lb = pcor_lb, 
-              pcor_ub = pcor_ub)
+# summarize_post <- function(res,
+#                            cred = 0.95){
+#   
+#   # Lower and upper bound
+#   lb <- (1-cred)/2
+#   ub <- 1-lb
+#   
+#   # for beta
+#   beta_lb <- apply(res$fit$beta, c(1,2), stats::quantile, lb)
+#   beta_ub <- apply(res$fit$beta, c(1,2), stats::quantile, ub)
+#   
+#   # for pcor
+#   pcor_lb <- apply(res$fit$pcors, c(1,2), stats::quantile, lb)
+#   pcor_ub <- apply(res$fit$pcors, c(1,2), stats::quantile, ub)  
+#   
+#   # Output
+#   out <- list(beta_lb = beta_lb,
+#               beta_ub = beta_ub, 
+#               pcor_lb = pcor_lb, 
+#               pcor_ub = pcor_ub)
+# 
+#   return(out)
+# }
 
+
+summarize_post <- function(res, cred = c(0.95)) {
+  
+  # Check if the "cred" argument is a numeric vector
+  if (!is.numeric(cred) | any(cred < 0 | cred > 1)) {
+    stop("The 'cred' argument must be a numeric vector between 0 and 1.")
+  }
+  
+  # Convert "cred" to a sorted vector of unique values
+  cred <- sort(unique(cred))
+  
+  # Initialize output lists
+  beta_lb_list <- vector("list", length(cred))
+  beta_ub_list <- vector("list", length(cred))
+  pcor_lb_list <- vector("list", length(cred))
+  pcor_ub_list <- vector("list", length(cred))
+  
+  # Compute bounds for each "cred" value
+  for (i in seq_along(cred)) {
+    
+    # Lower and upper bound
+    lb <- (1 - cred[i])/2
+    ub <- 1 - lb
+    
+    # for beta
+    beta_lb_list[[i]] <- apply(res$fit$beta, c(1, 2), stats::quantile, lb)
+    beta_ub_list[[i]] <- apply(res$fit$beta, c(1, 2), stats::quantile, ub)
+    
+    # for pcor
+    pcor_lb_list[[i]] <- apply(res$fit$pcors, c(1, 2), stats::quantile, lb)
+    pcor_ub_list[[i]] <- apply(res$fit$pcors, c(1, 2), stats::quantile, ub)  
+    
+  }
+  names(beta_lb_list) <- paste0("lb_", cred)
+  names(beta_ub_list) <- paste0("ub_", cred)
+  names(pcor_lb_list) <- paste0("lb_", cred)
+  names(pcor_ub_list) <- paste0("ub_", cred)
+  
+  # Combine output into a list
+  out <- list(beta_lb = beta_lb_list,
+              beta_ub = beta_ub_list, 
+              pcor_lb = pcor_lb_list, 
+              pcor_ub = pcor_ub_list)
+  
   return(out)
 }
+
+
 
 
 
@@ -2287,6 +2361,40 @@ sim_select <- function(simobj,
 }
 
 
+# Fit graphicalVAR parallel -----------------------------------------------
+
+fit_graphicalvar_parallel <- function(data,
+                                      n, 
+                                      pruneresults = TRUE, 
+                                      ...){     # other arguments passend to graphicalVAR
+  # Save arguments
+  
+  require(doParallel)
+  
+  # reproducible parallelization
+  doRNG::registerDoRNG(seed)
+  
+  # Foreach
+  fit <- foreach(i = seq(n), .packages = "graphicalVAR") %dopar% {
+    fit_ind <- tryCatch({graphicalVAR::graphicalVAR(data = data[[i]]$data,
+                                                    ...)}, 
+                        error = function(e) NULL)
+    
+    
+    
+    if(isTRUE(pruneresults) & is.list(fit_ind)){
+      fit_ind[c("path", "allResults", "data", "labels")] <- NULL
+      
+    }
+    fit_ind$args <- data[[i]]$args
+    return(fit_ind)
+  } # end foreach
+  
+  
+  # Output
+  return(fit)
+  
+}     
 
 
 
