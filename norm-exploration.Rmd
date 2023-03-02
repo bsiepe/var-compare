@@ -9,6 +9,22 @@ output: html_document
 Here, we try to understand matrix norms a bit better by computing norms of difference matrices
 and plotting the change of norms. 
 
+
+# Changing Kappa
+How much does a change in kappa actually mean in terms of partial correlations?
+Need to load the 
+```{r}
+l_changed_graphs <- readRDS("l_changed_graphs.RDS")
+
+
+
+```
+
+
+
+
+
+
 # Change maximum edge
 
 First, look at a changes when changing the largest parameters:
