@@ -622,6 +622,7 @@ fit_var_parallel_merged <- function(data,
                                      posteriorsamples = FALSE,
                                      multigroup = FALSE,
                                      pruneresults = FALSE, 
+                                     summarize_post = TRUE, # summarize posterior samples into intervals 
                                      select = FALSE,       # apply selection based on CI, currently only supported for non single dataset fitting
                                      save_files = FALSE,
                                      dgp_name = NULL){     # option to return as .rds
@@ -664,10 +665,7 @@ fit_var_parallel_merged <- function(data,
             fit_ind$kappa_mu <- apply(fit_ind$fit$kappa, c(1,2), mean)
             
           }
-          # else{
-            # n_nonconv <- 1     # binary indicator of convergence now
-          # }
-          # fit_ind$n_nonconv <- n_nonconv
+
         }
         
         # prune results for comparison purposes
@@ -678,14 +676,12 @@ fit_var_parallel_merged <- function(data,
           pcor_mu <- fit_ind$pcor_mu
           kappa_mu <- fit_ind$kappa_mu
           args <- data[[i]]$args
-          # n_nonconv <- fit_ind$n_nonconv
           fit_ind <- list()
           # fit_ind$fit <- list()       - this is probably why everything got deleted below!
           fit_ind$beta_mu <- beta_mu
           fit_ind$pcor_mu <- pcor_mu
           fit_ind$kappa_mu <- kappa_mu
           fit_ind$args <- args
-          # fit_ind$n_nonconv <- n_nonconv
           # fit_ind$fit$beta <- beta
           # fit_ind$fit$kappa <- kappa
 
@@ -1004,6 +1000,32 @@ sim_from_post_parallel <- function(fitobj,
   
 }
 
+
+
+# Summarize posterior -----------------------------------------------------
+summarize_post <- function(res,
+                           cred = 0.95){
+  
+  # Lower and upper bound
+  lb <- (1-cred)/2
+  ub <- 1-lb
+  
+  # for beta
+  beta_lb <- apply(res$fit$beta, c(1,2), stats::quantile, lb)
+  beta_ub <- apply(res$fit$beta, c(1,2), stats::quantile, ub)
+  
+  # for pcor
+  pcor_lb <- apply(res$fit$pcors, c(1,2), stats::quantile, lb)
+  pcor_ub <- apply(res$fit$pcors, c(1,2), stats::quantile, ub)  
+  
+  # Output
+  out <- list(beta_lb = beta_lb,
+              beta_ub = beta_ub, 
+              pcor_lb = pcor_lb, 
+              pcor_ub = pcor_ub)
+
+  return(out)
+}
 
 
 
