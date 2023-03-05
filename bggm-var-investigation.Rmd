@@ -136,8 +136,10 @@ Works pretty well for n = 200 and one graph. Default priors seem to be okay, onl
 
 ## Data Generation
 Just use "truegraph" data from main simulation study for now. 
+TODO: Download this from the server. 
 ```{r}
-l_raw <- readRDS("l_raw.RDS")
+l_raw <- readRDS(here::here("output/l_raw.RDS"))
+l_graphs <- readRDS(here::here("data/l_graphs.RDS"))
 
 # Only truegraph
 l_dgp <- list()
@@ -165,18 +167,20 @@ l_dgp$graph3 <- lapply(l_raw$graph3, function(x){
 Estimate both graphicalVAR in default settings as well as BGGM with varying priors.
 ```{r}
 # Priors
+dgp_names <- c("graph1", "graph2", "graph3")
 dgp <- c(1,2,3)
-rho_prior <- c(0.1, 0.3, 0.5)
-beta_prior <- c(0.2, 0.5, 1)
-n_tp <- c(50, 100, 200, 400) # TODO add timepoint condition?
-tp_cond <- c(1,2,3,4)   # different tp conditions
+rho_sd <- c(0.1, 0.3, 0.5)
+beta_sd <- c(0.2, 0.5, 1)
+n_tp <- c(50, 100, 200, 400, 1000) 
+tp_cond <- c(1,2,3,4,5)   # different tp conditions
 
 cond_grid <- expand.grid(dgp = dgp,
                          n_tp = tp_cond,
-                         rho_prior = rho_prior, 
-                         beta_prior = beta_prior)
-iterations <- 15000
+                         rho_prior = rho_sd, 
+                         beta_prior = beta_sd)
+n_iter <- 50000
 seed <- 2022
+set.seed(seed)
 
 
 
@@ -184,32 +188,126 @@ seed <- 2022
 # store BGGM results under "nonselect"
 ncores = parallel::detectCores() - 2
 cl = makeCluster(ncores)
+clusterExport(cl = cl, "summarize_post")
 registerDoParallel(cl)
 l_res <- list()
 
-# TODO replace with 1:nrow(comp_grid)
-for(n in 1:3) {
-  dgp <- as.numeric(cond_grid[n, "dgp"])
-  n_tp <- as.numeric(cond_grid[n, "n_tp"])
-  rho_prior <- as.numeric(cond_grid[n, "rho_prior"])
-  beta_prior <- as.numeric(cond_grid[n, "beta_prior"])
-  
-  l_res[[n]]  <- lapply(l_dgp[[dgp]][[n_tp]], function(x){ 
-                          fit_var_parallel_merged(
-                          data = x,
-                          rho_prior = rho_prior,
-                          beta_prior = beta_prior,
-                          iterations = iterations,
+
+# TODO maybe actually use save_files to save results to disc
+# Need to adopt such that select works together with summarize_post
+
+for(n in 1:nrow(cond_grid)) {
+  dgp_ind <- as.numeric(cond_grid[n, "dgp"])
+  tp_ind <- as.numeric(cond_grid[n, "n_tp"])
+  r_sd <- as.numeric(cond_grid[n, "rho_prior"])
+  b_sd <- as.numeric(cond_grid[n, "beta_prior"])
+  print(paste0(nrow(cond_grid)-n, " to go!"))
+  l_res[[n]]  <- fit_var_parallel_merged(l_dgp[[dgp_ind]][[tp_ind]],
+                          rho_prior = r_sd,
+                          beta_prior = b_sd,
+                          iterations = n_iter,
                           n = 100,
                           nds = 100,
                           seed = seed,
-                          pruneresults = TRUE,
-                          save_files = FALSE)
-    })
-                          
+                          summarize_post = TRUE,
+                          cred_int = c(0.9, 0.95, 0.99),
+                          pruneresults = FALSE,
+                          save_files = FALSE,
+                          multigroup = FALSE,
+                          select = TRUE)
+    
+
   
 }
 stopCluster(cl)
+
+# saveRDS(l_res, here::here("output/bggm-var-sim-res.Rds"))
+l_res_bggm <- readRDS(here::here("output/bggm-var-sim-res.Rds"))
+
+
+# Attach the simulation conditions
+for(m in 1:nrow(cond_grid)){
+  for(i in 1:length(l_res_bggm[[m]])){
+    l_res_bggm[[m]][[i]]$sim_cond <- cond_grid[m,]
+  }
+}
+
+```
+### Fit graphicalVAR
+```{r}
+# Conditions of varying sparsity
+dgp_names <- c("graph1", "graph2", "graph3")
+dgp <- c(1,2,3)
+gamma_ebic <- c(0, 0.5)      # EBIC hyperparamater
+lambda <- c(NA, 0)
+n_tp <- c(50, 100, 200, 400, 1000) 
+tp_cond <- c(1,2,3,4,5)   # different tp conditions
+
+cond_grid_gvar <- expand.grid(dgp = dgp,
+                         n_tp = tp_cond,
+                         gamma_ebic = gamma_ebic,
+                         lambda = lambda)
+
+
+
+
+ncores = parallel::detectCores() - 2
+cl = makeCluster(ncores)
+clusterExport(cl = cl, "fit_graphicalvar_parallel")
+registerDoParallel(cl)
+l_res_gvar <- list()
+time_before_gvar <- Sys.time()
+for(n in 1:nrow(cond_grid)) {
+  dgp_ind <- as.numeric(cond_grid_gvar[n, "dgp"])
+  tp_ind <- as.numeric(cond_grid_gvar[n, "n_tp"])
+  gamma_ebic <- as.numeric(cond_grid_gvar[n, "gamma_ebic"])
+  lambda <- as.numeric(cond_grid_gvar[n, "lambda"])
+  print(paste0(nrow(cond_grid_gvar)-n, " to go!"))
+  
+  # unregularized
+  if(!is.na(lambda)){
+   l_res_gvar[[n]]  <- fit_graphicalvar_parallel(l_dgp[[dgp_ind]][[tp_ind]],
+                                                  n = 100,
+                                                  gamma = gamma_ebic,
+                                                  nLambda = 50, 
+                                                  pruneresults = TRUE, 
+                                                  lambda_beta = lambda,
+                                                  lambda_kappa = lambda)
+                            
+  }
+  # regularized
+  if(is.na(lambda)){
+   l_res_gvar[[n]]  <- fit_graphicalvar_parallel(l_dgp[[dgp_ind]][[tp_ind]],
+                                                 n = 100,
+                                                 gamma = gamma_ebic,
+                                                 nLambda = 50, 
+                                                 pruneresults = TRUE)
+    
+  }
+    
+
+  
+}
+stopCluster(cl)
+
+time_after_gvar <- Sys.time() - time_before_gvar
+# saveRDS(l_res_gvar, here::here("output/graphicalvar-sim-res.Rds"))
+l_res_gvar <- readRDS(here::here("output/graphicalvar-sim-res.Rds"))
+
+
+ 
+# Attach the simulation conditions
+for(m in 1:nrow(cond_grid_gvar)){
+  for(i in 1:length(l_res_gvar[[m]])){
+    l_res_gvar[[m]][[i]]$sim_cond <- cond_grid_gvar[m,]
+  }
+}
+    
+
+
+
+
+
 
 
 
@@ -221,14 +319,168 @@ stopCluster(cl)
 ## Evaluation
 Evaluate both with and without graph selection.
 
-### Selection
+Evaluation function
 ```{r}
-# Loop over all graphs, extract BGGM fitting object and apply the selection function 
-# extend select function to also include the lower and upper bound 
+# TODO be very careful about transposing beta here or not!!!!
+
+bias <- function(e,t){
+  b <- mean(abs(e - t), na.rm = TRUE)
+}
+
+
+eval_bggm <- function(fit,
+                      cred_int = c(0.9, 0.95, 0.99),    # different credible intervals
+                      nds = 100,         # number of datasets per simulation condition
+                      dgp_list = l_graphs){
+  
+  
+  # Prepare output
+  l_out <- list()
+  
+  
+  # Save arguments
+  args <- fit$args
+  l_out$dgp_ind <- fit$sim_cond$dgp
+  l_out$tp_ind <- fit$sim_cond$n_tp
+  l_out$rho_prior <- fit$sim_cond$rho_prior
+  l_out$beta_prior <- fit$sim_cond$beta_prior
+  
+  
+  ## Find corresponding true graph
+  true_graph <- l_graphs[[l_out$dgp_ind]]
+  beta_true <- true_graph$beta
+  kappa_true <- true_graph$kappa
+  
+  # Calculate PCOR 
+  # TODO doublecheck this
+  pcor_true <- -1*stats::cov2cor(kappa_true)
+  
+  
+  #--- Nonselect Method ---#
+  # Point estimates
+  beta_est <- fit$beta_mu
+  pcor_est <- fit$pcor_mu
+  
+  
+  # Compute Bias
+  l_out$bias_beta <- bias(beta_est, beta_true)
+  l_out$bias_pcor <- bias(pcor_est, pcor_true)
+  
+  # Correlations
+  # TODO should I do it like this? just ignore matrix structure?
+  l_out$cor_beta <- cor(c(beta_est), c(beta_true))
+  l_out$cor_pcor <- cor(c(pcor_est), c(pcor_true))
+  
+  
+  
+  #--- Select Method ---#
+  # Obtain different credible intervals
+  cred_interval <- fit$cred_interval
+  
+  
+  # Obtain estimates with selection
+  beta_est_sel <- fit$beta_weighted_adj
+  pcor_est_sel <- fit$pcor_weighted_adj
+  
+  ## Bias
+  l_out$bias_beta_sel <- bias(beta_est_sel, beta_true)
+  l_out$bias_pcor_sel <- bias(pcor_est_sel, pcor_true)
+  
+  ## True/False Positive/Negative
+  # TP
+  l_out$true_pos_beta <- sum(beta_true != 0 & beta_est_sel != 0)
+  l_out$true_pos_pcor <- sum(pcor_true != 0 & pcor_est_sel != 0)
+  
+  # FP
+  l_out$fal_pos_beta <- sum(beta_true == 0 & beta_est_sel != 0)
+  l_out$fal_pos_pcor <- sum(pcor_true == 0 & pcor_est_sel != 0)  
+  
+  # TN
+  l_out$true_neg_beta <- sum(beta_true == 0 & beta_est_sel == 0)
+  l_out$true_neg_pcor <- sum(pcor_true == 0 & pcor_est_sel == 0)
+  
+  # FN
+  l_out$fal_neg_beta <- sum(beta_true != 0 & beta_est_sel == 0)
+  l_out$fal_neg_pcor <- sum(pcor_true != 0 & pcor_est_sel == 0)
+  
+  ## Sensitivity
+  l_out$sens_beta <- l_out$true_pos_beta / (l_out$true_pos_beta + l_out$fal_neg_beta)
+  l_out$sens_pcor <- l_out$true_pos_pcor / (l_out$true_pos_pcor + l_out$fal_neg_pcor)
+  
+  ## Specificity
+  l_out$spec_beta <- l_out$true_neg_beta / (l_out$true_neg_beta + l_out$fal_pos_beta)
+  l_out$spec_pcor <- l_out$true_neg_pcor / (l_out$true_neg_pcor + l_out$fal_pos_pcor)
+  
+  
+  
+  ## ...
+  
+  
+  ## Coverage
+  # Loop across different cred. ints
+  df_ci <- data.frame(ci = cred_int,
+                           sum_cover_beta = rep(NA, length(cred_int)),
+                           sum_cover_pcor = rep(NA, length(cred_int)),
+                           width_beta = rep(NA, length(cred_int)),
+                           width_pcor = rep(NA, length(cred_int)) )
+  for(i in 1:length(cred_int)){
+    lb_beta <- cred_interval$beta_lb[[i]]
+    ub_beta <- cred_interval$beta_ub[[i]]
+    lb_pcor <- cred_interval$pcor_lb[[i]]
+    ub_pcor <- cred_interval$pcor_ub[[i]]  
+    
+    m_cover_beta <- beta_true >= lb_beta & beta_true <= ub_beta 
+    m_cover_pcor <- pcor_true >= lb_pcor & pcor_true <= ub_pcor 
+    
+    # Only consider upper diagonal of pcor
+    df_ci[i, "sum_cover_beta"] <- sum(m_cover_beta)
+    df_ci[i, "sum_cover_pcor"] <- sum(m_cover_pcor[upper.tri(m_cover_pcor)])
+    
+  }
+  
+  ## Average width
+
+   for(i in 1:length(cred_int)){
+    lb_beta <- cred_interval$beta_lb[[i]]
+    ub_beta <- cred_interval$beta_ub[[i]]
+    lb_pcor <- cred_interval$pcor_lb[[i]]
+    ub_pcor <- cred_interval$pcor_ub[[i]]
+    
+    df_ci[i,"width_beta"] <- mean(ub_beta - lb_beta)
+    df_ci[i,"width_pcor"] <- mean(ub_pcor[upper.tri(ub_pcor)] - lb_pcor[upper.tri(lb_pcor)])
+    
+   }
+  
+  l_out$ci <- df_ci
+  
+  
+
+  #--- Output ---#
+
+  return(l_out)
+}
+  
+a <- l_res_bggm[[1]][[1]]$lb_beta
+b <- l_res_bggm[[1]][[1]]$ub_beta
+c <- l_graphs$graph1$beta
+is_in_ci <- c >= a & c <= b
+sum(is_in_ci)
+
+eval_ex <- eval_bggm(l_res_bggm[[1]][[1]])
+
+```
 
 
 
 
+### Evaluate BGGM
+```{r}
+test_eval <- lapply(l_res_bggm[[1]], eval_bggm)
+
+test_eval <- lapply(l_res_bggm, function(x){
+  res <- lapply(x, eval_bggm)
+  return(res)
+})
 
 ```
 
