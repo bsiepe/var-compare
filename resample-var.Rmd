@@ -95,39 +95,16 @@ l_graphs <- list(graph1 = graph,
                  graph3 = graph_fried)
 
 # Apply change function to every graph
-# TODO needs to check for positive semidefiniteness somehow! does not work for graph (with small kappa varianceds)
 l_changed_graphs <- lapply(l_graphs, 
                            function(x) {change_graphs(
                                             truegraph = x, 
-                                            changemax = c(1.2, 1.4, 1.6),
+                                            changemax = c(1.4, 1.6),
                                             noise = c(0.1,0.2,0.3),
+                                            permute_index = c(3,5,1,4,6,2),
                                             seed = seed)})
 
-change_graphs(truegraph = graph, changemax = c(1.2, 1.4, 1.6), noise = c(0.1, 0.2, 0.3), seed = seed)
-
-# Create one graph that is completely different
-# diff_graph <- randomGVARmodel(Nvar = 6, probKappaEdge = 0.3, probBetaEdge = 0.5)
-graph_fried$beta[1:6, 1:6]
-
-
-
-
-# Check if difference is large enough
-norm(graph$beta - graph_fried$beta[1:6, 1:6], type = "F")
-norm(graph$beta - l_changed_graphs$graph1$noise0.3$beta, type = "F")
-
-# # Save in list
-# l_changed_graphs$graph1$diffgraph <- list(
-#   beta = graph_fried$beta[1:6, 1:6],
-#   kappa = graph_fried$kappa[1:6, 1:6]
-# )
-
-# # Delete other graphs
-# l_changed_graphs$graph1[["change_1.2"]] <- NULL
-# l_changed_graphs$graph1[["change_1.4"]] <- NULL
-# l_changed_graphs$graph1[["change_1.6"]] <- NULL
-# l_changed_graphs$graph1[["noise_0.1"]] <- NULL
 # write_rds(l_changed_graphs, "l_changed_graphs.RDS")
+# write_rds(l_graphs, "l_graphs.RDS")
 
 ```
 
@@ -143,7 +120,7 @@ Then, generate rawdata from data-generating processes. We create more posterior 
 ```{r generate-rawdata-parallel}
 
 # Simulation conditions
-n_ind <- 50 # number of individuals(so models to create) 
+n_ind <- 100 # number of individuals(so models to create) 
 n_tp <- c(50,100,200,400) # number of timepoints
 n_postds <- 120 # number of posterior datasets
 seed <- 2022
@@ -152,7 +129,7 @@ seed <- 2022
 rho_sd <- 0.5      # Prior for partial correlations
 beta_sd <- 1       # Prior for regression matrix
 seed <- 2022
-n_iter <- 5000
+n_iter <- 50000
 
 
 # Think about if I actually need to standardize here
@@ -214,12 +191,7 @@ after_simraw <- Sys.time()-before_simraw  # less than 4 minutes
 
 # Bayesian approach
 Fit a VAR model to each raw dataset. 
-
 ```{r}
-# for testing
-# n_ind = 5
-# nds = 5
-
 before_fitraw <- Sys.time()
 ncores = parallel::detectCores() - 2
 cl = makeCluster(ncores)
@@ -227,27 +199,12 @@ registerDoParallel(cl)
 l_res <- list()
 l_res$graph3 <- l_res$graph2 <- l_res$graph1 <-  list()
 
-# for(t in seq_along(n_tp)){
-#     l_res$graph1[[t]] <- lapply(l_raw$graph1[[t]], function(x){fit_var_parallel_merged(
-#     data = x, n = n_ind, nds = n_postds, rho_prior = rho_sd, beta_prior = beta_sd, seed = seed,
-#     iterations = n_iter, pruneresults = TRUE, dgp_name = "graph1", save_files = TRUE
-#   )})
-#     l_res$graph2[[t]] <- lapply(l_raw$graph2[[t]], function(x){fit_var_parallel_merged(
-#     data = x, n = n_ind, nds = n_postds, rho_prior = rho_sd, beta_prior = beta_sd, seed = seed,
-#     iterations = n_iter, pruneresults = TRUE, dgp_name = "graph2", save_files = TRUE
-#   )})
-#     l_res$graph3[[t]] <- lapply(l_raw$graph3[[t]], function(x){fit_var_parallel_merged(
-#     data = x, n = n_ind, nds = n_postds, rho_prior = rho_sd, beta_prior = beta_sd, seed = seed,
-#     iterations = n_iter, pruneresults = TRUE, dgp_name = "graph3", save_files = TRUE
-#   )}) 
-#   
-# }
 
 for(t in seq_along(n_tp)){
-  #   lapply(l_raw$graph1[[t]], function(x){fit_var_parallel_merged(
-  #   data = x, n = n_ind, nds = n_postds, rho_prior = rho_sd, beta_prior = beta_sd, seed = seed,
-  #   iterations = n_iter, pruneresults = TRUE, dgp_name = "graph1", save_files = TRUE
-  # )})
+    lapply(l_raw$graph1[[t]], function(x){fit_var_parallel_merged(
+    data = x, n = n_ind, nds = n_postds, rho_prior = rho_sd, beta_prior = beta_sd, seed = seed,
+    iterations = n_iter, pruneresults = TRUE, dgp_name = "graph1", save_files = TRUE
+  )})
     lapply(l_raw$graph2[[t]], function(x){fit_var_parallel_merged(
     data = x, n = n_ind, nds = n_postds, rho_prior = rho_sd, beta_prior = beta_sd, seed = seed,
     iterations = n_iter, pruneresults = TRUE, dgp_name = "graph2", save_files = TRUE
@@ -264,10 +221,6 @@ after_fitraw <- Sys.time()-before_fitraw
 
 # write_rds(l_res, "l_res_new.Rds")
 # l_res <- readRDS(here("l_res_new.Rds"))
-
-
-
-
 ```
 
 
@@ -397,8 +350,8 @@ n_t_types <- 4
 
 
 dgp_names <- c("graph1", "graph2", "graph3")
-change_names <- c("truegraph", "change1.2", "change1.4", "change1.6",
-                  "noise0.1", "noise0.2", "noise0.3")
+change_names <- c("truegraph", "change1.4", "change1.6",
+                  "noise0.1", "noise0.2", "noise0.3", "perm")
 comp_names <- c("frob","maxdiff", "l1")
 
 
@@ -581,7 +534,7 @@ n_t_types <- 4
 dgp_names <- c("graph1", "graph2", "graph3")
 
 change_names <- c("truegraph", "change1.2", "change1.4", "change1.6",
-                  "noise0.1", "noise0.2", "noise0.3")
+                  "noise0.1", "noise0.2", "noise0.3", "perm")
 
 
 comp_names <- c("frob","maxdiff", "l1")
