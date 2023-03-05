@@ -1,0 +1,476 @@
+---
+title: "concatenating-var"
+author: "Björn Siepe"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+# Data Generation
+
+```{r}
+library(tidyverse)
+library(BGGM)
+library(here)
+library(ggplot2)
+library(graphicalVAR)
+library(qgraph)
+library(parallel)
+library(doParallel)
+library(foreach)
+library(doRNG)
+
+```
+
+
+```{r concatenate-ts}
+# time series need to be standardized before concatenation
+# we also need to assume stationarity 
+# first just take the first two time series here
+
+
+fried_net <- readRDS(here("data/graph_fried.Rds"))
+
+graph_fried <- list()
+graph_fried$beta <- fried_net$beta
+graph_fried$kappa <- fried_net$kappa
+
+# For now, delete 3 edges so that every dgp has 6 vars
+graph_fried$beta <- graph_fried$beta[1:6, 1:6]
+graph_fried$kappa <- graph_fried$kappa[1:6, 1:6]
+
+# Storage
+l_data <- list()
+l_d <- list()
+l_conc <- list()
+l_out <- list()
+
+# Data generation
+ncores = parallel::detectCores() - 2
+cl = makeCluster(ncores)
+registerDoParallel(cl)
+l_data <- foreach(i = seq(100), .packages = c("graphicalVAR")) %dopar% {
+  # setup storage
+  l_d <- list()
+  l_conc <- list()
+  l_out <- list()
+  
+  g <- graph_fried
+  
+  # Simulate data
+  l_d$d1 <- graphicalVARsim(300, beta = g$beta, kappa = g$kappa, mean = 0)
+  l_d$d2 <- graphicalVARsim(300, beta = g$beta, kappa = g$kappa, mean = 0)
+  
+  # Concatenate
+  conc_12 <- rbind(l_d$d1, l_d$d2) 
+  nr <- 600
+  
+  # Delete entries in the middle
+  conc_12[(nr/2-2):(nr/2-2),] <- c(rep(NA, 6))
+  l_conc <- conc_12
+  
+  
+  l_out$l_d <- l_d
+  l_out$l_conc <- l_conc
+  
+  return(l_out)
+  
+}
+stopCluster(cl)
+
+# Separate lists for fitting
+# create a function to extract the two lists from each element
+extract_lists <- function(x) {
+  list(l_d = x$l_d, l_conc = x$l_conc)
+}
+
+# apply the function to each element of the original list using lapply
+new_list <- lapply(l_data, extract_lists)
+
+# extract the two lists from the new list using lapply and simplify = FALSE
+l_d <- lapply(new_list, function(x) list(d1 = list(data = x$l_d$d1), d2 = list(data = x$l_d$d2)))
+l_conc <- lapply(new_list, function(x) list(data = x$l_conc))
+
+
+
+
+
+
+```
+
+
+
+
+
+# Concatenating Time Series BGGM
+This idea is based on Williams & Mulder (2020). Instead of comparing the posterior predictive estimations of two datasets directly, we could concatenate two time series under the null hypothesis that they originate from the same data-generating process. We could then compare the posterior predictive results from these concatenated time series to either a distribution from an individual time series or just a single test statistic. This is also comparable to Zhang, Templin & Mintz (2022) and chaining graphicalVARs for subgrouping. 
+
+
+## Estimation
+```{r}
+# Estimate new model on concatenated dataset and on individual datasets
+rho_sd <- 0.5
+beta_sd <- 1
+seed <- 2022
+n_iter <- 5000
+
+
+# estimate models
+l_conc_fit <- list()
+ncores = parallel::detectCores() - 2
+cl = makeCluster(ncores)
+registerDoParallel(cl)
+
+# concatenated dataset
+l_conc_fit <- fit_var_parallel_merged(dat = l_conc, 
+                        n = 100, 
+                        nds = 100,
+                        rho_prior = rho_sd, 
+                        beta_prior = beta_sd, 
+                        seed = seed, 
+                        iterations= n_iter)
+
+# individual models
+l_ind_fit <- fit_var_parallel_merged(data = l_d,
+                        nds = 100,
+                        n = 2,
+                        rho_prior = 0.5, 
+                        beta_prior = 1,
+                        seed = 2022,
+                        iterations = 5000,
+                        posteriorsamples = FALSE,
+                        multigroup = TRUE,
+                        pruneresults = TRUE,
+                        get_kappa = FALSE)
+
+stopCluster(cl)
+
+# Create reference distribution on concatenated time series
+ncores = parallel::detectCores() - 2
+cl = makeCluster(ncores)
+registerDoParallel(cl)
+
+# Create reference distribution on concatenated time series
+l_conc_postsim <- sim_from_post_parallel(l_conc_fit,
+                                         n_datasets = 500,
+                                         n = 100,
+                                         tp = 600, 
+                                         iterations = 5000,
+                                         seed = 2022,
+                                         means = 0)
+
+# Then refit models to posterior simulated datasets
+# TODO does not work yet
+
+l_fit_post_res <- lapply(l_conc_postsim, function(x){
+  fit_var_parallel_merged(data = x,
+                        nds = 500,
+                        n = 2,
+                        rho_prior = 0.5, 
+                        beta_prior = 1,
+                        seed = 2022,
+                        iterations = 5000,
+                        posteriorsamples = FALSE,
+                        multigroup = TRUE,
+                        pruneresults = TRUE,
+                        get_kappa = FALSE)})
+stopCluster(cl)
+
+
+
+
+
+
+# 
+# post_res <- sim_from_post_concat(res_conc12, 
+#                      n_datasets = 1000,
+#                      n = 1000,
+#                      tp = 600,
+#                      iterations = 5000,
+#                      seed = 2022)
+# stopCluster(cl)
+
+
+
+# create reference distribution
+ref_dist <- lapply(fit_post_res, function(x){
+  if(!is.na(x[[1]][1]) && !is.na(x[[2]][1])){
+    norm(x[[1]]$beta_mu-x[[2]]$beta_mu, type = "F")
+  }
+})
+
+conc_post_res <- data.frame(post = do.call(rbind, ref_dist),
+                            emp = norm(res1$beta_mu - res2$beta_mu, type = "F"))
+
+conc_post_res %>% 
+  mutate(n_samp_smaller = sum(emp > post)) %>% 
+  ggplot(aes(x = post))+
+  geom_density()+
+  geom_vline(aes(xintercept = emp))
+    
+
+
+
+### Then create posterior predictive datasets for each posterior sample and compute distances under the null 
+# 
+sim_from_post_concat <- function(fitobj, 
+                                   n_datasets, 
+                                   n,
+                                   tp,
+                                   iterations = 5000,
+                                   seed = 2022,  
+                                   means = 0,
+                                   ngroups = 2){             # number of datasets create for each posterior slice
+  require(doParallel)
+  
+  
+  # Extract parameters from fitobject
+  # delete first 50 samples
+  l_params <- list()
+
+
+  l_params$beta <- fitobj$fit$beta[,,51:iterations]
+  l_params$kappa <- fitobj$fit$kappa[,,51:iterations]
+
+  
+  # reproducible parallelization
+  # doRNG::registerDoRNG(seed)
+  
+  # Loop to create new datasets from posterior samples
+  dat <- list()
+  dat <- foreach(j = seq(n_datasets), .packages = "graphicalVAR") %dopar% {
+      # get random posterior sample
+      # Needs transposing of beta matrix!
+      smp <- sample(iterations-50, size = 1)
+      sim_dat <- list()
+      
+      
+      for(g in seq(ngroups)){
+      sim_dat[[g]] <- list()
+      sim_dat[[g]]$data <- try(as.data.frame(graphicalVAR::graphicalVARsim(nTime = tp,
+                                                                  beta = t(l_params$beta[,,smp]),
+                                                                  kappa = l_params$kappa[,,smp],
+                                                                  mean = means))) 
+
+
+    }
+    sim_dat
+    
+    
+  } # end parallel
+  
+
+  dat
+  
+}
+
+
+```
+
+
+
+
+
+
+
+# Concatenating GraphicalVAR
+
+Instead of using BGGM, we could also just use graphicalVAR to simulate from concatenated time series again and then refit. 
+```{r}
+
+# Need function for fitting in parallel
+fit_gvar_parallel <- function(data,
+                     nds,
+                     n,     # n per group - TODO make this optional
+                     simulated = FALSE,
+                     multigroup = FALSE,
+                     posteriorsamples = FALSE, 
+                     pruneresults = TRUE,
+                     ...){                     # arguments passed to graphicalVAR
+  
+  
+  require(graphicalVAR)
+  require(doParallel)
+  # reproducible parallelization
+  doRNG::registerDoRNG(seed)
+  
+  if(!multigroup & !posteriosamples ){
+  fit <- foreach(i = seq(nds), .packages = "graphicalVAR") %dopar% {
+      fit_ind <- tryCatch({graphicalVAR::graphicalVAR(data[[i]]$data,
+                             ...)}, error = function(e) NULL)
+      
+      if(isTRUE(pruneresults)){
+        beta <- fit_ind$beta 
+        kappa <- fit_ind$kappa
+        gamma <- fit_ind$gamma
+        fit_ind <- list()
+        fit_ind$beta <- beta
+        fit_ind$kappa <- kappa
+        fit_ind$gamma <- gamma
+      }
+  
+      
+      
+      fit_ind
+      
+      }
+
+  }
+
+  
+  if(isTRUE(multigroup)){
+    fit <- foreach(i = seq(nds), .packages = "graphicalVAR") %dopar% {
+      fit_ind <- list()
+      for(d in seq(n)){
+        if(is.list(data[[i]])){
+          if(is.list(data[[i]][[d]])){
+              fit_ind[[d]] <- tryCatch({graphicalVAR::graphicalVAR(data[[i]][[d]]$data,
+                             ...)}, error = function(e) NULL)
+        
+        
+              
+              if(isTRUE(pruneresults) & length(fit_ind[[d]] > 0 )){
+              beta <- fit_ind[[d]]$beta 
+              kappa <- fit_ind[[d]]$kappa
+              gamma <- fit_ind[[d]]$gamma
+              fit_ind[[d]] <- list()
+              fit_ind$beta <- beta
+              fit_ind$kappa <- kappa
+              fit_ind$gamma <- gamma
+           } # end pruneresults
+            
+         } 
+       }
+
+        
+     } # end loop across groups
+      return(fit_ind)
+      
+      
+      
+    } # end foreach
+    
+    
+  }  # end multigroup
+  
+  
+  
+  if(isTRUE(posteriorsamples)){
+    fit <- foreach(i = seq(nds), .packages = "graphicalVAR") %dopar% {
+      fit_ind <- list()
+      for(d in seq(n)){
+        if(is.list(data[[i]])){
+          if(is.list(data[[i]][[d]])){
+              fit_ind[[d]] <- tryCatch({graphicalVAR::graphicalVAR(data[[i]][[d]],
+                             ...)}, error = function(e) NULL)
+        
+        
+              
+              if(isTRUE(pruneresults) & length(fit_ind[[d]] > 0 )){
+              beta <- fit_ind[[d]]$beta 
+              kappa <- fit_ind[[d]]$kappa
+              gamma <- fit_ind[[d]]$gamma
+              fit_ind[[d]] <- list()
+              fit_ind$beta <- beta
+              fit_ind$kappa <- kappa
+              fit_ind$gamma <- gamma
+           } # end pruneresults
+            
+         } 
+       }
+
+        
+     } # end loop across groups
+      return(fit_ind)
+      
+      
+      
+    } # end foreach
+    
+    
+  } # end posteriorsamples
+    
+
+ return(fit)
+  
+  
+  
+}
+
+# try it out
+ncores = parallel::detectCores() - 2
+cl = makeCluster(ncores)
+registerDoParallel(cl)
+
+res <- fit_gvar_parallel(l_d, nds = 100, n = 2, multigroup = TRUE)
+res_conc <- fit_gvar_parallel(l_conc, nds = 100)
+
+
+stopCluster(cl)
+
+
+
+# Need function for simulation from results in parallel 
+# TODO: arguments arenot coherent across fns at the moment (n vs. nds vs. n_datasets)
+sim_from_post_gvar <- function(fit, 
+                               n, 
+                               n_datasets = 1000, 
+                               tp, 
+                               means){
+  
+   post_sim <- foreach(i = seq(n), .packages = "graphicalVAR") %dopar% {   # loop over individuals
+     dat <- list()
+     for(j in seq(n_datasets)){        # loop over datasets to create
+           dat[[j]] <- graphicalVAR::graphicalVARsim(nTime = tp,
+                                  beta = fit[[i]]$kappa,
+                                  kappa = fit[[i]]$kappa,
+                                  mean = means)
+       
+       
+     } # end seq(n_datasets)
+
+    return(dat)
+  } # end foreach
+  return(post_sim)
+  
+}
+
+# try it out
+ncores = parallel::detectCores() - 2
+cl = makeCluster(ncores)
+registerDoParallel(cl)
+
+sim_conc <- sim_from_post_gvar(res_conc, n = 100, 
+                               tp = 600, 
+                               means = 0,
+                               n_datasets = 100)
+
+stopCluster(cl)
+
+
+
+
+# Refit on all simulated datasets to create reference distribution
+ncores = parallel::detectCores() - 2
+cl = makeCluster(ncores)
+registerDoParallel(cl)
+
+fit_conc_post <- fit_gvar_parallel(sim_conc, n = 100, nds = 100, posteriorsamples = TRUE)
+
+stopCluster(cl)
+
+
+
+```
+
+
+## Evaluation
+
+
+
+
+
+
+
+
+
+
