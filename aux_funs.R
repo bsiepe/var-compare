@@ -2399,6 +2399,150 @@ fit_graphicalvar_parallel <- function(data,
 
 
 
+# Evaluate BGGM Simulation ------------------------------------------------
+bias <- function(e,t){
+  b <- mean(abs(e - t), na.rm = TRUE)
+}
+
+
+eval_bggm <- function(fit,
+                      cred_int = c(0.9, 0.95, 0.99),    # different credible intervals
+                      nds = 100,         # number of datasets per simulation condition
+                      dgp_list = l_graphs){
+  
+  
+  # Prepare output
+  l_out <- list()
+  
+  
+  # Save arguments
+  args <- fit$args
+  l_out$dgp_ind <- fit$sim_cond$dgp
+  l_out$tp_ind <- fit$sim_cond$n_tp
+  l_out$rho_prior <- fit$sim_cond$rho_prior
+  l_out$beta_prior <- fit$sim_cond$beta_prior
+  
+  
+  ## Find corresponding true graph
+  true_graph <- l_graphs[[l_out$dgp_ind]]
+  beta_true <- true_graph$beta
+  kappa_true <- true_graph$kappa
+  
+  # Calculate PCOR 
+  # TODO doublecheck this
+  pcor_true <- -1*stats::cov2cor(kappa_true)
+  
+  
+  #--- Nonselect Method ---#
+  # Point estimates
+  beta_est <- fit$beta_mu
+  pcor_est <- fit$pcor_mu
+  
+  
+  # Compute Bias
+  l_out$bias_beta <- bias(beta_est, beta_true)
+  l_out$bias_pcor <- bias(pcor_est, pcor_true)
+  
+  # Correlations
+  # TODO should I do it like this? just ignore matrix structure?
+  l_out$cor_beta <- cor(c(beta_est), c(beta_true))
+  l_out$cor_pcor <- cor(c(pcor_est), c(pcor_true))
+  
+  
+  
+  #--- Select Method ---#
+  # Obtain different credible intervals
+  cred_interval <- fit$cred_interval
+  
+  
+  # Obtain estimates with selection
+  beta_est_sel <- fit$beta_weighted_adj
+  pcor_est_sel <- fit$pcor_weighted_adj
+  
+  ## Bias
+  l_out$bias_beta_sel <- bias(beta_est_sel, beta_true)
+  l_out$bias_pcor_sel <- bias(pcor_est_sel, pcor_true)
+  
+  ## True/False Positive/Negative
+  # TP
+  l_out$true_pos_beta <- sum(beta_true != 0 & beta_est_sel != 0)
+  l_out$true_pos_pcor <- sum(pcor_true != 0 & pcor_est_sel != 0)
+  
+  # FP
+  l_out$fal_pos_beta <- sum(beta_true == 0 & beta_est_sel != 0)
+  l_out$fal_pos_pcor <- sum(pcor_true == 0 & pcor_est_sel != 0)  
+  
+  # TN
+  l_out$true_neg_beta <- sum(beta_true == 0 & beta_est_sel == 0)
+  l_out$true_neg_pcor <- sum(pcor_true == 0 & pcor_est_sel == 0)
+  
+  # FN
+  l_out$fal_neg_beta <- sum(beta_true != 0 & beta_est_sel == 0)
+  l_out$fal_neg_pcor <- sum(pcor_true != 0 & pcor_est_sel == 0)
+  
+  ## Sensitivity
+  l_out$sens_beta <- l_out$true_pos_beta / (l_out$true_pos_beta + l_out$fal_neg_beta)
+  l_out$sens_pcor <- l_out$true_pos_pcor / (l_out$true_pos_pcor + l_out$fal_neg_pcor)
+  
+  ## Specificity
+  l_out$spec_beta <- l_out$true_neg_beta / (l_out$true_neg_beta + l_out$fal_pos_beta)
+  l_out$spec_pcor <- l_out$true_neg_pcor / (l_out$true_neg_pcor + l_out$fal_pos_pcor)
+  
+  
+  
+  ## ...
+  
+  
+  ## Coverage
+  # Loop across different cred. ints
+  df_ci <- data.frame(ci = cred_int,
+                      sum_cover_beta = rep(NA, length(cred_int)),
+                      sum_cover_pcor = rep(NA, length(cred_int)),
+                      width_beta = rep(NA, length(cred_int)),
+                      width_pcor = rep(NA, length(cred_int)) )
+  for(i in 1:length(cred_int)){
+    lb_beta <- cred_interval$beta_lb[[i]]
+    ub_beta <- cred_interval$beta_ub[[i]]
+    lb_pcor <- cred_interval$pcor_lb[[i]]
+    ub_pcor <- cred_interval$pcor_ub[[i]]  
+    
+    m_cover_beta <- beta_true >= lb_beta & beta_true <= ub_beta 
+    m_cover_pcor <- pcor_true >= lb_pcor & pcor_true <= ub_pcor 
+    
+    # Only consider upper diagonal of pcor
+    df_ci[i, "sum_cover_beta"] <- sum(m_cover_beta)
+    df_ci[i, "sum_cover_pcor"] <- sum(m_cover_pcor[upper.tri(m_cover_pcor)])
+    
+  }
+  
+  ## Average width
+  
+  for(i in 1:length(cred_int)){
+    lb_beta <- cred_interval$beta_lb[[i]]
+    ub_beta <- cred_interval$beta_ub[[i]]
+    lb_pcor <- cred_interval$pcor_lb[[i]]
+    ub_pcor <- cred_interval$pcor_ub[[i]]
+    
+    df_ci[i,"width_beta"] <- mean(ub_beta - lb_beta)
+    df_ci[i,"width_pcor"] <- mean(ub_pcor[upper.tri(ub_pcor)] - lb_pcor[upper.tri(lb_pcor)])
+    
+  }
+  
+  l_out$ci <- df_ci
+  
+  
+  
+  #--- Output ---#
+  
+  return(l_out)
+}
+
+
+
+# Evaluate GVAR Simulation ------------------------------------------------
+
+
+
 
 
 
