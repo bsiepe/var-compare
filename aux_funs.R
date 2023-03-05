@@ -2424,7 +2424,7 @@ eval_bggm <- function(fit,
   
   
   ## Find corresponding true graph
-  true_graph <- l_graphs[[l_out$dgp_ind]]
+  true_graph <- dgp_list[[l_out$dgp_ind]]
   beta_true <- true_graph$beta
   kappa_true <- true_graph$kappa
   
@@ -2513,6 +2513,7 @@ eval_bggm <- function(fit,
     df_ci[i, "sum_cover_beta"] <- sum(m_cover_beta)
     df_ci[i, "sum_cover_pcor"] <- sum(m_cover_pcor[upper.tri(m_cover_pcor)])
     
+    
   }
   
   ## Average width
@@ -2542,7 +2543,6 @@ eval_bggm <- function(fit,
 # Evaluate GVAR Simulation ------------------------------------------------
 
 eval_gvar <- function(fit,
-                      cred_int = c(0.9, 0.95, 0.99),    # different credible intervals
                       nds = 100,         # number of datasets per simulation condition
                       dgp_list = l_graphs){
   
@@ -2555,12 +2555,12 @@ eval_gvar <- function(fit,
   args <- fit$args
   l_out$dgp_ind <- fit$sim_cond$dgp
   l_out$tp_ind <- fit$sim_cond$n_tp
-  l_out$rho_prior <- fit$sim_cond$rho_prior
-  l_out$beta_prior <- fit$sim_cond$beta_prior
+  l_out$ebic <- fit$sim_cond$gamma_ebic
+  l_out$lambda <- fit$sim_cond$lambda
   
   
   ## Find corresponding true graph
-  true_graph <- l_graphs[[l_out$dgp_ind]]
+  true_graph <- dgp_list[[l_out$dgp_ind]]
   beta_true <- true_graph$beta
   kappa_true <- true_graph$kappa
   
