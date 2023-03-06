@@ -2186,7 +2186,7 @@ compare_dgp <- function(true,
   for(i in 1:n){
     dgp[[i]] <- list()
     dgp[[i]]$beta <- true$beta
-    dgp[[i]]$kappa <- true$kappa
+    # dgp[[i]]$kappa <- true$kappa
     dgp[[i]]$PCC <- true$PCC
   }
   
