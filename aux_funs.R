@@ -204,6 +204,7 @@ change_graphs <- function(truegraph = NULL,
 # Permute matrix columns --------------------------------------------------
 # This permutes matrix columns while keeping diagonal elements on the diagonal
 permute_mat_col <- function(mat,
+                            symmetric = FALSE,
                             permute_index = NULL,
                             remove_names = TRUE){    # names removed for identical check
   # number of matrix columns
@@ -256,6 +257,11 @@ permute_mat_col <- function(mat,
   id_check <- identical(sort(diag(mat)), sort(diag(perm_mat_c)))
   if(!id_check){
     stop("Something went wrong. Diagonal not correct.")
+  }
+  
+  # For symmetric matrix, copy upper diagonal
+  if(isTRUE(symmetric)){
+    perm_mat_c <- as.matrix(Matrix::forceSymmetric(perm_mat_c))
   }
   
   
