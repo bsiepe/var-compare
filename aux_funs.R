@@ -2075,6 +2075,25 @@ compare_dgp <- function(true,
 
 
 
+# Compare BGGM GVAR -------------------------------------------------------
+# Function to compare BGGM and GVAR fitting results per simulation 
+compare_bggm_gvar <- function(fit_bggm,
+                              fit_gvar){
+  # Output
+  l_out <- list()
+  
+  # Compute correlation
+  l_out$cor_beta <- cor(c(fit_bggm$beta_mu), c(t(fit_gvar$beta[,-1])))
+  l_out$cor_pcor <- cor(c(fit_bggm$pcor_mu), c(fit_gvar$PCC))
+  
+  return(l_out)
+  
+}
+
+
+
+
+
 # Expand grid unique ------------------------------------------------------
 # Adapted from GIMME
 # https://rdrr.io/cran/gimme/src/R/expand.grid.unique.R
@@ -2245,6 +2264,10 @@ bias <- function(e,t){
   b <- mean(abs(e - t), na.rm = TRUE)
 }
 
+rmse <- function(e,t){
+  r <- sqrt(mean((t - e)^2), na.rm = TRUE)
+}
+
 
 eval_bggm <- function(fit,
                       cred_int = c(0.9, 0.95, 0.99),    # different credible intervals
@@ -2284,6 +2307,10 @@ eval_bggm <- function(fit,
   l_out$bias_beta <- bias(beta_est, beta_true)
   l_out$bias_pcor <- bias(pcor_est, pcor_true)
   
+  # RMSE
+  l_out$rmse_beta <- rmse(beta_est, beta_true)
+  l_out$rmse_pcor <- rmse(pcor_est, pcor_true)
+  
   # Correlations
   # TODO should I do it like this? just ignore matrix structure?
   l_out$cor_beta <- cor(c(beta_est), c(beta_true))
@@ -2303,6 +2330,11 @@ eval_bggm <- function(fit,
   ## Bias
   l_out$bias_beta_sel <- bias(beta_est_sel, beta_true)
   l_out$bias_pcor_sel <- bias(pcor_est_sel, pcor_true)
+  
+  ## rmse
+  l_out$rmse_beta_sel <- rmse(beta_est_sel, beta_true)
+  l_out$rmse_pcor_sel <- rmse(pcor_est_sel, pcor_true)
+  
   
   ## True/False Positive/Negative
   # TP
@@ -2419,6 +2451,10 @@ eval_gvar <- function(fit,
   # Compute Bias
   l_out$bias_beta <- bias(beta_est, beta_true)
   l_out$bias_pcor <- bias(pcor_est, pcor_true)
+  
+  # Compute rmse
+  l_out$rmse_beta <- rmse(beta_est, beta_true)
+  l_out$rmse_pcor <- rmse(pcor_est, pcor_true)
   
   # Correlations
   # TODO should I do it like this? just ignore matrix structure?
