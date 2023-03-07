@@ -11,124 +11,14 @@ Does it actually work well? If so, the following should be true.
 
 
 ```{r}
+library(tidyverse)
+library(doParallel)
+library(parallel)
+library(foreach)
+library(BGGM)
+library(graphicalVAR)
 source("aux_funs.R")
 ```
-
-
-
-# Test regularization
-```{r}
-# library("BGGM", lib.loc = "C:/Users/Bjoern/R-dev")
-
-
-set.seed(2022)
-compgraph <- graphicalVAR::randomGVARmodel(Nvar = 6, probKappaEdge = 0.4, probBetaEdge = .2)
-dat <- as.data.frame(graphicalVAR::graphicalVARsim(200, beta = compgraph$beta, kappa = compgraph$kappa))
-res <- var_estimate(dat,
-                          beta_sd = 1)
-res2 <- BGGM::var_estimate(dat,
-                           beta_sd = 0.1)
-
-
-# Try the same for rho
-res3 <- BGGM::var_estimate(dat,
-                          rho_sd = 0.5)
-res4 <- BGGM::var_estimate(dat,
-                          rho_sd = 0.05)
-
-
-
-```
-
-# Compare with GraphicalVAR
-
-For now, just simulate 100 datasets from the same DGP. 
-```{r generate-data}
-# Storage
-l_gvardata <- list()
-
-# Simulation conditions
-n_ind <- 200   # number of individuals (so models to create)
-n_tp <- 150     # number of timepoints per time series
-
-ncores = parallel::detectCores() - 4
-cl = makeCluster(ncores)
-registerDoParallel(cl)
-
-l_gvardata <- sim_raw_parallel(dgp = compgraph, n = n_ind, 
-                                tp = n_tp, means = 0,
-                                standardize = TRUE)
-
-stopCluster(cl)
-
-
-
-
-
-```
-
-```{r fit-models}
-# Model specifics
-rho_sd <- 0.5
-beta_sd <- 1
-seed <- 2022
-n_iter <- 5000
-
-l_compres <- list()
-ncores = parallel::detectCores() - 4
-cl = makeCluster(ncores)
-registerDoParallel(cl)
-
-l_compres$bggm <- fit_var_parallel(data = l_gvardata, n = n_ind,
-                 rho_prior = rho_sd, beta_prior = beta_sd, seed = seed,
-                 iterations = n_iter)
-
-l_compres$gvar <- foreach(i = seq(n_ind), .packages = "graphicalVAR") %dopar% {
-  tmp_res <- graphicalVAR(data = l_gvardata[[i]]$data, 
-               lambda_beta = 0,
-               lambda_kappa = 0, 
-               scale = TRUE, 
-               gamma = 0)
-  
-  tmp_res
-  
-}
-
-stopCluster(cl)
-
-
-```
-
-
-
-Now we can compare the results. What do we look at? Due to no regularization, do not look at true positives/false positives here. 
-- difference from data-generating process
-
-
-TODO: Is it fine not to look at the intercepts? This might be important. 
-TODO: Do I need the transpose?
-TODO: Add correlations
-
-
-```{r compare-results}
-comp_res <- compare_dgp(true = compgraph, 
-                        est_bggm = l_compres$bggm, 
-                        est_gvar = l_compres$gvar, n = 200)
-
-
-```
-
-Plot results: (this should be added as a function later on)
-```{r plot-results}
-
-
-
-```
-
-
-Works pretty well for n = 200 and one graph. Default priors seem to be okay, only has convergence issues in some cases.  
-
-
 
 
 
@@ -160,6 +50,79 @@ l_dgp$graph3 <- lapply(l_raw$graph3, function(x){
 
 
 ```
+
+
+Simulate data anew.
+```{r}
+# Simulation conditions
+n_ind <- 1000 # number of individuals(so models to create) 
+n_tp <- c(50,100,200,400,1000) # number of timepoints
+n_postds <- 1000 # number of posterior datasets
+seed <- 2022
+
+# Bayesian model parameters
+rho_sd <- 0.5      # Prior for partial correlations
+beta_sd <- 1       # Prior for regression matrix
+seed <- 2022
+n_iter <- 50000
+
+
+# Think about if I actually need to standardize here
+# because everything will be standardized by var_estimate anyway
+
+
+# Changed: instead of n_ind, we create n_postds datasets 
+# because some models don't converge
+set.seed(seed)
+before_simraw <- Sys.time()
+ncores = 40
+cl = makeCluster(ncores)
+registerDoParallel(cl)
+l_raw <- list()
+l_raw$graph3 <- l_raw$graph2 <- l_raw$graph1 <-  list()
+for(t in seq_along(n_tp)){
+  l_raw$graph1[[t]] <- list()
+  l_raw$graph1[[t]] <- lapply(l_changed_graphs$graph1,
+                                  function(x) {sim_raw_parallel(
+                                    dgp = x,
+                                    n = n_postds,
+                                    tp = n_tp[t],
+                                    seed = seed,
+                                    means = 0,
+                                    standardize = TRUE)})
+
+  l_raw$graph2[[t]] <- list()
+  l_raw$graph2[[t]] <- lapply(l_changed_graphs$graph1,
+                                  function(x) {sim_raw_parallel(
+                                    dgp = x,
+                                    n = n_postds,
+                                    tp = n_tp[t],
+                                    seed = seed,
+                                    means = 0,
+                                    standardize = TRUE)})
+  l_raw$graph3[[t]] <- list()
+  l_raw$graph3[[t]] <- lapply(l_changed_graphs$graph3, 
+                                  function(x) {sim_raw_parallel(
+                                    dgp = x, 
+                                    n = n_postds, 
+                                    tp = n_tp[t], 
+                                    seed = seed,
+                                    means = 0,
+                                    standardize = TRUE)})
+  
+  
+}
+
+stopCluster(cl)
+
+
+saveRDS(l_raw, file = here::here("data/l_raw1000.RDS"))
+
+
+
+```
+
+
 
 
 
@@ -308,9 +271,6 @@ for(m in 1:nrow(cond_grid_gvar)){
 
 
 
-
-
-
 ```
 
 
@@ -429,6 +389,72 @@ ggsave(here::here("figures/plot_eval_gvar.svg"), plot_eval_gvar, device = "svg",
 
 
 ## Correlate BGGM and graphicalVAR
+
+BGGM and GVAR simulations have different amount of conditions, so I need to match them on their DGP + number of time points first
+```{r}
+cond_grid_full <- cond_grid %>% 
+  mutate(iter_bggm = dplyr::row_number()) %>% 
+  left_join(cond_grid_gvar %>% mutate(iter_gvar = dplyr::row_number()),
+            by = c("dgp", "n_tp"))
+
+# loop through all conditions and compute correlations
+l_cor <- list()
+for(i in 1:nrow(cond_grid_full)){
+  iter_bggm <- cond_grid_full[i, "iter_bggm"]
+  iter_gvar <- cond_grid_full[i, "iter_gvar"]
+  
+  l_cor[[i]] <- mapply(compare_bggm_gvar, l_res_bggm[[iter_bggm]], l_res_gvar[[iter_gvar]], SIMPLIFY = FALSE)
+  
+  # add iteration information
+  l_cor[[i]] <- lapply(l_cor[[i]], function(x){
+    x$iter_bggm <- iter_bggm
+    x$iter_gvar <- iter_gvar
+    return(x)
+  })
+}
+
+l_cor_flat <- flatten(l_cor)
+df_cor <- dplyr::bind_rows(l_cor_flat)
+
+# NAs are zeroes 
+df_cor_full <- df_cor %>% 
+  mutate(across(contains("cor"),
+                ~tidyr::replace_na(., replace = 0))) %>% 
+  left_join(cond_grid_full, by = c("iter_bggm", "iter_gvar"))
+
+
+
+
+```
+
+
+
+Visualize results across simulation conditions
+```{r}
+df_cor_grid  <- df_cor_full %>% 
+  group_by(iter_bggm, iter_gvar) %>% 
+  # this summarizes prior info etc., which is the same within a simulation condition
+  # just a trick to keep it in the df
+  summarize(across(everything(),
+                   ~mean(.))) %>% 
+  pivot_longer(cols = contains("cor"), values_to = "cor", names_to = "mat") %>% 
+  mutate(comb = paste0("R: ", rho_prior, ", B: ", beta_prior,
+                       ", G: ", gamma_ebic, ", L : ", lambda)) %>% 
+  ungroup() %>% 
+  ggplot(aes(x = n_tp, y = cor, col = mat))+
+  geom_line()+
+  theme_bw()+
+  facet_grid(dgp~comb)+
+  ggokabeito::scale_color_okabe_ito()+
+  theme(strip.text.x = element_text(size = 3))
+
+
+ggsave("df_cor_grid.svg", df_cor_grid, height = 5, width = 25, path = here::here("figures/"),
+       device = "svg")
+
+
+```
+
 
 
 
