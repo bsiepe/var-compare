@@ -297,10 +297,7 @@ sim_raw_parallel <- function(dgp,
   args <- as.list(environment())
   args$dgp <- dgp$args
   
-  # ncores = parallel::detectCores() - 2
-  # cl = makeCluster(ncores)
-  # registerDoParallel(cl)
-  
+
   # Reproducible loops - not used anymore, as we need different seeds
   # across conditions. 
   # registerDoRNG(seed)
@@ -314,144 +311,17 @@ sim_raw_parallel <- function(dgp,
     if(standardize == TRUE){
       # Standardize data
       raw_data$data <- apply(raw_data$data, 2, scale)
-      # return name of data-generating process
-      raw_data$args <- args
-      raw_data 
-      
     }
-
+    # return name of data-generating process
+    raw_data$args <- args
+    raw_data 
     
   }
   return(data)
-  # stopCluster(cl)
+
 }
 
 
-# Fit VAR parallel --------------------------------------------------------
-# TODO add saving of function arguments
-
-fit_var_parallel <- function(data, 
-                             n,
-                             rho_prior, 
-                             beta_prior,
-                             seed,
-                             iterations,
-                             get_kappa = TRUE,
-                             posteriorsamples = FALSE,
-                             pruneresults = FALSE){
- 
-  if(n != length(data)){
-    warning("The n provided does not match the number of available data frames")
-  }
-  require(doParallel)
-  # require("BGGM", lib.loc = "C:/Users/Bjoern/R-dev")
-  
-  # reproducible parallelization
-  registerDoRNG(seed)
-  # if we take simulated data in a list object
-  if(isFALSE(posteriorsamples)){
-    fit <- foreach(i = seq(n), .packages = "BGGM") %dopar% {
-      fit_ind <- list()
-      if(is.list(data[[i]]$data) | is.numeric(data[[i]]$data)){
-        fit_ind <- tryCatch({BGGM::var_estimate(data[[i]]$data,
-                                          rho_sd = rho_prior,
-                                          beta_sd = beta_prior,
-                                          iter = iterations,
-                                          progress = FALSE,
-                                          seed = seed)}, error = function(e) NULL)
-        if(isTRUE(get_kappa)){
-          # check if fitting worked
-          if(is.list(fit_ind)){
-            # Invert covariance matrix of residuals to obtain precision matrix
-            fit_ind$fit$kappa <- array(apply(fit_ind$fit$Sigma, 3, solve), 
-                                       dim = dim(fit_ind$fit$Sigma))
-            
-            # Calculate mean of kappa
-            fit_ind$kappa_mu <- apply(fit_ind$fit$kappa, c(1,2), mean)
-            
-           }
-
-        }
-        # prune results for comparison purposes
-        if(isTRUE(pruneresults) & is.list(fit_ind)){
-          beta <- fit_ind$fit$beta
-          kappa <- fit_ind$fit$kappa
-          beta_mu <- fit_ind$beta_mu 
-          pcor_mu <- fit_ind$pcor_mu
-          kappa_mu <- fit_ind$kappa_mu
-          fit_ind <- list()
-          fit_ind$fit <- list()
-          fit_ind$beta_mu <- beta_mu
-          fit_ind$pcor_mu <- pcor_mu
-          fit_ind$kappa_mu <- kappa_mu
-          fit_ind$fit$beta <- beta
-          fit_ind$fit$kappa <- kappa
-          
-        } 
-        
-      }
-      else fit_ind <- NA
-      
-      fit_ind  
-    }
-    
-    
-  }
-  
-  
-  # if we fit the data on samples generated from the posterior
-  if(isTRUE(posteriorsamples)){
-    print("Fitting to posterior samples")
-
-    fit <- foreach(i = seq(n), .packages = "BGGM") %dopar% {
-      fit_ind <- list()
-      if(is.list(data[[i]])){
-        fit_ind <- tryCatch({BGGM::var_estimate(data[[i]],
-                                          rho_sd = rho_prior,
-                                          beta_sd = beta_prior,
-                                          iter = iterations,
-                                          progress = FALSE,
-                                          seed = seed)}, error = function(e) NULL)
-        if(isTRUE(get_kappa)){
-          # check if fitting worked
-          if(is.list(fit_ind)){
-            # Invert covariance matrix of residuals to obtain precision matrix
-            fit_ind$fit$kappa <- array(apply(fit_ind$fit$Sigma, 3, solve), 
-                                       dim = dim(fit_ind$fit$Sigma))
-            # Calculate mean of kappa
-            fit_ind$kappa_mu <- apply(fit_ind$fit$kappa, c(1,2), mean)
-          }
-
-        }
-        # prune results for comparison purposes
-        if(isTRUE(pruneresults) & is.list(fit_ind)){
-          beta_mu <- fit_ind$beta_mu 
-          kappa_mu <- fit_ind$kappa
-          pcor_mu <- fit_ind$pcor_mu
-          fit_ind <- list()
-          fit_ind$beta_mu <- beta_mu
-          fit_ind$kappa_mu <- kappa_mu
-          fit_ind$pcor_mu <- pcor_mu
-          
-        } 
-        
-        
-      }
-      else fit_ind <- NA
-      
-      fit_ind  
-    }  
-
-    
-  } # end isTRUE posteriorsamples
-  
-
-  
-    return(fit)
-
-  
-  
-}
 
 
 
