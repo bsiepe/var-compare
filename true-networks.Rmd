@@ -127,6 +127,40 @@ write_rds(full_graph_est_bggm, "full_graph.RDS")
 ```
 
 
+# Chain Graph Hoekstra et al. 2022
+This uses the PDC and PCC of Hoekstra et al. (2022) and pretends as if they were beta/kappa matrices.
+```{r}
+hoekstra_synth <- list()
+hoekstra_synth$beta <- as.matrix(read.table(header = FALSE, colClasses = "numeric", text = "
+0.29 0.32 0 0 0 0 0 0
+0 0.13 -0.36 0 0 0 0 0
+0 0 0.37 -0.47 0 0 0 0
+0 0 0 0.32 0.27 0 0 0
+0 0 0 0 0.44 -0.24 0 0
+0 0 0 0 0 0.44 -0.33 0
+0 0 0 0 0 0 0.50 0.24
+0.34 0 0 0 0 0 0 0.42"))
+
+hoekstra_synth$pcor <- as.matrix(read.table(header = FALSE, colClasses = "numeric", text = "
+0 -0.27 0 0 0 0 0 -0.29
+-0.27 0 0.49 0 0 0 0 0
+0 0.49 0 0.22 0 0 0 0
+0 0 0.22 0 -0.36 0 0 0
+0 0 0 -0.36 0 0.52 0 0
+0 0 0 0 0.52 0 0.29 0
+0 0 0 0 0 0.29 0 -0.30
+-0.29 0 0 0 0 0 -0.30 0"))
+
+
+# Cut to 6 nodes
+hoekstra_synth_6node <- list()
+hoekstra_synth_6node$beta <- hoekstra_synth$beta[c(1:6), c(1:6)]
+hoekstra_synth_6node$pcor <- hoekstra_synth$pcor[c(1:6), c(1:6)]
+
+```
+
+
+
 
 
 
