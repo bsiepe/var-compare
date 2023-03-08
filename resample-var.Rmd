@@ -34,6 +34,7 @@ here::i_am("var-compare.Rproj")
 
 
 seed = 2022
+set.seed(seed)
 ```
 
 
@@ -86,13 +87,25 @@ graph_full$kappa <- as.matrix(Matrix::forceSymmetric(graph_full$kappa))
 
 ```
 
+Chain Graph Hoekstra
+```{r}
+graph_hoekstra_6node <- readRDS(here::here("data/hoekstra_synth_6node.RDS"))
+
+
+```
+
+
+
+
+
 ## Change Graphs
 Now we can change all graphs according to the simulation conditions.
 ```{r change-graphs}
 # Store graphs as list
 l_graphs <- list(graph1 = graph,
                  graph2 = graph_full, 
-                 graph3 = graph_fried)
+                 graph3 = graph_fried,
+                 graph4 = graph_hoekstra_6node)
 
 # Apply change function to every graph
 l_changed_graphs <- lapply(l_graphs, 
@@ -100,11 +113,10 @@ l_changed_graphs <- lapply(l_graphs,
                                             truegraph = x, 
                                             changemax = c(1.4, 1.6),
                                             noise = c(0.1,0.2,0.3),
-                                            permute_index = c(3,5,1,4,6,2),
                                             seed = seed)})
 
-# write_rds(l_changed_graphs, "l_changed_graphs.RDS")
-# write_rds(l_graphs, "l_graphs.RDS")
+write_rds(l_changed_graphs, "data/l_changed_graphs.RDS")
+write_rds(l_graphs, "data/l_graphs.RDS")
 
 ```
 
@@ -118,7 +130,7 @@ Then, generate rawdata from data-generating processes. We create more posterior 
 
 # Simulation conditions
 n_ind <- 100 # number of individuals(so models to create) 
-n_tp <- c(50,100,200,400) # number of timepoints
+n_tp <- c(50,100,200,400, 1000) # number of timepoints
 n_postds <- 120 # number of posterior datasets
 seed <- 2022
 
@@ -170,6 +182,14 @@ for(t in seq_along(n_tp)){
                                     seed = seed,
                                     means = 0,
                                     standardize = TRUE)})
+  l_raw$graph4[[t]] <- lapply(l_changed_graphs$graph4, 
+                                  function(x) {sim_raw_parallel(
+                                    dgp = x, 
+                                    n = n_postds, 
+                                    tp = n_tp[t], 
+                                    seed = seed,
+                                    means = 0,
+                                    standardize = TRUE)})
   
   
 }
@@ -205,6 +225,12 @@ for(t in seq_along(n_tp)){
                                   })
 
   l_raw$graph3[[t]]$permute <- lapply(l_raw$graph3[[t]]$truegraph,
+                                  function(x) {
+                                    x$data <- x$data[,c(1,3,4,2,5,6)]
+                                    x$args$dgp <- "permute134256" 
+                                    x
+                                  })
+  l_raw$graph4[[t]]$permute <- lapply(l_raw$graph4[[t]]$truegraph,
                                   function(x) {
                                     x$data <- x$data[,c(1,3,4,2,5,6)]
                                     x$args$dgp <- "permute134256" 
@@ -247,6 +273,10 @@ for(t in seq_along(n_tp)){
     data = x, n = n_ind, nds = n_postds, rho_prior = rho_sd, beta_prior = beta_sd, seed = seed,
     iterations = n_iter, pruneresults = TRUE, dgp_name = "graph3", save_files = TRUE
   )})
+    lapply(l_raw$graph4[[t]], function(x){fit_var_parallel_merged(
+    data = x, n = n_ind, nds = n_postds, rho_prior = rho_sd, beta_prior = beta_sd, seed = seed,
+    iterations = n_iter, pruneresults = TRUE, dgp_name = "graph4", save_files = TRUE
+  )})
 
 }
 stopCluster(cl)
@@ -260,19 +290,6 @@ after_fitraw <- Sys.time()-before_fitraw
 
 
 # New Approach (25.01.2023): Posterior Comparison without Predictive
-<!-- The idea is to compare distances between matrices in the posterior as a reference distribution, without having to compute any posterior predictives. -->
-
-<!-- First, I add a new change condition: I swap columns in estimated models, e.g. swap variable 1 <-> variable 3 and variable 2 <-> variable 4.  -->
-<!-- ```{r} -->
-<!-- fit_test_new <- lapply(fit_test, function(x){ -->
-<!--   x$beta_mu <- permute_mat_col(x$beta_mu) -->
-<!--   x$pcor_mu <- permute_mat_col(x$pcor_mu, symmetric = TRUE) -->
-<!--   return(x) -->
-<!-- }) -->
-<!-- ``` -->
-
-
-
 
 Compare all models:
 ```{r}
@@ -281,20 +298,20 @@ Compare all models:
 comp_combinations <- expand_grid_unique(mod_a = seq(1, n_ind, 1),
                                  mod_b = seq(1, n_ind, 1))
 # number of data-generating processes
-n_dgp <- 3
+n_dgp <- 4
 # Number of comparison types
 n_c_types <- 3
 
-# Number of different changed graph structures
-n_g_types <- 7
+# Number of different graph structures
+n_g_types <- 8
 
 # Number of different tp conditions
-n_t_types <- 4
+n_t_types <- 5
 
-dgp_names <- c("graph1", "graph2", "graph3")
+dgp_names <- c("graph1", "graph2", "graph3", "graph4")
 
 change_names <- c("truegraph", "change1.2", "change1.4", "change1.6",
-                  "noise0.1", "noise0.2", "noise0.3")
+                  "noise0.1", "noise0.2", "noise0.3", "permute")
 
 comp_names <- c("frob","maxdiff", "l1")
 
@@ -393,7 +410,7 @@ parLapply(cl = cl, 1:nrow(comp_grid), function(n){
     cmp <- as.character(comp_ind$comp[x])
     
     wc_res[[x]] <- list()
-    wc_res[[x]] <- within_compare(mod_a = ma,
+    wc_res[[x]] <- tryCatch({within_compare(mod_a = ma,
                       mod_b = mb,
                       fitpost_a = l_ref,
                       fitpost_b = l_comp,
@@ -402,7 +419,7 @@ parLapply(cl = cl, 1:nrow(comp_grid), function(n){
                       n_datasets = 100,
                       n_draws = 1000,
                       comparison = cmp,
-                      postpred = FALSE)
+                      postpred = FALSE)}, error = function(e) NA)
     # print(paste0("attempt", x))
   })
   
@@ -476,7 +493,7 @@ l_comp_res <- foreach(i = 1:length(file_list)) %dopar% {
   eval_res <- list()
   eval_res <- lapply(comp_res, function(x){
     
-    res <- within_compare_eval(x)
+    res <- within_compare_eval(x, kappa = FALSE)
     res$dgp <- dgp_it
     res$change <- change_it
     res$tp <- tp_it
@@ -556,7 +573,7 @@ dev.off()
 
 ```
 
-Then, try approximating the norm distribution with known densities. 
+Then, try approximating the norm distribution with known densities. This did not really lead anywhere.
 ```{r}
 ref_dist <- l_comp_within[[1]][[3]][[6]][[5]][[1]]$res %>% 
   as.data.frame() %>% 
@@ -575,7 +592,10 @@ no_res <- MASS::fitdistr(ref_dist, densfun = "normal")
 
 
 ### Plotting Posterior Bootstrap approach
-Plot results.
+Plot results. This is still too much code, I will collapse this later so that it iterates over the different DGPs. 
+
+TODO: extend all this to graph 4 as well.
+
 
 #### Power
 n  = 2450. Combinatorics for 50 elements gives 1225, but we have two graphs two draw from, so 2450.
