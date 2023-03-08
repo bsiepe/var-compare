@@ -3,6 +3,71 @@
 
 
 
+# Temporary Server Imports Matrixcalc -------------------------------------
+# package matrixcalc was not installed on the server
+# so I copied source code
+is.square.matrix <- function( x )
+{
+  ###
+  ### determines if the given matrix is a square matrix
+  ###
+  ### arguments
+  ### x = a matrix object
+  ###
+  if ( !is.matrix( x ) )
+    stop( "argument x is not a matrix" )
+  return( nrow(x) == ncol(x) )
+}
+
+is.symmetric.matrix <- function( x )
+{
+  ###
+  ### this function determines if the matrix is symmetric
+  ###
+  ### argument
+  ### x = a numeric matrix object
+  ###
+  if ( !is.matrix( x ) ) {
+    stop( "argument x is not a matrix" )
+  }
+  if ( !is.numeric( x ) ) {
+    stop( "argument x is not a numeric matrix" )
+  }    
+  if ( !is.square.matrix( x ) )
+    stop( "argument x is not a square numeric matrix" )
+  return( sum( x == t(x) ) == ( nrow(x) ^ 2 ) )
+}
+
+is.positive.semi.definite <- function( x, tol=1e-8 )
+{
+  ###
+  ### this function determines if the given real symmetric matrix is positive semi definite
+  ### parameters
+  ### x = a square numeric matrix object
+  ### tol = tolerance level for zero
+  ###
+  if ( !is.square.matrix( x ) )
+    stop( "argument x is not a square matrix" )
+  if ( !is.symmetric.matrix( x ) )
+    stop( "argument x is not a symmetric matrix" )
+  if ( !is.numeric( x ) )
+    stop( "argument x is not a numeric matrix" )
+  eigenvalues <- eigen(x, only.values = TRUE)$values
+  n <- nrow( x )
+  for ( i in 1: n ) {
+    if ( abs( eigenvalues[i] ) < tol ) {
+      eigenvalues[i] <- 0
+    }
+  }    
+  if ( any( eigenvalues < 0 ) ) {
+    return( FALSE )
+  }
+  return( TRUE )
+}
+
+
+
+
 # Change Graph ------------------------------------------------------------
 # Function to change "true graph" according to specified changes of max value
 # and noise
@@ -23,6 +88,7 @@ change_graphs <- function(truegraph = NULL,
                           changemax = NULL,
                           noise,
                           permute_index = NULL,
+                          permute_active = FALSE, # if matrix should be permuted
                           seed = 2022){
   
   set.seed(seed)
@@ -184,17 +250,22 @@ change_graphs <- function(truegraph = NULL,
   
   
   ### Permute matrix
-  l_out_perm <- list()
-  l_out_perm[[1]] <- list()
-  l_out_perm[[1]]$beta <- permute_mat_col(m_beta, permute_index)
-  l_out_perm[[1]]$kappa <- permute_mat_col(m_kappa, permute_index)  
-  l_out_perm[[1]]$args <- "perm"
-  names(l_out_perm) <- "perm"
+  if(isTRUE(permute_active)){
+    l_out_perm <- list()
+    l_out_perm[[1]] <- list()
+    l_out_perm[[1]]$beta <- permute_mat_col(m_beta, permute_index)
+    l_out_perm[[1]]$kappa <- permute_mat_col(m_kappa, permute_index)  
+    l_out_perm[[1]]$args <- "perm"
+    names(l_out_perm) <- "perm"
+    l_out <- c(l_out, l_out_change, l_out_noise, l_out_perm)
+    
+  }
+
   
   
   ### Output
   # Combine truegraph, maxchange, and added noise
-  l_out <- c(l_out, l_out_change, l_out_noise, l_out_perm)
+  l_out <- c(l_out, l_out_change, l_out_noise)
   return(l_out)
   
 }
@@ -329,7 +400,7 @@ sim_raw_parallel <- function(dgp,
 # This is a merge of fit_var_parallel and fit_var_parallel_post into one function
 
 fit_var_parallel_merged <- function(data, 
-                                     n,
+                                     n,         # number of individuals
                                      nds,       # number of datasets
                                      rho_prior, 
                                      beta_prior,
@@ -372,6 +443,14 @@ fit_var_parallel_merged <- function(data,
                                                 iter = iterations,
                                                 progress = FALSE,
                                                 seed = seed)}, error = function(e) NULL)
+        
+        
+        # Delete irrelevant matrices
+        if(is.list(fit_ind)){
+          fit_ind$fit$fisher_z <- NULL
+        }
+        
+        
         if(isTRUE(get_kappa)){
           # check if fitting worked
           if(is.list(fit_ind)){
@@ -395,7 +474,6 @@ fit_var_parallel_merged <- function(data,
           kappa_mu <- fit_ind$kappa_mu
           args <- data[[i]]$args
           fit_ind <- list()
-          # fit_ind$fit <- list()       - this is probably why everything got deleted below!
           fit_ind$beta_mu <- beta_mu
           fit_ind$pcor_mu <- pcor_mu
           fit_ind$kappa_mu <- kappa_mu
@@ -405,6 +483,7 @@ fit_var_parallel_merged <- function(data,
 
         } # end if isTRUE 
         
+        # Select option
         if(isTRUE(select) & is.list(fit_ind)){
           sel <- sim_select(fit_ind)
           if(isTRUE(summarize_post)){
@@ -1962,6 +2041,10 @@ compare_bggm_gvar <- function(fit_bggm,
   l_out$cor_beta <- cor(c(fit_bggm$beta_mu), c(t(fit_gvar$beta[,-1])))
   l_out$cor_pcor <- cor(c(fit_bggm$pcor_mu), c(fit_gvar$PCC))
   
+  # Absolute differences
+  l_out$diff_beta <- mean(abs(fit_bggm$beta_mu - t(fit_gvar$beta[,-1])))
+  l_out$diff_pcor <- mean(abs(fit_bggm$pcor_mu - fit_gvar$PCC))
+  
   return(l_out)
   
 }
@@ -2377,6 +2460,178 @@ eval_gvar <- function(fit,
 
 
 
+
+
+
+# -------------------------------------------------------------------------
+# Empirical Example -------------------------------------------------------
+# -------------------------------------------------------------------------
+
+
+
+# Compare VAR -------------------------------------------------------------
+compare_var <- function(fit_a, 
+                        fit_b, 
+                        cutoff = 5,           # percentage level of test
+                        dec_rule = "OR",
+                        n_draws = 1000,
+                        comp = "frob",
+                        return_all = FALSE){  # return all distributions?
+  
+  require(magrittr)
+  
+  ## Create reference distributions for both models
+  ref_a <- post_distance_within(fit_a, comp = comp, pred = FALSE, draws = n_draws)
+  ref_b <- post_distance_within(fit_b, comp = comp, pred = FALSE, draws = n_draws)
+  
+  ## Empirical distance
+  # Compute empirical distance as test statistic
+  if(comp == "frob"){
+    normtype = "F"
+    # Compute Distance of empirical betas between a and b
+    emp_beta <- tryCatch(norm(fit_a$beta_mu - fit_b$beta_mu, type = normtype), error = function(e) {NA})
+    
+    # Compute Distance of empirical pcors between a and b
+    emp_pcor <- tryCatch(norm(fit_a$pcor_mu - fit_b$pcor_mu, type = normtype), error = function(e) {NA})
+    
+  }
+  
+  if(comp == "maxdiff"){
+    # Compute maxdiff of empirical betas between a and b
+    emp_beta <- tryCatch(max(abs(fit_a$beta_mu - fit_b$beta_mu)), error = function(e) {NA})
+    
+    # Compute maxdiff of empirical pcors between a and b
+    emp_pcor <- tryCatch(max(abs(fit_a$pcor_mu - fit_b$pcor_mu)), error = function(e) {NA})
+    
+  }
+  
+  if(comp == "l1"){
+    # Compute l1 of empirical betas between a and b
+    emp_beta <- tryCatch(sum(abs(fit_a$beta_mu - fit_b$beta_mu)), error = function(e) {NA})
+    
+    # Compute l1 of empirical pcors between a and b
+    emp_pcor <- tryCatch(sum(abs(fit_a$pcor_mu - fit_b$pcor_mu)), error = function(e) {NA})
+    
+  }
+  ## Combine results
+  res_beta <- data.frame(null = c(unlist(ref_a[["beta"]]), unlist(ref_b[["beta"]])),
+                         mod = c(rep("mod_a", n_draws), rep("mod_b", n_draws)),
+                         emp = rep(emp_beta, n_draws*2),
+                         comp = rep(comp, n_draws*2))
+  
+  
+  res_pcor <- data.frame(null = c(unlist(ref_a[["pcor"]]), unlist(ref_b[["pcor"]])),
+                         mod = c(rep("mod_a", n_draws), rep("mod_b", n_draws)),
+                         emp = rep(emp_pcor, n_draws*2),
+                         comp = rep(comp, n_draws*2))
+  
+  ## Implement decision rule "OR"
+  if(dec_rule == "OR"){
+    suppressWarnings(sig_beta <- res_beta %>% 
+                       dplyr::group_by(mod) %>% 
+                       dplyr::summarize(sum_larger = sum(null > emp)) %>% 
+                       dplyr::summarize(sig = ifelse(sum_larger < cutoff * (n_draws/100), 1, 0)) %>% 
+                       dplyr::summarize(sig_decision = sum(sig)) %>% 
+                       dplyr::pull(sig_decision))
+    
+    suppressWarnings(larger_beta <- res_beta %>% 
+                       dplyr::group_by(mod) %>% 
+                       dplyr::summarize(sum_larger = sum(null > emp))) %>% 
+      dplyr::pull(sum_larger)
+    
+    suppressWarnings(sig_pcor <- res_pcor %>% 
+                       dplyr::group_by(mod) %>% 
+                       dplyr::summarize(sum_larger = sum(null > emp)) %>% 
+                       dplyr::summarize(sig = ifelse(sum_larger < cutoff * (n_draws/100), 1, 0)) %>% 
+                       dplyr::summarize(sig_decision = sum(sig)) %>% 
+                       dplyr::pull(sig_decision))
+    
+    suppressWarnings(larger_pcor<- res_pcor %>% 
+                       dplyr::group_by(mod) %>% 
+                       dplyr::summarize(sum_larger = sum(null > emp))) %>% 
+      dplyr::pull(sum_larger)
+    
+    
+  }
+  
+  # sig_beta <- as.numeric(sig_beta)
+  # larger_beta <- as.numeric(larger_beta)
+  # sig_pcor <- as.numeric(sig_pcor)
+  # larger_pcor <- as.numeric(larger_pcor)
+  
+  
+  if(!return_all){
+    l_res <- list(sig_beta = sig_beta,
+                  sig_pcor = sig_pcor,
+                  # res_beta = res_beta,
+                  # res_pcor = res_pcor,
+                  emp_beta = emp_beta,
+                  emp_pcor = emp_pcor,
+                  larger_beta = larger_beta,
+                  larger_pcor = larger_pcor)
+    
+  }
+  if(isTRUE(return_all)){
+    l_res <- list(sig_beta = sig_beta,
+                  sig_pcor = sig_pcor,
+                  res_beta = res_beta,
+                  res_pcor = res_pcor,
+                  emp_beta = emp_beta,
+                  emp_pcor = emp_pcor,
+                  larger_beta = larger_beta,
+                  larger_pcor = larger_pcor)
+    
+  }
+  
+  
+  
+  return(l_res)
+  
+  
+  
+}
+
+# Plotting method
+# THIS IS ONLY TEMPORARY!!!!!
+plot.compare_var <- function(compres,
+                             ...){
+  require(ggplot2)
+  require(cowplot)
+  # create df
+  # dat <- rbind(compres$res_beta, compres$res_pcor)
+  
+  
+  
+  # Plotting
+  plt_beta <- ggplot(compres$res_beta, 
+                     aes(x = null, fill = mod))+
+    geom_density(alpha = .7)+
+    theme_classic()+
+    ggokabeito::scale_fill_okabe_ito()+
+    geom_vline(aes(xintercept = compres$emp_beta), 
+               col = "red", lty = 1, linewidth = .75)+
+    labs(title = "Temporal")
+  
+  plt_pcor <- ggplot(compres$res_pcor, 
+                     aes(x = null, fill = mod))+
+    geom_density(alpha = .7)+
+    theme_classic()+
+    ggokabeito::scale_fill_okabe_ito()+
+    geom_vline(aes(xintercept = compres$emp_pcor), 
+               col = "red", lty = 1, linewidth = .75)+
+    labs(title = "Contemporaneous")
+  
+  leg <- get_legend(plt_beta)
+  
+  # Plot
+  plt_tmp <- cowplot::plot_grid(plt_beta + theme(legend.position = "none"),
+                                plt_pcor + theme(legend.position = "none"))
+  
+  # Add legend
+  plt <- plot_grid(plt_tmp, leg, rel_widths = c(3, .4))
+  plt
+  
+}
 
 
 
