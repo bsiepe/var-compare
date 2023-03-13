@@ -2221,10 +2221,12 @@ fit_graphicalvar_parallel <- function(data,
 # Evaluate BGGM Simulation ------------------------------------------------
 bias <- function(e,t){
   b <- mean(abs(e - t), na.rm = TRUE)
+  return(b)
 }
 
 rmse <- function(e,t){
-  r <- sqrt(mean((t - e)^2), na.rm = TRUE)
+  r <- sqrt(mean((t - e)^2, na.rm = TRUE))
+  return(r)
 }
 
 
