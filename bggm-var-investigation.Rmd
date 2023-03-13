@@ -109,6 +109,15 @@ for(t in seq_along(n_tp)){
                                     seed = seed,
                                     means = 0,
                                     standardize = TRUE)})
+  l_raw$graph4[[t]] <- lapply(l_changed_graphs$graph4, 
+                                  function(x) {sim_raw_parallel(
+                                    dgp = x, 
+                                    n = n_postds, 
+                                    tp = n_tp[t], 
+                                    seed = seed,
+                                    means = 0,
+                                    standardize = TRUE)})
+  
   
   
 }
@@ -130,8 +139,8 @@ saveRDS(l_raw, file = here::here("data/l_raw1000.RDS"))
 Estimate both graphicalVAR in default settings as well as BGGM with varying priors.
 ```{r}
 # Priors
-dgp_names <- c("graph1", "graph2", "graph3")
-dgp <- c(1,2,3)
+dgp_names <- c("graph1", "graph2", "graph3", "graph4")
+dgp <- c(1,2,3,4)
 rho_sd <- c(0.1, 0.3, 0.5)
 beta_sd <- c(0.2, 0.5, 1)
 n_tp <- c(50, 100, 200, 400, 1000) 
@@ -169,9 +178,10 @@ for(n in 1:nrow(cond_grid)) {
                           rho_prior = r_sd,
                           beta_prior = b_sd,
                           iterations = n_iter,
-                          n = 100,
-                          nds = 100,
+                          n = 1000,
+                          nds = 1000,
                           seed = seed,
+                          get_kappa = FALSE, 
                           summarize_post = TRUE,
                           cred_int = c(0.9, 0.95, 0.99),
                           pruneresults = FALSE,
@@ -199,12 +209,9 @@ for(m in 1:nrow(cond_grid)){
 ### Fit graphicalVAR
 ```{r}
 # Conditions of varying sparsity
-dgp_names <- c("graph1", "graph2", "graph3")
-dgp <- c(1,2,3)
 gamma_ebic <- c(0, 0.5)      # EBIC hyperparamater
 lambda <- c(NA, 0)
-n_tp <- c(50, 100, 200, 400, 1000) 
-tp_cond <- c(1,2,3,4,5)   # different tp conditions
+
 
 cond_grid_gvar <- expand.grid(dgp = dgp,
                          n_tp = tp_cond,
@@ -230,7 +237,7 @@ for(n in 1:nrow(cond_grid)) {
   # unregularized
   if(!is.na(lambda)){
    l_res_gvar[[n]]  <- fit_graphicalvar_parallel(l_dgp[[dgp_ind]][[tp_ind]],
-                                                  n = 100,
+                                                  n = 1000,
                                                   gamma = gamma_ebic,
                                                   nLambda = 50, 
                                                   pruneresults = TRUE, 
@@ -241,7 +248,7 @@ for(n in 1:nrow(cond_grid)) {
   # regularized
   if(is.na(lambda)){
    l_res_gvar[[n]]  <- fit_graphicalvar_parallel(l_dgp[[dgp_ind]][[tp_ind]],
-                                                 n = 100,
+                                                 n = 1000,
                                                  gamma = gamma_ebic,
                                                  nLambda = 50, 
                                                  pruneresults = TRUE)
@@ -340,10 +347,10 @@ ggsave(here::here("figures/plot_eval_bggm.svg"), plot_eval_bggm, device = "svg",
 
 ### Evaluate GVAR
 ```{r}
-l_eval_gvar <- lapply(l_res_gvar, function(x){
-  res <- lapply(x, eval_gvar)
-  return(res)
-})
+# l_eval_gvar <- lapply(l_res_gvar, function(x){
+#   res <- lapply(x, eval_gvar)
+#   return(res)
+# })
 
 l_eval_gvar <- list()
 for(i in 1:nrow(cond_grid_gvar)){
@@ -452,6 +459,51 @@ df_cor_grid  <- df_cor_full %>%
 ggsave("df_cor_grid.svg", df_cor_grid, height = 5, width = 25, path = here::here("figures/"),
        device = "svg")
 
+
+```
+
+
+
+
+
+
+## Average model across simulation fits
+Find averaged model across 1000 iterations in one condition. 
+```{r}
+
+# BGGM
+pcor_list <- lapply(fit_bggm[[131]], function(x)
+  return(x$pcor_mu))
+
+pcor_bggm <- apply(simplify2array(pcor_list), 1:2, mean)
+diag(pcor_bggm) <- rep(0, 6)
+options(scipen = 10)
+pcor_bggm
+
+beta_list <- lapply(fit_bggm[[131]], function(x)
+  return(x$beta_mu))
+
+bb <- apply(simplify2array(beta_list), 1:2, mean)
+
+
+# gVAR
+
+
+PCC_gvar_list <- lapply(fit_gvar[[26]], function(x)
+  return(x$PCC))
+
+apply(simplify2array(PCC_gvar_list), 1:2, mean)
+
+beta_gvar_list <- lapply(fit_gvar[[26]], function(x)
+  return(t(x$beta[,-1])))
+
+bg <- apply(simplify2array(beta_gvar_list), 1:2, mean)
+
+bb-bg
+
+l_graphs$graph1$beta-bb
+l_graphs$graph2$beta-bb
+l_graphs$graph3$beta-bb
 
 ```
 
