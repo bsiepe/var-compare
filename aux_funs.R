@@ -406,7 +406,7 @@ fit_var_parallel_merged <- function(data,
                                      beta_prior,
                                      seed,
                                      iterations,
-                                     get_kappa = TRUE,
+                                     get_kappa = FALSE,
                                      posteriorsamples = FALSE,
                                      multigroup = FALSE,
                                      pruneresults = FALSE, 
@@ -471,12 +471,12 @@ fit_var_parallel_merged <- function(data,
           # kappa <- fit_ind$fit$kappa
           beta_mu <- fit_ind$beta_mu 
           pcor_mu <- fit_ind$pcor_mu
-          kappa_mu <- fit_ind$kappa_mu
+          # kappa_mu <- fit_ind$kappa_mu
           args <- data[[i]]$args
           fit_ind <- list()
           fit_ind$beta_mu <- beta_mu
           fit_ind$pcor_mu <- pcor_mu
-          fit_ind$kappa_mu <- kappa_mu
+          fit_ind$kappa_mu <- NA
           fit_ind$args <- args
           # fit_ind$fit$beta <- beta
           # fit_ind$fit$kappa <- kappa
@@ -502,13 +502,13 @@ fit_var_parallel_merged <- function(data,
         if(isFALSE(select) & isTRUE(summarize_post) & is.list(fit_ind)){
           beta_mu <- fit_ind$beta_mu 
           pcor_mu <- fit_ind$pcor_mu
-          kappa_mu <- fit_ind$kappa_mu
+          # kappa_mu <- fit_ind$kappa_mu
           args <- data[[i]]$args
           cred_interval <- summarize_post(fit_ind, cred = cred_int)
           fit_ind <- list()
           fit_ind$beta_mu <- beta_mu
           fit_ind$pcor_mu <- pcor_mu
-          fit_ind$kappa_mu <- kappa_mu
+          fit_ind$kappa_mu <- NA
           fit_ind$cred_interval <- cred_interval
           fit_ind$args <- args
           
@@ -1898,10 +1898,22 @@ cross_compare_eval <- function(l_res){
 
 
 # Evaluate Within-Comparison ----------------------------------------------
-# Change 07.02.:  deleted $res, no longer necessary. also changed model_ind == to mod == , which fixes errors when both model indicators are identical
 within_compare_eval <- function(l_res,
                                 pcor = TRUE,
                                 kappa = TRUE){
+  
+  # if input is not a list, i.e. did not converge
+  if(!is.list(l_res)){
+    wcompres <- list(beta_a = NA,
+                     beta_b = NA,
+                     pcor_a = NA,
+                     pcor_b = NA,
+                     mod_a = NA, 
+                     mod_b = NA,
+                     comp = NA)
+    return(wcompres)
+  }
+  
   ### Betas
   df_res <- as.data.frame(l_res)
   df_res_beta <- subset(df_res, mat == "beta")
@@ -1933,18 +1945,18 @@ within_compare_eval <- function(l_res,
     
   }
   
-  if(isTRUE(kappa)){
-    ### kappa
-    df_res_kappa <- subset(df_res, mat == "kappa")
-    # # Obtain model indexes
-    # "mod_a" <- unique(df_res_kappa$mod)[1]
-    # "mod_b" <- unique(df_res_kappa$mod)[2]
-    
-    # Number of posterior difference > empirical difference
-    teststat_a_kappa <- sum(df_res_kappa$null[df_res_kappa$mod == "mod_a"] > df_res_kappa$emp[df_res_kappa$mod == "mod_a"], na.rm = TRUE)
-    teststat_b_kappa <- sum(df_res_kappa$null[df_res_kappa$mod == "mod_b"] > df_res_kappa$emp[df_res_kappa$mod == "mod_b"], na.rm = TRUE)
-    
-  }
+  # if(isTRUE(kappa)){
+  #   ### kappa
+  #   df_res_kappa <- subset(df_res, mat == "kappa")
+  #   # # Obtain model indexes
+  #   # "mod_a" <- unique(df_res_kappa$mod)[1]
+  #   # "mod_b" <- unique(df_res_kappa$mod)[2]
+  #   
+  #   # Number of posterior difference > empirical difference
+  #   teststat_a_kappa <- sum(df_res_kappa$null[df_res_kappa$mod == "mod_a"] > df_res_kappa$emp[df_res_kappa$mod == "mod_a"], na.rm = TRUE)
+  #   teststat_b_kappa <- sum(df_res_kappa$null[df_res_kappa$mod == "mod_b"] > df_res_kappa$emp[df_res_kappa$mod == "mod_b"], na.rm = TRUE)
+  #   
+  # }
 
   
   
@@ -1953,8 +1965,8 @@ within_compare_eval <- function(l_res,
                    beta_b = teststat_b_beta,
                    pcor_a = teststat_a_pcor,
                    pcor_b = teststat_b_pcor,
-                   kappa_a = teststat_a_kappa, 
-                   kappa_b = teststat_b_kappa,
+                   # kappa_a = teststat_a_kappa, 
+                   # kappa_b = teststat_b_kappa,
                    mod_a = model_ind_a, 
                    mod_b = model_ind_b,
                    comp = df_res_beta$comp[[1]]) # get type of comparison
@@ -2035,9 +2047,11 @@ compare_dgp <- function(true,
 # Correlation with zero check ---------------------------------------------
 # Inspired by Mansueto et al. 2021
 cor_zero <- function(x,y){
-  if(sd(x)==0 | sd(y) == 0){
+  if(sd(x)==0 & sd(y) == 0){
+    co <- 1
+  } else if(sd(x)==0 | sd(y) == 0){
     co <- 0
-  } else {
+  }  else {
     co <- cor(x, y)
   }
   co
@@ -2057,7 +2071,7 @@ compare_bggm_gvar <- function(fit_bggm,
                                                 diag = FALSE)])
   
   beta_sel_bggm_vec <- c(fit_bggm$beta_weighted_adj)
-  pcor_sel_bggm_vec <- c(fit_bggm$beta_weighted_adj[upper.tri(fit_bggm$beta_weighted_adj,
+  pcor_sel_bggm_vec <- c(fit_bggm$pcor_weighted_adj[upper.tri(fit_bggm$pcor_weighted_adj,
                                                               diag = FALSE)])
   
   beta_gvar_vec <- c(t(fit_gvar$beta[,-1]))
