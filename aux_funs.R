@@ -2030,6 +2030,20 @@ compare_dgp <- function(true,
 
 
 
+
+
+# Correlation with zero check ---------------------------------------------
+# Inspired by Mansueto et al. 2021
+cor_zero <- function(x,y){
+  if(sd(x)==0 | sd(y) == 0){
+    co <- 0
+  } else {
+    co <- cor(x, y)
+  }
+  co
+}
+
+
 # Compare BGGM GVAR -------------------------------------------------------
 # Function to compare BGGM and GVAR fitting results per simulation 
 compare_bggm_gvar <- function(fit_bggm,
@@ -2037,9 +2051,26 @@ compare_bggm_gvar <- function(fit_bggm,
   # Output
   l_out <- list()
   
-  # Compute correlation
-  l_out$cor_beta <- cor(c(fit_bggm$beta_mu), c(t(fit_gvar$beta[,-1])))
-  l_out$cor_pcor <- cor(c(fit_bggm$pcor_mu), c(fit_gvar$PCC))
+  # Create vectors
+  beta_bggm_vec <- c(fit_bggm$beta_mu)
+  pcor_bggm_vec <- c(fit_bggm$pcor_mu[upper.tri(fit_bggm$pcor_mu,
+                                                diag = FALSE)])
+  
+  beta_sel_bggm_vec <- c(fit_bggm$beta_weighted_adj)
+  pcor_sel_bggm_vec <- c(fit_bggm$beta_weighted_adj[upper.tri(fit_bggm$beta_weighted_adj,
+                                                              diag = FALSE)])
+  
+  beta_gvar_vec <- c(t(fit_gvar$beta[,-1]))
+  pcor_gvar_vec <- c(fit_gvar$PCC[upper.tri(fit_gvar$PCC, diag = FALSE)])
+  
+  # Compute correlation without selection
+  l_out$cor_beta <- cor_zero(beta_bggm_vec, beta_gvar_vec)
+  l_out$cor_pcor <- cor_zero(pcor_bggm_vec, pcor_gvar_vec)
+  
+  # Compute correlation with selection
+  l_out$cor_beta_sel <- cor_zero(beta_sel_bggm_vec, beta_gvar_vec)
+  l_out$cor_pcor_sel <- cor_zero(pcor_sel_bggm_vec, pcor_gvar_vec)
+  
   
   # Absolute differences
   l_out$diff_beta <- mean(abs(fit_bggm$beta_mu - t(fit_gvar$beta[,-1])))
@@ -2258,10 +2289,19 @@ eval_bggm <- function(fit,
   pcor_true <- -1*stats::cov2cor(kappa_true)
   
   
+  # Vectors for correlations
+  beta_true_vec <- c(beta_true)
+  pcor_true_vec <- c(pcor_true[upper.tri(pcor_true, diag = FALSE)])
+  
+  
   #--- Nonselect Method ---#
   # Point estimates
   beta_est <- fit$beta_mu
   pcor_est <- fit$pcor_mu
+  
+  # Vectors for correlations
+  beta_est_vec <- c(beta_est)
+  pcor_est_vec <- pcor_est[upper.tri(pcor_est, diag = FALSE)]
   
   
   # Compute Bias
@@ -2274,8 +2314,8 @@ eval_bggm <- function(fit,
   
   # Correlations
   # TODO should I do it like this? just ignore matrix structure?
-  l_out$cor_beta <- cor(c(beta_est), c(beta_true))
-  l_out$cor_pcor <- cor(c(pcor_est), c(pcor_true))
+  l_out$cor_beta <- cor_zero(beta_est_vec, beta_true_vec)
+  l_out$cor_pcor <- cor_zero(pcor_est_vec, pcor_true_vec)
   
   
   
@@ -2287,6 +2327,14 @@ eval_bggm <- function(fit,
   # Obtain estimates with selection
   beta_est_sel <- fit$beta_weighted_adj
   pcor_est_sel <- fit$pcor_weighted_adj
+  
+  # Vectors for correlations
+  beta_est_sel_vec <- c(beta_est_sel)
+  pcor_est_sel_vec <- c(pcor_est_sel[upper.tri(pcor_est_sel, diag = FALSE)])
+  
+  # Correlations
+  l_out$cor_beta_sel <- cor_zero(beta_est_sel_vec, beta_true_vec)
+  l_out$cor_pcor_sel <- cor_zero(pcor_est_sel_vec, pcor_true_vec)
   
   ## Bias
   l_out$bias_beta_sel <- bias(beta_est_sel, beta_true)
@@ -2399,14 +2447,20 @@ eval_gvar <- function(fit,
   kappa_true <- true_graph$kappa
   
   # Calculate PCOR 
-  # TODO doublecheck this
   pcor_true <- -1*stats::cov2cor(kappa_true)
   
+  # Vectors for correlations
+  beta_true_vec <- c(beta_true)
+  pcor_true_vec <- c(pcor_true[upper.tri(pcor_true, diag = FALSE)])
   
   #--- Nonselect Method ---#
   # Point estimates
   beta_est <- t(fit$beta[,-1])
   pcor_est <- fit$PCC
+  
+  # Vectors for correlations
+  beta_est_vec <- c(beta_est)
+  pcor_est_vec <- c(pcor_est[upper.tri(pcor_est, diag = FALSE)])
   
   
   # Compute Bias
@@ -2418,12 +2472,10 @@ eval_gvar <- function(fit,
   l_out$rmse_pcor <- rmse(pcor_est, pcor_true)
   
   # Correlations
-  # TODO should I do it like this? just ignore matrix structure?
-  l_out$cor_beta <- cor(c(beta_est), c(beta_true))
-  l_out$cor_pcor <- cor(c(pcor_est), c(pcor_true))
+  # add conditions for very sparse matrices
+  l_out$cor_beta <- cor_zero(beta_est_vec, beta_true_vec)
+  l_out$cor_pcor <- cor_zero(pcor_est_vec, pcor_true_vec)
   
-
-
   
   ## True/False Positive/Negative
   # TP
