@@ -2294,8 +2294,9 @@ eval_bggm <- function(fit,
   
   
   ## Find corresponding true graph
+  # transposing bc we use graphicalVARsim
   true_graph <- dgp_list[[l_out$dgp_ind]]
-  beta_true <- true_graph$beta
+  beta_true <- t(true_graph$beta)
   kappa_true <- true_graph$kappa
   
   # Calculate PCOR 
@@ -2456,8 +2457,9 @@ eval_gvar <- function(fit,
   
   
   ## Find corresponding true graph
+  # transposing because we use graphicalVARsim
   true_graph <- dgp_list[[l_out$dgp_ind]]
-  beta_true <- true_graph$beta
+  beta_true <- t(true_graph$beta)
   kappa_true <- true_graph$kappa
   
   # Calculate PCOR 
