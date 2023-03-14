@@ -17,7 +17,11 @@ library(parallel)
 library(foreach)
 library(BGGM)
 library(graphicalVAR)
+library(cowplot)
 source("aux_funs.R")
+
+seed = 2022
+set.seed(seed)
 ```
 
 
@@ -82,41 +86,33 @@ l_raw <- list()
 l_raw$graph3 <- l_raw$graph2 <- l_raw$graph1 <-  list()
 for(t in seq_along(n_tp)){
   l_raw$graph1[[t]] <- list()
-  l_raw$graph1[[t]] <- lapply(l_changed_graphs$graph1,
-                                  function(x) {sim_raw_parallel(
-                                    dgp = x,
+  l_raw$graph1[[t]] <- sim_raw_parallel(dgp = l_graphs$graph1,
                                     n = n_postds,
                                     tp = n_tp[t],
                                     seed = seed,
                                     means = 0,
-                                    standardize = TRUE)})
+                                    standardize = TRUE)
 
   l_raw$graph2[[t]] <- list()
-  l_raw$graph2[[t]] <- lapply(l_changed_graphs$graph1,
-                                  function(x) {sim_raw_parallel(
-                                    dgp = x,
+  l_raw$graph2[[t]] <- sim_raw_parallel(dgp = l_graphs$graph2,
                                     n = n_postds,
                                     tp = n_tp[t],
                                     seed = seed,
                                     means = 0,
-                                    standardize = TRUE)})
+                                    standardize = TRUE)
   l_raw$graph3[[t]] <- list()
-  l_raw$graph3[[t]] <- lapply(l_changed_graphs$graph3, 
-                                  function(x) {sim_raw_parallel(
-                                    dgp = x, 
-                                    n = n_postds, 
-                                    tp = n_tp[t], 
+  l_raw$graph3[[t]] <- sim_raw_parallel(dgp = l_graphs$graph3,
+                                    n = n_postds,
+                                    tp = n_tp[t],
                                     seed = seed,
                                     means = 0,
-                                    standardize = TRUE)})
-  l_raw$graph4[[t]] <- lapply(l_changed_graphs$graph4, 
-                                  function(x) {sim_raw_parallel(
-                                    dgp = x, 
-                                    n = n_postds, 
-                                    tp = n_tp[t], 
+                                    standardize = TRUE)
+  l_raw$graph4[[t]] <- sim_raw_parallel(dgp = l_graphs$graph4,
+                                    n = n_postds,
+                                    tp = n_tp[t],
                                     seed = seed,
                                     means = 0,
-                                    standardize = TRUE)})
+                                    standardize = TRUE)
   
   
   
@@ -125,7 +121,7 @@ for(t in seq_along(n_tp)){
 stopCluster(cl)
 
 
-saveRDS(l_raw, file = here::here("data/l_raw1000.RDS"))
+# saveRDS(l_raw, file = here::here("data/l_raw1000.RDS"))
 
 
 
@@ -158,7 +154,7 @@ set.seed(seed)
 
 # Estimating for each model 
 # store BGGM results under "nonselect"
-ncores = parallel::detectCores() - 2
+ncores = 60
 cl = makeCluster(ncores)
 clusterExport(cl = cl, "summarize_post")
 registerDoParallel(cl)
@@ -174,7 +170,7 @@ for(n in 1:nrow(cond_grid)) {
   r_sd <- as.numeric(cond_grid[n, "rho_prior"])
   b_sd <- as.numeric(cond_grid[n, "beta_prior"])
   print(paste0(nrow(cond_grid)-n, " to go!"))
-  l_res[[n]]  <- fit_var_parallel_merged(l_dgp[[dgp_ind]][[tp_ind]],
+  l_res[[n]]  <- fit_var_parallel_merged(l_raw[[dgp_ind]][[tp_ind]],
                           rho_prior = r_sd,
                           beta_prior = b_sd,
                           iterations = n_iter,
@@ -194,10 +190,11 @@ for(n in 1:nrow(cond_grid)) {
 }
 stopCluster(cl)
 
-# saveRDS(l_res, here::here("output/bggm-var-sim-res.Rds"))
-l_res_bggm <- readRDS(here::here("output/bggm-var-sim-res.Rds"))
+# saveRDS(l_res_bggm, here::here("output/bggm-var-sim-res_1203.Rds"))
+l_res_bggm <- readRDS(here::here("output/bggm-var-sim-res_1203.Rds"))
 
-
+l_res_bggm <- l_res
+rm(l_res)
 # Attach the simulation conditions
 for(m in 1:nrow(cond_grid)){
   for(i in 1:length(l_res_bggm[[m]])){
@@ -209,7 +206,7 @@ for(m in 1:nrow(cond_grid)){
 ### Fit graphicalVAR
 ```{r}
 # Conditions of varying sparsity
-gamma_ebic <- c(0, 0.5)      # EBIC hyperparamater
+gamma_ebic <- c(0, 0.5)      # EBIC hyperparameter
 lambda <- c(NA, 0)
 
 
@@ -221,13 +218,13 @@ cond_grid_gvar <- expand.grid(dgp = dgp,
 
 
 
-ncores = parallel::detectCores() - 2
+ncores = parallel::detectCores() - 4
 cl = makeCluster(ncores)
 clusterExport(cl = cl, "fit_graphicalvar_parallel")
 registerDoParallel(cl)
 l_res_gvar <- list()
 time_before_gvar <- Sys.time()
-for(n in 1:nrow(cond_grid)) {
+for(n in 1:nrow(cond_grid_gvar)) {
   dgp_ind <- as.numeric(cond_grid_gvar[n, "dgp"])
   tp_ind <- as.numeric(cond_grid_gvar[n, "n_tp"])
   gamma_ebic <- as.numeric(cond_grid_gvar[n, "gamma_ebic"])
@@ -236,7 +233,7 @@ for(n in 1:nrow(cond_grid)) {
   
   # unregularized
   if(!is.na(lambda)){
-   l_res_gvar[[n]]  <- fit_graphicalvar_parallel(l_dgp[[dgp_ind]][[tp_ind]],
+   l_res_gvar[[n]]  <- fit_graphicalvar_parallel(l_raw[[dgp_ind]][[tp_ind]],
                                                   n = 1000,
                                                   gamma = gamma_ebic,
                                                   nLambda = 50, 
@@ -247,7 +244,7 @@ for(n in 1:nrow(cond_grid)) {
   }
   # regularized
   if(is.na(lambda)){
-   l_res_gvar[[n]]  <- fit_graphicalvar_parallel(l_dgp[[dgp_ind]][[tp_ind]],
+   l_res_gvar[[n]]  <- fit_graphicalvar_parallel(l_raw[[dgp_ind]][[tp_ind]],
                                                  n = 1000,
                                                  gamma = gamma_ebic,
                                                  nLambda = 50, 
@@ -261,8 +258,8 @@ for(n in 1:nrow(cond_grid)) {
 stopCluster(cl)
 
 time_after_gvar <- Sys.time() - time_before_gvar
-# saveRDS(l_res_gvar, here::here("output/graphicalvar-sim-res.Rds"))
-l_res_gvar <- readRDS(here::here("output/graphicalvar-sim-res.Rds"))
+# saveRDS(l_res_gvar, here::here("output/graphicalvar-sim-res_1203.Rds"))
+l_res_gvar <- readRDS(here::here("output/graphicalvar-sim-res_1203.Rds"))
 
 
  
@@ -273,8 +270,10 @@ for(m in 1:nrow(cond_grid_gvar)){
   }
 }
     
+# Delete rows that were accidentally created (looping over rows of cond_grid
+# instead of cond_grid_gvar)
 
-
+# l_res_gvar <- l_res_gvar[1:nrow(cond_grid_gvar)]
 
 
 
@@ -286,36 +285,56 @@ for(m in 1:nrow(cond_grid_gvar)){
 ## Evaluation
 Evaluate both with and without graph selection.
 
-Evaluation function
+
 ```{r}
-# TODO be very careful about transposing beta here or not!!!!
-
-```
-
-
-
-
-### Evaluate BGGM
-```{r}
-
-
+## BGGM
 l_eval_bggm <- lapply(l_res_bggm, function(x){
   res <- lapply(x, eval_bggm)
   return(res)
 })
-
-# Convert to dataframe
-# df_test <- purrr::map_depth(test_eval, 3, ~if (is.data.frame(.)) as_tibble(.) else (.))
 df_eval_bggm <- purrr::flatten(l_eval_bggm)
 df_eval_bggm <- dplyr::bind_rows(df_eval_bggm)
-names(df_eval_bggm) <- gsub("ci", "", names(df_eval_bggm))
-names(df_eval_bggm) <- gsub("\\$", "", names(df_eval_bggm))
-
 # Pivot CIs wider
 df_eval_bggm_wide <- df_eval_bggm %>% 
   tidyr::unpack(cols = ci) %>% 
   pivot_wider(names_from = ci, values_from = c(sum_cover_beta, sum_cover_pcor,
                                                width_beta, width_pcor))
+rm(df_eval_bggm)
+rm(l_eval_bggm)
+
+## GVAR
+l_eval_gvar <- list()
+for(i in 1:nrow(cond_grid_gvar)){
+  l_eval_gvar[[i]] <- lapply(l_res_gvar[[i]], eval_gvar)
+}
+
+# Convert to dataframe
+df_eval_gvar <- purrr::flatten(l_eval_gvar)
+df_eval_gvar <- dplyr::bind_rows(df_eval_gvar)
+rm(l_eval_gvar)
+
+```
+
+
+#### Plot BGGM
+```{r}
+df_eval_bggm_summary <- df_eval_bggm %>% 
+  group_by(dgp_ind, tp_ind, rho_prior, beta_prior) %>% 
+  # convert coverage into proportion
+  mutate(across(contains("sum_cover_beta"),
+                ~ ./36)) %>% 
+  # divide by number of unique off-diagonal elements
+  mutate(across(contains("sum_cover_pcor"),
+                ~ ./15)) %>% 
+  summarize(across(c(bias_beta, bias_pcor, cor_beta, cor_pcor, 
+                   bias_beta_sel, bias_pcor_sel, cor_beta_sel,                                    cor_pcor_sel, spec_beta, spec_pcor,
+                   sens_beta, sens_pcor, contains("sum_cover")), 
+                   .fns = list(mean = mean, 
+                               sd = sd,
+                               se = ~ sd / sqrt(sum(!is.na(.x))), 
+                               lower = ~ mean - 1.96*se, 
+                               upper = ~ mean + 1.96*se, 
+                               median = ~ median(.x, na.rm = TRUE))))
 
 
 plot_eval_bggm <- df_eval_bggm_wide %>% 
@@ -327,47 +346,29 @@ plot_eval_bggm <- df_eval_bggm_wide %>%
   mutate(across(contains("sum_cover_pcor"),
                 ~ ./15)) %>% 
   summarize(across(c(bias_beta, bias_pcor, cor_beta, cor_pcor, 
-                   bias_beta_sel,bias_pcor_sel, spec_beta, spec_pcor,
+                   bias_beta_sel, bias_pcor_sel, cor_beta_sel,                              cor_pcor_sel, spec_beta, spec_pcor,
                    sens_beta, sens_pcor, contains("sum_cover")), 
                    ~mean(.))) %>% 
   pivot_longer(cols = c(bias_beta, bias_pcor, cor_beta, cor_pcor, 
-                   bias_beta_sel, bias_pcor_sel, spec_beta, spec_pcor,
+                   bias_beta_sel, bias_pcor_sel, cor_beta_sel,                              cor_pcor_sel, spec_beta, spec_pcor,
                    sens_beta, sens_pcor, contains("sum_cover")), names_to = "stat", 
                values_to = "value") %>% 
   mutate(prior_comb = paste0("rho = ", rho_prior, ", beta = ", beta_prior)) %>% 
+  ungroup() %>% 
   ggplot(aes(x = tp_ind, y = value, col = prior_comb)) + 
   facet_grid(dgp_ind ~ stat) + 
   geom_line() + 
   theme_bw()+
-  ggokabeito::scale_color_okabe_ito()
+  ylim(0,1)
+  # ggokabeito::scale_color_okabe_ito()
 
-ggsave(here::here("figures/plot_eval_bggm.svg"), plot_eval_bggm, device = "svg", width = 20, height = 9)  
-
-```
-
-### Evaluate GVAR
-```{r}
-# l_eval_gvar <- lapply(l_res_gvar, function(x){
-#   res <- lapply(x, eval_gvar)
-#   return(res)
-# })
-
-l_eval_gvar <- list()
-for(i in 1:nrow(cond_grid_gvar)){
-  l_eval_gvar[[i]] <- lapply(l_res_gvar[[i]], eval_gvar)
-}
-# TODO check why there are issues with the standard deviation of something
-
-# Convert to dataframe
-df_eval_gvar <- purrr::flatten(l_eval_gvar)
-df_eval_gvar <- dplyr::bind_rows(df_eval_gvar)
-
-
+ggsave("plot_eval_bggm.svg", plot_eval_bggm, path = here::here("figures/"), device = "svg", width = 20, height = 9)  
 
 ```
+
+### Plot GVAR
 
 Plot results
-
 ```{r}
 plot_eval_gvar <- df_eval_gvar %>% 
   mutate(lambda = as.character(lambda)) %>% 
@@ -382,16 +383,17 @@ plot_eval_gvar <- df_eval_gvar %>%
                          sens_beta, sens_pcor)), 
                names_to = "stat", values_to = "value") %>% 
    mutate(ebic_lambda_comb = paste0("Gamma: ", ebic, ", Lambda = ", lambda)) %>% 
+  ungroup() %>% 
   ggplot(aes(x = tp_ind, y = value, col = ebic_lambda_comb))+
   geom_line()+
   facet_grid(dgp_ind ~ stat) + 
-  theme_bw()+
-  ggokabeito::scale_colour_okabe_ito()
+  ylim(0,1)+
+  theme_bw()
+  # ggokabeito::scale_colour_okabe_ito()
 
-ggsave(here::here("figures/plot_eval_gvar.svg"), plot_eval_gvar, device = "svg", width = 16, height = 9)  
+ggsave("plot_eval_gvar.svg", plot_eval_gvar, path = here::here("figures/"), device = "svg", width = 16, height = 9)  
 
 ```
-
 
 
 
@@ -436,7 +438,7 @@ df_cor_full <- df_cor %>%
 
 
 
-Visualize results across simulation conditions
+Visualize results across simulation conditions. 
 ```{r}
 df_cor_grid  <- df_cor_full %>% 
   group_by(iter_bggm, iter_gvar) %>% 
@@ -448,16 +450,76 @@ df_cor_grid  <- df_cor_full %>%
   mutate(comb = paste0("R: ", rho_prior, ", B: ", beta_prior,
                        ", G: ", gamma_ebic, ", L : ", lambda)) %>% 
   ungroup() %>% 
-  ggplot(aes(x = n_tp, y = cor, col = mat))+
+  ggplot(aes(x = as.factor(n_tp), y = cor, col = mat))+
   geom_line()+
   theme_bw()+
   facet_grid(dgp~comb)+
-  ggokabeito::scale_color_okabe_ito()+
+  # ggokabeito::scale_color_okabe_ito()+
   theme(strip.text.x = element_text(size = 3))
 
 
 ggsave("df_cor_grid.svg", df_cor_grid, height = 5, width = 25, path = here::here("figures/"),
        device = "svg")
+
+
+```
+
+Divide correlation plot by gvar regularized vs. non-regularized
+```{r}
+df_cor_grid_nonreg <- df_cor_full %>% 
+  group_by(iter_bggm, iter_gvar) %>% 
+  # this summarizes prior info etc., which is the same within a simulation condition
+  # just a trick to keep it in the df
+  summarize(across(everything(),
+                   ~mean(.))) %>% 
+  pivot_longer(cols = contains("cor"), values_to = "cor", names_to = "mat") %>%
+  filter(is.na(lambda)) %>% 
+  mutate(comb = paste0("R: ", rho_prior, ", B: ", beta_prior,
+                       ", G: ", gamma_ebic)) %>% 
+  # add linetype
+  mutate(lty = ifelse(grepl("sel", mat), "select", "nonselect")) %>% 
+  ungroup() %>% 
+  ggplot(aes(x = n_tp, y = cor, col = mat))+
+  geom_line(aes(linetype = lty))+
+  theme_bw()+
+  # scale_x_discrete(breaks = 1:5, labels = c("50", "100", "200", "400", "1000"))+
+  facet_grid(dgp~comb)+
+  # ggokabeito::scale_color_okabe_ito()+
+  theme(strip.text.x = element_text(size = 6))+
+  labs(x = "Timepoints")
+
+
+df_cor_grid_reg <- df_cor_full %>% 
+  group_by(iter_bggm, iter_gvar) %>% 
+  # this summarizes prior info etc., which is the same within a simulation condition
+  # just a trick to keep it in the df
+  summarize(across(everything(),
+                   ~mean(.))) %>% 
+  pivot_longer(cols = contains("cor"), values_to = "cor", names_to = "mat") %>%
+  filter(!is.na(lambda)) %>% 
+  mutate(comb = paste0("R: ", rho_prior, ", B: ", beta_prior,
+                       ", G: ", gamma_ebic)) %>% 
+  # add linetype
+  mutate(lty = ifelse(grepl("sel", mat), "select", "nonselect")) %>% 
+  ungroup() %>% 
+  ggplot(aes(x = n_tp, y = cor, col = mat))+
+  geom_line(aes(linetype = lty))+
+  theme_bw()+
+  facet_grid(dgp~comb)+
+  # ggokabeito::scale_color_okabe_ito()+
+  theme(strip.text.x = element_text(size = 6))
+
+
+# Use NULL to create some space between plots
+df_cor_grid_sep <- cowplot::plot_grid(
+  NULL, df_cor_grid_nonreg, NULL, df_cor_grid_reg,
+  labels = c("", "Regularized","", "Non-Regularized"), ncol = 1,
+  align = "v",
+  rel_heights= c(0.05, 1, 0.05, 1),
+  label_x = .01, label_y = 1.05
+)
+
+ggsave("df_cor_grid_sep.svg", df_cor_grid_sep, height = 15, width = 18, path = here::here("figures/"), device = "svg")
 
 
 ```
@@ -472,7 +534,7 @@ Find averaged model across 1000 iterations in one condition.
 ```{r}
 
 # BGGM
-pcor_list <- lapply(fit_bggm[[131]], function(x)
+pcor_list <- lapply(fit_bggm[[70]], function(x)
   return(x$pcor_mu))
 
 pcor_bggm <- apply(simplify2array(pcor_list), 1:2, mean)
@@ -480,30 +542,25 @@ diag(pcor_bggm) <- rep(0, 6)
 options(scipen = 10)
 pcor_bggm
 
-beta_list <- lapply(fit_bggm[[131]], function(x)
+beta_list <- lapply(fit_bggm[[70]], function(x)
   return(x$beta_mu))
 
-bb <- apply(simplify2array(beta_list), 1:2, mean)
+apply(simplify2array(beta_list), 1:2, mean)
 
 
 # gVAR
 
 
-PCC_gvar_list <- lapply(fit_gvar[[26]], function(x)
+PCC_gvar_list <- lapply(fit_gvar[[55]], function(x)
   return(x$PCC))
 
 apply(simplify2array(PCC_gvar_list), 1:2, mean)
 
-beta_gvar_list <- lapply(fit_gvar[[26]], function(x)
+beta_gvar_list <- lapply(fit_gvar[[55]], function(x)
   return(t(x$beta[,-1])))
 
-bg <- apply(simplify2array(beta_gvar_list), 1:2, mean)
+apply(simplify2array(beta_gvar_list), 1:2, mean)
 
-bb-bg
-
-l_graphs$graph1$beta-bb
-l_graphs$graph2$beta-bb
-l_graphs$graph3$beta-bb
 
 ```
 
