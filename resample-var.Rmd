@@ -23,10 +23,10 @@ library(BGGM)
 library(reshape2)      # Data manipulation
 library(mvtnorm)       # Sim from posterior
 library(stats)         # KS-Test
-library(philentropy)   # divergence measures
-library(todor)         # keep on track with stuff to do
+# library(philentropy)   # divergence measures
+# library(todor)         # keep on track with stuff to do
 source("aux_funs.R")
-library(ggokabeito)
+# library(ggokabeito)
 library(Matrix)
 library(here)
 library(rrapply)       # deeply nested list
@@ -34,7 +34,6 @@ here::i_am("var-compare.Rproj")
 
 
 seed = 2022
-set.seed(seed)
 ```
 
 
@@ -102,21 +101,25 @@ graph_hoekstra_6node <- readRDS(here::here("data/hoekstra_synth_6node.RDS"))
 Now we can change all graphs according to the simulation conditions.
 ```{r change-graphs}
 # Store graphs as list
-l_graphs <- list(graph1 = graph,
-                 graph2 = graph_full, 
-                 graph3 = graph_fried,
-                 graph4 = graph_hoekstra_6node)
+# l_graphs <- list(graph1 = graph,
+#                  graph2 = graph_full, 
+#                  graph3 = graph_fried,
+#                  graph4 = graph_hoekstra_6node)
+
+l_graphs <- readRDS("data/l_graphs.RDS")
+l_changed_graphs <-readRDS("data/l_changed_graphs.RDS")
 
 # Apply change function to every graph
-l_changed_graphs <- lapply(l_graphs, 
-                           function(x) {change_graphs(
-                                            truegraph = x, 
-                                            changemax = c(1.4, 1.6),
-                                            noise = c(0.1,0.2,0.3),
-                                            seed = seed)})
+# l_changed_graphs <- lapply(l_graphs, 
+#                            function(x) {change_graphs(
+#                                             truegraph = x, 
+#                                             changemax = c(1.2, 1.4, 1.6),
+#                                             noise = c(0.1,0.2,0.3),
+#                                             permute_active = FALSE,
+#                                             seed = seed)})
 
-write_rds(l_changed_graphs, "data/l_changed_graphs.RDS")
-write_rds(l_graphs, "data/l_graphs.RDS")
+# write_rds(l_changed_graphs, "data/l_changed_graphs.RDS")
+# write_rds(l_graphs, "data/l_graphs.RDS")
 
 ```
 
@@ -152,7 +155,7 @@ ncores = parallel::detectCores() - 2
 cl = makeCluster(ncores)
 registerDoParallel(cl)
 l_raw <- list()
-l_raw$graph3 <- l_raw$graph2 <- l_raw$graph1 <-  list()
+l_raw$graph4 <- l_raw$graph3 <- l_raw$graph2 <- l_raw$graph1 <-  list()
 for(t in seq_along(n_tp)){
   l_raw$graph1[[t]] <- list()
   l_raw$graph1[[t]] <- lapply(l_changed_graphs$graph1,
@@ -182,6 +185,7 @@ for(t in seq_along(n_tp)){
                                     seed = seed,
                                     means = 0,
                                     standardize = TRUE)})
+  l_raw$graph4[[t]] <- list()
   l_raw$graph4[[t]] <- lapply(l_changed_graphs$graph4, 
                                   function(x) {sim_raw_parallel(
                                     dgp = x, 
@@ -198,7 +202,7 @@ stopCluster(cl)
 
 after_simraw <- Sys.time()-before_simraw  # less than 4 minutes
 
-# write_rds(l_raw, "l_raw_new.RDS")
+# write_rds(l_raw, "data/l_raw_new_0703.RDS")
 # l_raw <- readRDS(here("l_raw_new.RDS"))
 
 
@@ -253,29 +257,31 @@ for(t in seq_along(n_tp)){
 Fit a VAR model to each raw dataset. 
 ```{r}
 before_fitraw <- Sys.time()
-ncores = parallel::detectCores() - 2
+# ncores = parallel::detectCores() - 4
+ncores = 18
 cl = makeCluster(ncores)
 registerDoParallel(cl)
+clusterExport(cl, c("fit_var_parallel_merged", "summarize_post"))
 l_res <- list()
-l_res$graph3 <- l_res$graph2 <- l_res$graph1 <-  list()
+l_res$graph4 <- l_res$graph3 <- l_res$graph2 <- l_res$graph1 <-  list()
 
 
 for(t in seq_along(n_tp)){
-    lapply(l_raw$graph1[[t]], function(x){fit_var_parallel_merged(
-    data = x, n = n_ind, nds = n_postds, rho_prior = rho_sd, beta_prior = beta_sd, seed = seed,
-    iterations = n_iter, pruneresults = TRUE, dgp_name = "graph1", save_files = TRUE
-  )})
-    lapply(l_raw$graph2[[t]], function(x){fit_var_parallel_merged(
-    data = x, n = n_ind, nds = n_postds, rho_prior = rho_sd, beta_prior = beta_sd, seed = seed,
-    iterations = n_iter, pruneresults = TRUE, dgp_name = "graph2", save_files = TRUE
-  )})
-    lapply(l_raw$graph3[[t]], function(x){fit_var_parallel_merged(
-    data = x, n = n_ind, nds = n_postds, rho_prior = rho_sd, beta_prior = beta_sd, seed = seed,
-    iterations = n_iter, pruneresults = TRUE, dgp_name = "graph3", save_files = TRUE
-  )})
+  #   lapply(l_raw$graph1[[t]], function(x){fit_var_parallel_merged(
+  #   data = x, n = n_ind, nds = n_postds, rho_prior = rho_sd, beta_prior = beta_sd, seed = seed,
+  #   iterations = n_iter, pruneresults = TRUE, dgp_name = "graph1", save_files = TRUE
+  # )})
+  #   lapply(l_raw$graph2[[t]], function(x){fit_var_parallel_merged(
+  #   data = x, n = n_ind, nds = n_postds, rho_prior = rho_sd, beta_prior = beta_sd, seed = seed,
+  #   iterations = n_iter, pruneresults = TRUE, dgp_name = "graph2", save_files = TRUE
+  # )})
+  #   lapply(l_raw$graph3[[t]], function(x){fit_var_parallel_merged(
+  #   data = x, n = n_ind, nds = n_postds, rho_prior = rho_sd, beta_prior = beta_sd, seed = seed,
+  #   iterations = n_iter, pruneresults = TRUE, dgp_name = "graph3", save_files = TRUE
+  # )})
     lapply(l_raw$graph4[[t]], function(x){fit_var_parallel_merged(
-    data = x, n = n_ind, nds = n_postds, rho_prior = rho_sd, beta_prior = beta_sd, seed = seed,
-    iterations = n_iter, pruneresults = TRUE, dgp_name = "graph4", save_files = TRUE
+    data = x, n = n_ind, nds = n_postds, rho_prior = rho_sd, beta_prior = beta_sd, seed = seed, iterations = n_iter, get_kappa = FALSE, summarize_post = FALSE,
+    pruneresults = FALSE, dgp_name = "graph4", save_files = TRUE
   )})
 
 }
@@ -285,6 +291,7 @@ after_fitraw <- Sys.time()-before_fitraw
 
 # write_rds(l_res, "l_res_new.Rds")
 # l_res <- readRDS(here("l_res_new.Rds"))
+
 ```
 
 
@@ -303,7 +310,7 @@ n_dgp <- 4
 n_c_types <- 3
 
 # Number of different graph structures
-n_g_types <- 8
+n_g_types <- 7
 
 # Number of different tp conditions
 n_t_types <- 5
@@ -311,7 +318,7 @@ n_t_types <- 5
 dgp_names <- c("graph1", "graph2", "graph3", "graph4")
 
 change_names <- c("truegraph", "change1.2", "change1.4", "change1.6",
-                  "noise0.1", "noise0.2", "noise0.3", "permute")
+                  "noise0.1", "noise0.2", "noise0.3")
 
 comp_names <- c("frob","maxdiff", "l1")
 
@@ -359,16 +366,15 @@ comp_grid <- comp_grid %>%
          comp_file = paste0("fit_", dgp, "_",change,"_",tp,".RDS"))
 
 
-
+############################# NOT MORE THAN 3!!!!!!!!!!!!
 before_comp <- Sys.time()
-ncores <- parallel::detectCores()-3
+ncores <- 3
 cl <- makeCluster(ncores)
 clusterExport(cl, c("comp_grid",  "comp_grid_mod", "within_compare", "within_compare_eval", "post_distance_within"))
 clusterEvalQ(cl, library(tidyverse))
 
-
-parLapply(cl = cl, 1:nrow(comp_grid), function(n){
-  
+# todo change back to 1:nrow(comp_grid)
+parLapply(cl = cl, todo_files_num, function(n){
   ## Get filter args
   dgp_it <- as.character(comp_grid$dgp[n])
   change_it <- as.character(comp_grid$change[n])
@@ -425,7 +431,7 @@ parLapply(cl = cl, 1:nrow(comp_grid), function(n){
   
   # Save output
   saveRDS(wc_res, file = here::here(paste0("data/compare_sim_res/comp_",dgp_it, "_",change_it,"_", tp_it, "_",comp_it, ".RDS")))
-  
+  print(paste0("Just finished row", n))
   
 })
 
@@ -455,21 +461,24 @@ todo_files <- setdiff(desired_files$filename, exist_files)
 todo_files_num <- desired_files %>% 
   filter(!filename %in% exist_files) %>% 
   pull(rownum)
-
+todo_files_num
 # This then has to be passed back to the loop above
+
+
 
 
 
 ```
 
-Reading the files in again and extracting summary information for each
 
+Reading the files in again and extracting summary information for each
 ```{r}
 file_list <- list.files(path = here::here("data/compare_sim_res"))
 
 
 time_before_within_eval <- Sys.time()
-ncores = parallel::detectCores() - 2
+# DONT GO TOO HIGH HERE!!!! FILES BECOME TOO LARGE
+ncores = 4
 cl = makeCluster(ncores)
 registerDoParallel(cl)
 l_comp_res <- list()
@@ -493,12 +502,16 @@ l_comp_res <- foreach(i = 1:length(file_list)) %dopar% {
   eval_res <- list()
   eval_res <- lapply(comp_res, function(x){
     
-    res <- within_compare_eval(x, kappa = FALSE)
+    res <- tryCatch({within_compare_eval(x, kappa = FALSE)}, error = function(e) NA)
     res$dgp <- dgp_it
     res$change <- change_it
     res$tp <- tp_it
     res$comp <- comp_it
-    res$emp <-  x$emp[1]
+    if(is.list(x)){
+      res$emp <-  x$emp[1]
+    } else{
+      res$emp <- NA
+    }
     return(res)
   })
   
@@ -507,9 +520,10 @@ l_comp_res <- foreach(i = 1:length(file_list)) %dopar% {
   ## Output
   # Combine all results into dataframe
   df_eval_res <- do.call(rbind.data.frame, eval_res)
+  print(paste0("File ", i, " done!"))
   
   # Save output
-  # saveRDS(df_eval_res, file = )
+  saveRDS(df_eval_res, file = here::here(paste0("data/compare_sim_eval/eval_res_",dgp_it, "_",change_it,"_", tp_it, "_",comp_it, ".RDS")))
   
 }
 stopCluster(cl)
@@ -518,8 +532,50 @@ time_after_within_eval <- Sys.time() - time_before_within_eval  # ~12 mins
 
 # df_comp_res <- do.call(rbind, l_comp_res)
 # write_rds(df_comp_res, "df_comp_res.RDS")
-df_comp_res <- readRDS("df_comp_res.RDS")
+
+
+# Check which files are missing
+exist_files_res <- list.files(path = here::here("data/compare_sim_res"))
+exist_files_eval <- list.files(path = here::here("data/compare_sim_eval"))
+desired_files <- gsub("comp", "eval_res",exist_files_res)
+
+desired_files <- setdiff(desired_files, exist_files_eval)
+file_list <- gsub("eval_res", "comp",desired_files)
+
+# This then has to be passed back to the loop above
+
+
 ```
+
+
+Read in results again, they were saved as individuals files. 
+```{r}
+file_list <- list.files(path = "data/compare_sim_eval", full.names = TRUE)
+l_comp_res <- lapply(file_list, readRDS)
+df_comp_res <- do.call(rbind, l_comp_res)
+
+# write_rds(df_comp_res, here::here("data/df_comp_res_1303.RDS"))
+df_comp_res <- readRDS(here::here("data/df_comp_res_1303.RDS"))
+```
+
+
+Investigate nonconvergence:
+```{r}
+df_comp_res %>% 
+  filter(is.na(emp)) %>% 
+  count()    # 103800/3145500 did not converge
+# everything in the change1.6 condition
+
+df_comp_res %>% 
+  filter(is.na(emp)) %>% 
+  group_by(comp, dgp, change, tp) %>% 
+  count() %>% 
+  View()
+
+```
+
+
+
 
 
 
@@ -601,73 +657,82 @@ TODO: extend all this to graph 4 as well.
 n  = 2450. Combinatorics for 50 elements gives 1225, but we have two graphs two draw from, so 2450.
 ```{r}
 plot_within_power05_graph1 <- df_comp_res %>% 
-  dplyr::select(-c("kappa_a", "kappa_b")) %>% 
   pivot_longer(cols = c("beta_a", "beta_b", "pcor_a", "pcor_b"), names_to = "res") %>% 
-  # mutate(across(c(comp, dgp, tp, comp_graph, res),
-                # ~ as.factor(.))) %>% 
   filter(dgp == "graph1") %>% 
-  # comp_graph == truegraph is comparison with same dgp, so null
-  # filter(comp_graph != "truegraph") %>% 
   mutate(sig05 = ifelse(value < 50, 1, 0),
          sig01 = ifelse(value < 10, 1, 0)) %>%
   group_by(comp, tp, change, res) %>%
   mutate(n_comp = n()) %>%  
-  summarize(power05 = sum(sig05)/n_comp) %>% 
-  # somehow does not cut everything if I don't do this
-  summarize(power05 = mean(power05)) %>% 
+  # need the max here so that it reduces to one row
+  # n_comp is the same for every row anyway
+  summarize(power05 = sum(sig05)/max(n_comp)) %>% 
+  ungroup() %>% 
   ggplot(aes(x = as.numeric(tp), y = power05, col = comp)) + 
   geom_line()+
   facet_grid(change ~ res)+
-  theme_minimal()+
-  scale_color_okabe_ito()
+  theme_minimal()
+  # scale_color_okabe_ito()
 
-ggsave("plot_within_power05_graph1.svg", plot_within_power05_graph1, device = "svg", path = here("figures/"))  
+ggsave("plot_within_power05_graph1_1303.svg", plot_within_power05_graph1, device = "svg", path = here("figures/"))  
 
 plot_within_power05_graph2 <- df_comp_res %>% 
-  dplyr::select(-c("kappa_a", "kappa_b")) %>% 
   pivot_longer(cols = c("beta_a", "beta_b", "pcor_a", "pcor_b"), names_to = "res") %>% 
-  # mutate(across(c(comp, dgp, tp, comp_graph, res),
-                # ~ as.factor(.))) %>% 
   filter(dgp == "graph2") %>% 
-  # comp_graph == truegraph is comparison with same dgp, so null
-  # filter(comp_graph != "truegraph") %>% 
   mutate(sig05 = ifelse(value < 50, 1, 0),
          sig01 = ifelse(value < 10, 1, 0)) %>%
   group_by(comp, tp, change, res) %>%
   mutate(n_comp = n()) %>%  
-  summarize(power05 = sum(sig05)/n_comp) %>% 
-  # somehow does not cut everything if I don't do this
-  summarize(power05 = mean(power05)) %>% 
+  # need the max here so that it reduces to one row
+  # n_comp is the same for every row anyway
+  summarize(power05 = sum(sig05)/max(n_comp)) %>% 
+  ungroup() %>% 
   ggplot(aes(x = as.numeric(tp), y = power05, col = comp)) + 
   geom_line()+
   facet_grid(change ~ res)+
-  theme_minimal()+
-  scale_color_okabe_ito()
+  theme_minimal()
+  # scale_color_okabe_ito()
 
-ggsave("plot_within_power05_graph2.svg", plot_within_power05_graph2, device = "svg", path = here("figures/"))  
+ggsave("plot_within_power05_graph2_1303.svg", plot_within_power05_graph2, device = "svg", path = here("figures/"))  
 
 plot_within_power05_graph3 <- df_comp_res %>% 
-  dplyr::select(-c("kappa_a", "kappa_b")) %>% 
   pivot_longer(cols = c("beta_a", "beta_b", "pcor_a", "pcor_b"), names_to = "res") %>% 
-  # mutate(across(c(comp, dgp, tp, comp_graph, res),
-                # ~ as.factor(.))) %>% 
   filter(dgp == "graph3") %>% 
-  # comp_graph == truegraph is comparison with same dgp, so null
-  # filter(comp_graph != "truegraph") %>% 
   mutate(sig05 = ifelse(value < 50, 1, 0),
          sig01 = ifelse(value < 10, 1, 0)) %>%
   group_by(comp, tp, change, res) %>%
   mutate(n_comp = n()) %>%  
-  summarize(power05 = sum(sig05)/n_comp) %>% 
-  # somehow does not cut everything if I don't do this
-  summarize(power05 = mean(power05)) %>% 
+  # need the max here so that it reduces to one row
+  # n_comp is the same for every row anyway
+  summarize(power05 = sum(sig05)/max(n_comp)) %>% 
+  ungroup() %>% 
   ggplot(aes(x = as.numeric(tp), y = power05, col = comp)) + 
   geom_line()+
   facet_grid(change ~ res)+
-  theme_minimal()+
-  scale_color_okabe_ito()
+  theme_minimal()
+  # scale_color_okabe_ito()
 
-ggsave("plot_within_power05_graph3.svg", plot_within_power05_graph3, device = "svg", path = here("figures/"))  
+ggsave("plot_within_power05_graph3_1303.svg", plot_within_power05_graph3, device = "svg", path = here("figures/"))  
+
+# plot_within_power05_graph4 <- df_comp_res %>% 
+#   pivot_longer(cols = c("beta_a", "beta_b", "pcor_a", "pcor_b"), names_to = "res") %>% 
+#   filter(dgp == "graph4") %>% 
+#   mutate(sig05 = ifelse(value < 50, 1, 0),
+#          sig01 = ifelse(value < 10, 1, 0)) %>%
+#   group_by(comp, tp, change, res) %>%
+#   mutate(n_comp = n()) %>%  
+#   # need the max here so that it reduces to one row
+#   # n_comp is the same for every row anyway
+#   summarize(power05 = sum(sig05)/max(n_comp)) %>% 
+#   ungroup() %>% 
+#   ggplot(aes(x = as.numeric(tp), y = power05, col = comp)) + 
+#   geom_line()+
+#   facet_grid(change ~ res)+
+#   theme_minimal()
+#   # scale_color_okabe_ito()
+# 
+# ggsave("plot_within_power05_graph4_1303.svg", plot_within_power05_graph4, device = "svg", path = here("figures/"))  
+
+
 
 ```
 
@@ -676,7 +741,6 @@ ggsave("plot_within_power05_graph3.svg", plot_within_power05_graph3, device = "s
 Instead of power, we can plot the median number of bootstrapped differences larger than empirical.
 ```{r}
 plot_within_raw_graph1 <- df_comp_res %>% 
-  dplyr::select(-c("kappa_a", "kappa_b")) %>% 
   pivot_longer(cols = c("beta_a", "beta_b", "pcor_a", "pcor_b"), names_to = "res") %>% 
   # mutate(across(c(comp, dgp, tp, comp_graph, res),
   # ~ as.factor(.))) %>% 
@@ -686,20 +750,17 @@ plot_within_raw_graph1 <- df_comp_res %>%
          change = as.factor(change),
          res = as.factor(res)) %>% 
   dplyr::group_by(comp, tp, change, res) %>%
-  dplyr::summarize(pct_larger = value/10) %>%
-  dplyr::summarize(pct_larger = mean(pct_larger)) %>% 
+  dplyr::summarize(pct_larger = mean(value/10)) %>%
   ggplot(aes(x = as.numeric(tp), y = pct_larger, col = comp)) + 
   # geom_text(aes(label = round(pct_larger,1)), size = 4)+
   geom_line()+
   facet_grid(change ~ res)+
   theme_minimal()+
-  scale_color_okabe_ito()+ 
   labs(caption = "% of post. diff. larger than empirical. Graph1.")
 ggsave("plot_within_raw_graph1.svg", plot_within_raw_graph1, device = "svg", path = here("figures/"))  
 
 
 plot_within_raw_graph2 <- df_comp_res %>% 
-  dplyr::select(-c("kappa_a", "kappa_b")) %>% 
   pivot_longer(cols = c("beta_a", "beta_b", "pcor_a", "pcor_b"), names_to = "res") %>% 
   # mutate(across(c(comp, dgp, tp, comp_graph, res),
   # ~ as.factor(.))) %>% 
@@ -723,7 +784,6 @@ ggsave("plot_within_raw_graph2.svg", plot_within_raw_graph2, device = "svg", pat
 
 
 plot_within_raw_graph3 <- df_comp_res %>% 
-  dplyr::select(-c("kappa_a", "kappa_b")) %>% 
   pivot_longer(cols = c("beta_a", "beta_b", "pcor_a", "pcor_b"), names_to = "res") %>% 
   # mutate(across(c(comp, dgp, tp, comp_graph, res),
   # ~ as.factor(.))) %>% 
@@ -748,10 +808,9 @@ ggsave("plot_within_raw_graph3.svg", plot_within_raw_graph3, device = "svg", pat
 
 #### False Positives
 Plot false positives across graphs. 
-
+This does not account for the correct dgp at the moment. 
 ```{r}
 plot_within_fp05_graph1 <- df_comp_res %>% 
-  dplyr::select(-c("kappa_a", "kappa_b")) %>% 
   # here, beta_b and pcor_b are irrelevant, as we compare within the same graph
   pivot_longer(cols = c("beta_a", "pcor_a"), names_to = "res") %>% 
   filter(change == "truegraph") %>% 
@@ -773,7 +832,6 @@ plot_within_fp05_graph1 <- df_comp_res %>%
 ggsave("plot_within_fp05_graph1.svg", plot_within_fp05_graph1, device = "svg", path = here("figures/"))  
 
 plot_within_fp05_graph2 <- df_comp_res %>% 
-  dplyr::select(-c("kappa_a", "kappa_b")) %>% 
   # here, beta_b and pcor_b are irrelevant, as we compare within the same graph
   pivot_longer(cols = c("beta_a", "pcor_a"), names_to = "res") %>% 
   filter(change == "truegraph") %>% 
@@ -797,7 +855,6 @@ ggsave("plot_within_fp05_graph2.svg", plot_within_fp05_graph2, device = "svg", p
 
 
 plot_within_fp05_graph3 <- df_comp_res %>% 
-  dplyr::select(-c("kappa_a", "kappa_b")) %>% 
   # here, beta_b and pcor_b are irrelevant, as we compare within the same graph
   pivot_longer(cols = c("beta_a", "pcor_a"), names_to = "res") %>% 
   filter(change == "truegraph") %>% 
@@ -827,7 +884,6 @@ If either A or B are "significant", we have evidence for a difference in the net
 
 ```{r}
 plot_dec_rule_graph1 <- df_comp_res %>% 
-  dplyr::select(-c("kappa_a", "kappa_b")) %>% 
   filter(dgp == "graph1") %>% 
   # setup decision rule
   mutate(sig_beta05 = ifelse(beta_a < 50 | beta_b < 50, 1, 0),
