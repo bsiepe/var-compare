@@ -105,6 +105,12 @@ df_prior_2 <- data.frame(
   beta_prior = c(.5, .7, .9)
 )
 
+# Investigate prior sensitivity with fixed beta prior
+df_prior<- data.frame(
+  rho_prior = c(0.2, 0.3, 0.4),
+  beta_prior = rep(.6, 3)
+)
+
 
 l_fits <- list()
 
@@ -159,22 +165,6 @@ for(i in 1:3){
 # saveRDS(l_fits_c, here::here("data/empirical_example/l_fits_empirical_ex.RDS"))
 
 
-
-```
-## Investigate distribution of partial correlations
-```{r}
-pcor_list <- lapply(l_fits_c[[3]], function(x) return(x$pcor_mu))
-beta_list <- lapply(l_fits_c[[3]], function(x) return(x$beta_mu))
-
-
-pcors <- do.call(c, pcor_list)
-betas <- do.call(c, beta_list)
-
-plot(density(pcors))
-plot(density(betas))
-
-plot(density(rnorm(1000, mean = 0, sd = .6)))
-plot_prior(.7)
 
 ```
 
@@ -250,8 +240,6 @@ cl = makeCluster(14)
 registerDoParallel(cl)
 clusterExport(cl, c("compare_var", "post_distance_within"))
 # Rewrite in parallel
-
-
 
 
 
@@ -375,7 +363,7 @@ df_comps2_3c <- df_comps2_3 %>%
 
 
 
-df_compsc2 <- as.data.frame(rbind(df_comps_1c, df_comps_2c, df_comps_3c))
+df_compsc2 <- as.data.frame(rbind(df_comps2_1c, df_comps2_2c, df_comps2_3c))
 
 # delete unnecessary columns
 df_comps2 <- df_compsc2 %>% 
@@ -386,7 +374,7 @@ df_comps2 <- df_compsc2 %>%
 
 
 # saveRDS(df_comps, here::here("output/empirical-example/df_comps.RDS"))
-df_comps <- readRDS(here::here("output/empirical-example/df_comps.RDS"))
+# df_comps <- readRDS(here::here("output/empirical-example/df_comps.RDS"))
 
 
 
@@ -409,16 +397,16 @@ prior_names <- c(
   "3" = "Rho: 0.5, Beta: 1"
 )
 
-# prior_names2 <- c(
-#   "1" = "Rho: 0.2, Beta: 0.6",
-#   "2" = "Rho: 0.3, Beta: 0.6",
-#   "3" = "Rho: 0.4, Beta: 0.6"
-# )
 prior_names2 <- c(
-  "1" = "Rho: 0.4, Beta: 0.5",
-  "2" = "Rho: 0.4, Beta: 0.7",
-  "3" = "Rho: 0.4, Beta: 0.9"
+  "1" = "Rho: 0.2, Beta: 0.6",
+  "2" = "Rho: 0.3, Beta: 0.6",
+  "3" = "Rho: 0.4, Beta: 0.6"
 )
+# prior_names2 <- c(
+#   "1" = "Rho: 0.4, Beta: 0.5",
+#   "2" = "Rho: 0.4, Beta: 0.7",
+#   "3" = "Rho: 0.4, Beta: 0.9"
+# )
 
 
 emp_ex_prior_sensitivity2 <- df_comps2 %>% 
@@ -673,6 +661,97 @@ ggsave("similarity_matrix_empirical_example.svg", p, device = "svg", path = here
 
 
 ```
+
+
+
+## New Plot Idea: Posterior matrix
+Idea: Plot posterior distributions, color based on if the parameter is positive or not. 
+```{r}
+fit <- l_fits_c[[1]][[1]]
+
+# use inspiration from stat_wilke function here: 
+# https://bookdown.org/content/8ba612b7-90f2-4ebc-b329-0159008e2340/metric-predicted-variable-with-multiple-metric-predictors.html#metric-predicted-variable-with-multiple-metric-predictors
+
+posterior_plot <- function(object,
+                           mat = beta,
+                           cis = c(0.8, 0.9, 0.95)){   # credible intervals for plotting
+  
+  require(ggdist)   # visualize uncertainty
+  
+  # TODO will throw a bug if one of the variable names contains an underscore
+  
+  # Obtain samples
+  samps <- BGGM::posterior_samples(object)
+
+  # Split into betas and pcors
+  beta_cols <- grep(".l1", colnames(samps), value = TRUE)
+  pcor_cols <- grep("--", colnames(samps), value = TRUE)
+  
+  beta_samps <- as.data.frame(samps[,beta_cols])
+  pcor_samps <- as.data.frame(samps[,pcor_cols])
+  
+  # Pivot longer
+  beta <- beta_samps %>%
+    as.data.frame() %>%
+    dplyr::mutate(iteration = dplyr::row_number()) %>% 
+    tidyr::pivot_longer(cols = !iteration, names_to = "edge", values_to = "value") %>% 
+    # split edge description into nodes
+    tidyr::separate_wider_delim(cols = edge, delim = "_",
+                                names = c("dv" ,"iv"))
+    
+  pcor <- pcor_samps %>%
+    as.data.frame() %>%
+    dplyr::mutate(iteration = dplyr::row_number()) %>% 
+    tidyr::pivot_longer(cols = !iteration,names_to = "edge", values_to = "value") %>% 
+    # split edge description into nodes
+    tidyr::separate_wider_delim(cols = edge, delim = "--",
+                                names = c("dv" ,"iv"))
+  # TODO delete lower diagonal maybe?
+  
+  
+  # Create matrix layout
+  
+  
+  # Start plotting
+  beta_plot <- beta %>% 
+    ggplot(aes(x = value))+
+    # ggdist::stat_halfeye(aes(fill = after_stat(level)), .width = cis)+
+    ggdist::stat_slab(aes(fill = after_stat(level)), .width = c(cis, 1)) +
+    ggdist::stat_pointinterval() +
+    facet_grid(iv~dv,
+               switch = "y")+
+    theme_minimal()+
+    theme(axis.text.y = element_blank(),
+          axis.ticks.y = element_blank())+
+    scale_fill_brewer() +
+    labs(y = "",
+         fill = "CI")+
+    ylim(-0.1, 1)
+  
+  
+  pcor_plot <- pcor %>% 
+    ggplot(aes(x = value))+
+    ggdist::stat_halfeye()+
+    facet_grid(iv~dv,
+               switch = "y")+
+    theme_minimal()+
+    theme(axis.text.y = element_blank(),
+          axis.ticks.y = element_blank())+
+    labs(y = "")
+  
+  
+  print(beta_plot)
+  # print(pcor_plot)
+  # return(beta)
+  # return(pcor)
+  
+}
+
+
+```
+
+
+
 
 
 
