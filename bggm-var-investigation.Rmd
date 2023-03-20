@@ -278,10 +278,6 @@ for(m in 1:nrow(cond_grid_gvar)){
 # l_res_gvar <- readRDS(here::here("output/graphicalvar-sim-res_1703.Rds"))
 
     
-# Delete rows that were accidentally created (looping over rows of cond_grid
-# instead of cond_grid_gvar)
-
-# l_res_gvar <- l_res_gvar[1:nrow(cond_grid_gvar)]
 
 
 
@@ -294,6 +290,11 @@ for(m in 1:nrow(cond_grid_gvar)){
 Evaluate both with and without graph selection.
 
 ```{r}
+l_res_bggm <- readRDS(here::here("output/bggm-var-sim-res_1703.Rds"))
+l_res_gvar <- readRDS(here::here("output/graphicalvar-sim-res_1703.Rds"))
+l_graphs <- readRDS(here::here("data/l_graphs.RDS"))
+
+
 ## BGGM
 l_eval_bggm <- lapply(l_res_bggm, function(x){
   res <- lapply(x, eval_bggm)
@@ -308,6 +309,8 @@ df_eval_bggm_wide <- df_eval_bggm %>%
                                                width_beta, width_pcor))
 rm(df_eval_bggm)
 rm(l_eval_bggm)
+df_eval_bggm <- df_eval_bggm_wide
+
 
 ## GVAR
 l_eval_gvar <- list()
@@ -319,6 +322,11 @@ for(i in 1:nrow(cond_grid_gvar)){
 df_eval_gvar <- purrr::flatten(l_eval_gvar)
 df_eval_gvar <- dplyr::bind_rows(df_eval_gvar)
 rm(l_eval_gvar)
+
+# TODO save evaluations
+saveRDS(df_eval_gvar, here::here("output/df_eval_gvar.RDS"))
+saveRDS(df_eval_bggm, here::here("output/df_eval_bggm.RDS"))
+
 
 ```
 
@@ -366,8 +374,8 @@ plot_eval_bggm <- df_eval_bggm_wide %>%
   facet_grid(dgp_ind ~ stat) + 
   geom_line() + 
   theme_bw()+
-  ylim(0,1)
-  # ggokabeito::scale_color_okabe_ito()
+  ylim(0,1)+
+  ggokabeito::scale_color_okabe_ito()
 
 ggsave("plot_eval_bggm.svg", plot_eval_bggm, path = here::here("figures/"), device = "svg", width = 20, height = 9)  
 
@@ -395,8 +403,8 @@ plot_eval_gvar <- df_eval_gvar %>%
   geom_line()+
   facet_grid(dgp_ind ~ stat) + 
   ylim(0,1)+
-  theme_bw()
-  # ggokabeito::scale_colour_okabe_ito()
+  theme_bw()+
+  ggokabeito::scale_colour_okabe_ito()
 
 ggsave("plot_eval_gvar.svg", plot_eval_gvar, path = here::here("figures/"), device = "svg", width = 16, height = 9)  
 
@@ -532,6 +540,87 @@ ggsave("df_cor_grid_sep.svg", df_cor_grid_sep, height = 15, width = 18, path = h
 ```
 
 
+## Compare performance BGGM and graphicalVAR
+Only use one prior combination for BGGM.
+```{r}
+# add row iteration number
+cond_grid <- cond_grid %>% 
+  mutate(iter_bggm = dplyr::row_number())
+cond_grid_gvar <- cond_grid_gvar %>% 
+  mutate(iter_gvar = dplyr::row_number())
+
+df_eval_bggm %>% 
+  left_join(cond_grid, by = c("dgp_ind", "tp_ind", "rho_prior", "beta_prior"))
+
+
+# add dataset iteration information to each
+df_eval_bggm_ind <- df_eval_bggm %>% 
+  group_by(dgp_ind, tp_ind, rho_prior, beta_prior) %>% 
+  mutate(data_ind = dplyr::row_number())
+
+df_eval_gvar_ind <- df_eval_gvar %>% 
+  group_by(dgp_ind, tp_ind, lambda, ebic) %>% 
+  mutate(data_ind = dplyr::row_number())
+
+
+  
+# For joining, select one of the prior conditions
+df_eval_both <- df_eval_bggm_ind %>% 
+  filter(beta_prior == 0.5 & rho_prior == 0.5) %>% 
+  left_join(df_eval_gvar_ind, by = c("dgp_ind", "tp_ind", "data_ind"),
+            suffix = c("_bggm", "_gvar")) %>% 
+  ungroup()
+  
+# TODO maybe add correlation to this as well?
+# need to add "data_ind" to the df_cors
+
+
+
+```
+
+### Plot comparison of both methods
+
+```{r}
+plot_eval_both <- df_eval_both %>% 
+  dplyr::select(c(dgp_ind, tp_ind, lambda, ebic, contains("bias"),contains("rmse"))) %>% 
+  dplyr::group_by(dgp_ind, tp_ind, lambda, ebic) %>% 
+  dplyr::summarize(across(c(contains("bias"),contains("rmse")),
+                   ~mean(., na.rm = TRUE))) %>% 
+  pivot_longer(cols = c(contains("bias"), contains("rmse")),
+                        names_to = "stat") %>%
+  mutate(method = case_when(
+    stringr::str_detect(stat, "bggm") ~ "bggm",
+    stringr::str_detect(stat, "gvar") ~ "gvar",
+    stringr::str_detect(stat, "sel") ~ "sel",
+  )) %>% 
+  mutate(mat = case_when(
+    stringr::str_detect(stat, "beta") ~ "beta",
+    stringr::str_detect(stat, "pcor") ~ "pcor"
+  )) %>% 
+  # remove everything after first underscore
+  # remove matrix from stat column
+  mutate(stat = stringr::str_remove(stat, "_.*")) %>% 
+  # only take default values for now
+  filter(is.na(lambda) & ebic == 0) %>% 
+  # only show bias for now
+  ggplot(aes(x = tp_ind, y = value, col = method))+
+  geom_line()+
+  facet_grid(as.factor(stat) + as.factor(mat) ~ as.factor(dgp_ind))+
+  theme_bw()+
+  ggokabeito::scale_color_okabe_ito()+
+  labs(caption = "GVAR default, BGGM rho = 0.5, beta = 1")
+ggsave("plot_eval_both2.svg", plot_eval_both, height = 7, width = 10, path = here::here("figures/"), device = "svg")
+
+```
+
+
+
+
+
+
+
+
+
 
 ## Average model across simulation fits
 Find averaged model across 1000 iterations in one condition. 
@@ -553,7 +642,6 @@ apply(simplify2array(beta_list), 1:2, mean)
 
 
 # gVAR
-
 
 PCC_gvar_list <- lapply(fit_gvar[[55]], function(x)
   return(x$PCC))
