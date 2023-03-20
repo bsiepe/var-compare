@@ -34,21 +34,21 @@ TODO: Download this from the server.
 ```{r}
 l_raw <- readRDS(here::here("output/l_raw.RDS"))
 l_graphs <- readRDS(here::here("data/l_graphs.RDS"))
-
-# Only truegraph
-l_dgp <- list()
-l_dgp$graph1 <- lapply(l_raw$graph1, function(x){
-  y <- x$truegraph
-  y
-})
-l_dgp$graph2 <- lapply(l_raw$graph2, function(x){
-  y <- x$truegraph
-  y
-})
-l_dgp$graph3 <- lapply(l_raw$graph3, function(x){
-  y <- x$truegraph
-  y
-})
+# 
+# # Only truegraph
+# l_dgp <- list()
+# l_dgp$graph1 <- lapply(l_raw$graph1, function(x){
+#   y <- x$truegraph
+#   y
+# })
+# l_dgp$graph2 <- lapply(l_raw$graph2, function(x){
+#   y <- x$truegraph
+#   y
+# })
+# l_dgp$graph3 <- lapply(l_raw$graph3, function(x){
+#   y <- x$truegraph
+#   y
+# })
 
 
 
@@ -73,6 +73,7 @@ n_iter <- 50000
 
 # Think about if I actually need to standardize here
 # because everything will be standardized by var_estimate anyway
+l_raw <- readRDS(l_raw, file = here::here("data/l_raw1000.RDS"))
 
 
 # Changed: instead of n_ind, we create n_postds datasets 
@@ -82,32 +83,39 @@ before_simraw <- Sys.time()
 ncores = 40
 cl = makeCluster(ncores)
 registerDoParallel(cl)
-l_raw <- list()
-l_raw$graph3 <- l_raw$graph2 <- l_raw$graph1 <-  list()
+# l_raw <- list()
+# l_raw$graph3 <- l_raw$graph2 <- l_raw$graph1 <-  list()
 for(t in seq_along(n_tp)){
-  l_raw$graph1[[t]] <- list()
-  l_raw$graph1[[t]] <- sim_raw_parallel(dgp = l_graphs$graph1,
-                                    n = n_postds,
-                                    tp = n_tp[t],
-                                    seed = seed,
-                                    means = 0,
-                                    standardize = TRUE)
-
-  l_raw$graph2[[t]] <- list()
-  l_raw$graph2[[t]] <- sim_raw_parallel(dgp = l_graphs$graph2,
-                                    n = n_postds,
-                                    tp = n_tp[t],
-                                    seed = seed,
-                                    means = 0,
-                                    standardize = TRUE)
-  l_raw$graph3[[t]] <- list()
-  l_raw$graph3[[t]] <- sim_raw_parallel(dgp = l_graphs$graph3,
-                                    n = n_postds,
-                                    tp = n_tp[t],
-                                    seed = seed,
-                                    means = 0,
-                                    standardize = TRUE)
-  l_raw$graph4[[t]] <- sim_raw_parallel(dgp = l_graphs$graph4,
+  # l_raw$graph1[[t]] <- list()
+  # l_raw$graph1[[t]] <- sim_raw_parallel(dgp = l_graphs$graph1,
+  #                                   n = n_postds,
+  #                                   tp = n_tp[t],
+  #                                   seed = seed,
+  #                                   means = 0,
+  #                                   standardize = TRUE)
+  # 
+  # l_raw$graph2[[t]] <- list()
+  # l_raw$graph2[[t]] <- sim_raw_parallel(dgp = l_graphs$graph2,
+  #                                   n = n_postds,
+  #                                   tp = n_tp[t],
+  #                                   seed = seed,
+  #                                   means = 0,
+  #                                   standardize = TRUE)
+  # l_raw$graph3[[t]] <- list()
+  # l_raw$graph3[[t]] <- sim_raw_parallel(dgp = l_graphs$graph3,
+  #                                   n = n_postds,
+  #                                   tp = n_tp[t],
+  #                                   seed = seed,
+  #                                   means = 0,
+  #                                   standardize = TRUE)
+  # l_raw$graph4[[t]] <- sim_raw_parallel(dgp = l_graphs$graph4,
+  #                                   n = n_postds,
+  #                                   tp = n_tp[t],
+  #                                   seed = seed,
+  #                                   means = 0,
+  #                                   standardize = TRUE)
+  
+  l_raw$graph5[[t]] <- sim_raw_parallel(dgp = l_graphs$graph5,
                                     n = n_postds,
                                     tp = n_tp[t],
                                     seed = seed,
@@ -133,10 +141,12 @@ stopCluster(cl)
 
 ## Estimation
 Estimate both graphicalVAR in default settings as well as BGGM with varying priors.
+
+Next steps here: load results, then figure out which files haven't been done yet
 ```{r}
 # Priors
-dgp_names <- c("graph1", "graph2", "graph3", "graph4")
-dgp <- c(1,2,3,4)
+dgp_names <- c("graph1", "graph2", "graph3", "graph4", "graph5")
+dgp <- c(1,2,3,4,5)
 rho_sd <- c(0.1, 0.3, 0.5)
 beta_sd <- c(0.2, 0.5, 1)
 n_tp <- c(50, 100, 200, 400, 1000) 
@@ -154,15 +164,13 @@ set.seed(seed)
 
 # Estimating for each model 
 # store BGGM results under "nonselect"
-ncores = 60
+ncores = 50
 cl = makeCluster(ncores)
 clusterExport(cl = cl, "summarize_post")
 registerDoParallel(cl)
-l_res <- list()
+l_res_bggm <- list()
 
 
-# TODO maybe actually use save_files to save results to disc
-# Need to adopt such that select works together with summarize_post
 
 for(n in 1:nrow(cond_grid)) {
   dgp_ind <- as.numeric(cond_grid[n, "dgp"])
@@ -170,7 +178,7 @@ for(n in 1:nrow(cond_grid)) {
   r_sd <- as.numeric(cond_grid[n, "rho_prior"])
   b_sd <- as.numeric(cond_grid[n, "beta_prior"])
   print(paste0(nrow(cond_grid)-n, " to go!"))
-  l_res[[n]]  <- fit_var_parallel_merged(l_raw[[dgp_ind]][[tp_ind]],
+  l_res_bggm[[n]]  <- fit_var_parallel_merged(l_raw[[dgp_ind]][[tp_ind]],
                           rho_prior = r_sd,
                           beta_prior = b_sd,
                           iterations = n_iter,
@@ -190,17 +198,18 @@ for(n in 1:nrow(cond_grid)) {
 }
 stopCluster(cl)
 
-# saveRDS(l_res_bggm, here::here("output/bggm-var-sim-res_1203.Rds"))
-l_res_bggm <- readRDS(here::here("output/bggm-var-sim-res_1203.Rds"))
-
-l_res_bggm <- l_res
-rm(l_res)
 # Attach the simulation conditions
 for(m in 1:nrow(cond_grid)){
   for(i in 1:length(l_res_bggm[[m]])){
     l_res_bggm[[m]][[i]]$sim_cond <- cond_grid[m,]
   }
 }
+
+# saveRDS(l_res_bggm, here::here("output/bggm-var-sim-res_1703.Rds"))
+# l_res_bggm <- readRDS(here::here("output/bggm-var-sim-res_1703.Rds"))
+
+rm(l_res)
+
 
 ```
 ### Fit graphicalVAR
@@ -216,9 +225,7 @@ cond_grid_gvar <- expand.grid(dgp = dgp,
                          lambda = lambda)
 
 
-
-
-ncores = parallel::detectCores() - 4
+ncores = 50
 cl = makeCluster(ncores)
 clusterExport(cl = cl, "fit_graphicalvar_parallel")
 registerDoParallel(cl)
@@ -258,17 +265,18 @@ for(n in 1:nrow(cond_grid_gvar)) {
 stopCluster(cl)
 
 time_after_gvar <- Sys.time() - time_before_gvar
-# saveRDS(l_res_gvar, here::here("output/graphicalvar-sim-res_1203.Rds"))
-l_res_gvar <- readRDS(here::here("output/graphicalvar-sim-res_1203.Rds"))
 
 
- 
 # Attach the simulation conditions
 for(m in 1:nrow(cond_grid_gvar)){
   for(i in 1:length(l_res_gvar[[m]])){
     l_res_gvar[[m]][[i]]$sim_cond <- cond_grid_gvar[m,]
   }
 }
+
+# saveRDS(l_res_gvar, here::here("output/graphicalvar-sim-res_1703.Rds"))
+# l_res_gvar <- readRDS(here::here("output/graphicalvar-sim-res_1703.Rds"))
+
     
 # Delete rows that were accidentally created (looping over rows of cond_grid
 # instead of cond_grid_gvar)
@@ -284,7 +292,6 @@ for(m in 1:nrow(cond_grid_gvar)){
 
 ## Evaluation
 Evaluate both with and without graph selection.
-
 
 ```{r}
 ## BGGM
@@ -523,9 +530,6 @@ ggsave("df_cor_grid_sep.svg", df_cor_grid_sep, height = 15, width = 18, path = h
 
 
 ```
-
-
-
 
 
 
