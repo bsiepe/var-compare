@@ -18,13 +18,16 @@ library(viridis)
 library(summarytools)
 library(lm.beta)
 library(RColorBrewer)
+library(Matrix)
+library(matrixcalc)
 
 here::i_am("var-compare.Rproj")
+seed = 2022
+set.seed(seed)
 ```
 
 
-# Own simulated graph
-
+# Own simulated graph (graph1)
 ```{r}
 # Ground truth model is still generated with graphicalVAR 
 # could also use empirical data with varying sparsity
@@ -84,7 +87,7 @@ coolt_res$beta[,-1]-graph$beta
 
 ```
 
-# Non-sparse graph
+# Non-sparse graph (graph2)
 Obtain a graph without weights set to 0, as this would be the input for actual empirical applications. Set many of the effects close to zero. 
 Another idea would be to create data from a sparse graph and fit a BGGM var_estimate model to it, as that will also not set coefficients to zero. 
 ```{r}
@@ -123,81 +126,6 @@ full_graph_est_bggm$kappa_mu
 full_graph$PCC
 
 write_rds(full_graph_est_bggm, "full_graph.RDS")
-
-```
-
-
-# Chain Graph Hoekstra et al. 2022
-This uses the PDC and PCC of Hoekstra et al. (2022) and pretends as if they were beta/kappa matrices.
-```{r}
-hoekstra_synth <- list()
-hoekstra_synth$beta <- as.matrix(read.table(header = FALSE, colClasses = "numeric", text = "
-0.29 0.32 0 0 0 0 0 0
-0 0.13 -0.36 0 0 0 0 0
-0 0 0.37 -0.47 0 0 0 0
-0 0 0 0.32 0.27 0 0 0
-0 0 0 0 0.44 -0.24 0 0
-0 0 0 0 0 0.44 -0.33 0
-0 0 0 0 0 0 0.50 0.24
-0.34 0 0 0 0 0 0 0.42"))
-
-hoekstra_synth$pcor <- as.matrix(read.table(header = FALSE, colClasses = "numeric", text = "
-0 -0.27 0 0 0 0 0 -0.29
--0.27 0 0.49 0 0 0 0 0
-0 0.49 0 0.22 0 0 0 0
-0 0 0.22 0 -0.36 0 0 0
-0 0 0 -0.36 0 0.52 0 0
-0 0 0 0 0.52 0 0.29 0
-0 0 0 0 0 0.29 0 -0.30
--0.29 0 0 0 0 0 -0.30 0"))
-
-
-# Cut to 6 nodes
-hoekstra_synth_6node <- list()
-hoekstra_synth_6node$beta <- hoekstra_synth$beta[c(1:6), c(1:6)]
-hoekstra_synth_6node$pcor <- hoekstra_synth$pcor[c(1:6), c(1:6)]
-
-```
-
-
-
-
-
-
-
-# Epskamp 2018
-```{r dgp-epskamp2018}
-
-# take Kappa and Beta from Epskamp et al.(2018), having reproduced the analysis in their supplement 2
-# 7 Node graph ,especially beta is VERY sparse
-# Maybe this is TOO sparse and I should use the graphs from Mansueto et al. 
-beta_eps <- as.matrix(read.table(header = FALSE, colClasses = "numeric", text = "
-0        0            0                  0   0.000000       0.0000000             0.00000000
-0        0            0                  0   0.000000       0.0000000             0.00000000
-0        0            0                  0   0.000000       0.0000000             0.24128652
-0        0            0                  0   0.000000       0.0000000             0.00000000
-0        0            0                  0   0.243744       0.0000000             0.00000000
-0        0            0                  0   0.000000       0.2293295             0.07956604
-0        0            0                  0   0.000000       0.1099387             0.00000000"))
-# Correct small rounding differences (6th digit) in Kappa
-# correct by using lower diagonal, not rounded values
-kappa_eps <- as.matrix(read.table(header = FALSE, colClasses = "numeric", text = "
- 1.167983844  0.134688900 0.009096612   -0.128603055  0.133407195  0.000000000        0.225946298
- 0.134688940  1.130350300 0.000000000    0.000000000 -0.337813000  0.000000000       -0.064444800
- 0.009096612  0.000000000 1.468400008    0.000000000  0.000000000  0.000000000        0.000000000
--0.128603055  0.000000000 0.000000000    1.106057060  0.000000000  0.000000000        0.071637710
- 0.133407195 -0.337813000 0.000000000    0.000000000  1.286898100  0.000000000        0.000000000
- 0.000000000  0.000000000 0.000000000    0.000000000  0.000000000  1.256290950       -0.086044850
- 0.225946298 -0.064444800 0.000000000    0.071637710  0.000000000 -0.086044850        1.159429540"))
-graph_eps <- list()
-graph_eps$beta <- beta_eps
-kappa_eps<- as.matrix(Matrix::forceSymmetric(kappa_eps, uplo = "L"))
-graph_eps$kappa <- kappa_eps
-pcc_eps <- -cov2cor(kappa_eps)
-graph_eps$PCC <- pcc_eps
-diag(graph_eps$PCC) <- rep(0,7)
-dimnames(graph_eps$beta) <- NULL
-dimnames(graph_eps$kappa) <- NULL
 
 ```
 
@@ -403,11 +331,6 @@ graph_fried[["pdc"]] <- PDC6
 ```
 
 
-
-
-
-
-
 Check the beep warning:
 ```{r}
 data_detrended %>% 
@@ -426,8 +349,159 @@ data_detrended %>%
 ```
 
 
+# Chain Graph Hoekstra et al. 2022 (Graph 4)
+This uses the PDC and PCC of Hoekstra et al. (2022) and pretends as if they were beta/kappa matrices.
+```{r}
+hoekstra_synth <- list()
+hoekstra_synth$beta <- as.matrix(read.table(header = FALSE, colClasses = "numeric", text = "
+0.29 0.32 0 0 0 0 0 0
+0 0.13 -0.36 0 0 0 0 0
+0 0 0.37 -0.47 0 0 0 0
+0 0 0 0.32 0.27 0 0 0
+0 0 0 0 0.44 -0.24 0 0
+0 0 0 0 0 0.44 -0.33 0
+0 0 0 0 0 0 0.50 0.24
+0.34 0 0 0 0 0 0 0.42"))
+
+hoekstra_synth$kappa <- as.matrix(read.table(header = FALSE, colClasses = "numeric", text = "
+0 -0.27 0 0 0 0 0 -0.29
+-0.27 0 0.49 0 0 0 0 0
+0 0.49 0 0.22 0 0 0 0
+0 0 0.22 0 -0.36 0 0 0
+0 0 0 -0.36 0 0.52 0 0
+0 0 0 0 0.52 0 0.29 0
+0 0 0 0 0 0.29 0 -0.30
+-0.29 0 0 0 0 0 -0.30 0"))
+
+diag(hoekstra_synth$kappa) <- rep(1, nrow(hoekstra_synth$kappa))
+
+# Cut to 6 nodes
+# Reconnect last nodes again
+hoekstra_synth_6node <- list()
+hoekstra_synth_6node$beta <- hoekstra_synth$beta[c(1:6), c(1:6)]
+hoekstra_synth_6node$beta[1,6] <- 0.34
+
+hoekstra_synth_6node$kappa <- hoekstra_synth$kappa[c(1:6), c(1:6)]
+hoekstra_synth_6node$kappa[1,6] <- -0.29
+hoekstra_synth_6node$kappa[6,1] <- -0.29
+
+
+saveRDS(hoekstra_synth_6node, "data/hoekstra_synth_6node.RDS")
+
+```
+
+
+# Nonsparse Graph 2 (Graph 5)
+Previous nonsparse graph had betas that were too high. 
+We use graph on Fried data and add noise everywhere. 
+```{r}
+graph_fried <- readRDS(here::here("data/graph_fried.Rds"))
+graph5 <- list()
+graph5$beta <- graph_fried$beta[1:6,1:6]
+graph5$kappa <- graph_fried$kappa[1:6,1:6]
+
+# Find maximum and minimum values, which serve as boundaries for noise
+max_beta <- max(graph5$beta)
+min_beta <- min(graph5$beta[graph5$beta!=0])
+
+# obtain non-diagonal values
+kappa_nondiag <- graph5$kappa[upper.tri(graph5$kappa)]
+max_kappa <- max(kappa_nondiag)
+min_kappa <- min(kappa_nondiag[kappa_nondiag !=0])
+
+## Add noise
+# only to zero elements of existing matrix
+graph5$beta[graph5$beta == 0] <- runif(sum(graph5$beta == 0), 
+                                       min = min_beta, max = max_beta)
+graph5$beta
+
+# for kappa
+graph5$kappa[graph5$kappa == 0] <- runif(sum(graph5$kappa == 0), 
+                                       min = min_kappa, max = max_kappa)
+
+graph5$kappa <- as.matrix(Matrix::forceSymmetric(graph5$kappa))
+matrixcalc::is.positive.semi.definite(graph5$kappa)
+graph5$pcor <- -1*stats::cov2cor(graph5$kappa)
+diag(graph5$pcor) <- rep(0, 6)
+# Has to be made symmetric again, small rounding errors after 7 digits
+graph5$pcor <- as.matrix(Matrix::forceSymmetric(graph5$pcor))
+
+saveRDS(graph5, here::here("data/graph5.RDS"))
+
+
+```
+
+
+
+
+
+
+
+
+# Summary of data-generating processes
+
+```{r}
+sum(graph_fried$beta[1:6, 1:6] != 0)
+sum(graph_fried$pcor[1:6, 1:6] != 0)
+
+
+
+
+
+```
 
 
 
 # Plot data-generating processes
 TODO
+
+
+
+
+
+
+
+
+
+
+# No longer used
+
+
+## Epskamp 2018
+```{r dgp-epskamp2018}
+
+# take Kappa and Beta from Epskamp et al.(2018), having reproduced the analysis in their supplement 2
+# 7 Node graph ,especially beta is VERY sparse
+# Maybe this is TOO sparse and I should use the graphs from Mansueto et al. 
+beta_eps <- as.matrix(read.table(header = FALSE, colClasses = "numeric", text = "
+0        0            0                  0   0.000000       0.0000000             0.00000000
+0        0            0                  0   0.000000       0.0000000             0.00000000
+0        0            0                  0   0.000000       0.0000000             0.24128652
+0        0            0                  0   0.000000       0.0000000             0.00000000
+0        0            0                  0   0.243744       0.0000000             0.00000000
+0        0            0                  0   0.000000       0.2293295             0.07956604
+0        0            0                  0   0.000000       0.1099387             0.00000000"))
+# Correct small rounding differences (6th digit) in Kappa
+# correct by using lower diagonal, not rounded values
+kappa_eps <- as.matrix(read.table(header = FALSE, colClasses = "numeric", text = "
+ 1.167983844  0.134688900 0.009096612   -0.128603055  0.133407195  0.000000000        0.225946298
+ 0.134688940  1.130350300 0.000000000    0.000000000 -0.337813000  0.000000000       -0.064444800
+ 0.009096612  0.000000000 1.468400008    0.000000000  0.000000000  0.000000000        0.000000000
+-0.128603055  0.000000000 0.000000000    1.106057060  0.000000000  0.000000000        0.071637710
+ 0.133407195 -0.337813000 0.000000000    0.000000000  1.286898100  0.000000000        0.000000000
+ 0.000000000  0.000000000 0.000000000    0.000000000  0.000000000  1.256290950       -0.086044850
+ 0.225946298 -0.064444800 0.000000000    0.071637710  0.000000000 -0.086044850        1.159429540"))
+graph_eps <- list()
+graph_eps$beta <- beta_eps
+kappa_eps<- as.matrix(Matrix::forceSymmetric(kappa_eps, uplo = "L"))
+graph_eps$kappa <- kappa_eps
+pcc_eps <- -cov2cor(kappa_eps)
+graph_eps$PCC <- pcc_eps
+diag(graph_eps$PCC) <- rep(0,7)
+dimnames(graph_eps$beta) <- NULL
+dimnames(graph_eps$kappa) <- NULL
+
+```
+
+
+
