@@ -720,7 +720,8 @@ posterior_plot <- function(object,
     ggdist::stat_pointinterval() +
     facet_grid(iv~dv,
                switch = "y")+
-    theme_minimal()+
+    theme_ggdist()+
+    geom_vline(xintercept = 0, linetype = "dashed")+
     theme(axis.text.y = element_blank(),
           axis.ticks.y = element_blank())+
     scale_fill_brewer() +
@@ -747,6 +748,11 @@ posterior_plot <- function(object,
   
 }
 
+plot_example_posterior <- posterior_plot(fit)
+
+ggsave("plot_example_posterior.svg", plot_example_posterior, 
+       device = "svg", path = here::here("figures/"), width = 20, height = 12, 
+       units = "cm")
 
 ```
 
