@@ -1979,6 +1979,37 @@ within_compare_eval <- function(l_res,
 
 
 
+# Plot Test Results -------------------------------------------------------
+# plots results of comparison
+plot_test <- function(comp_obj,
+                      modmat,
+                      ref_dist = null,
+                      emp_diff = emp,
+                      ind = model_ind,
+                      comp_type = comp){
+  
+  # Store params
+  pr <- comp_obj$params
+  
+  # get comp type
+  ct <- comp_obj$res %>% distinct({{comp_type}})
+  
+  # Get matrix as character
+  c_matrix <- deparse(substitute(modmat))
+  
+  
+  comp_obj$res %>% 
+    filter(mat == c_matrix) %>%  
+    ggplot()+
+    geom_histogram(aes(x = {{ref_dist}}, fill = as.factor({{ind}})), alpha = 0.65,  position = "identity", bins = 100)+
+    geom_vline(aes(xintercept = max({{emp_diff}})))+
+    theme_minimal()+
+    labs(x = paste0(ct, " Norm Value"),
+         fill = "Model",
+         caption = paste0("DGP: ", pr$dgp,", TP: ", pr$tp, ", Comparison Graph: ", pr$comp_graph, ", Matrix: ", c_matrix))+
+    ggokabeito::scale_fill_okabe_ito()
+  
+}
 
 
 # Compare to DGP ----------------------------------------------------------
