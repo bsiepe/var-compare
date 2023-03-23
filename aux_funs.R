@@ -197,8 +197,11 @@ change_graphs <- function(truegraph = NULL,
     ## Beta
     for(n in seq_along(noise)){
       l_out_noise[[n]] <- list()
-      tmp_beta <- m_beta + runif(n = b_i*b_j, min = -noise[n], max = noise[n])
+      noise_beta <- matrix(runif(n = b_i*b_j, min = -noise[n], max = noise[n]), 
+                           nrow = b_i, ncol = b_j)
+      tmp_beta <- m_beta + noise_beta
       l_out_noise[[n]]$beta <- tmp_beta
+      l_out_noise[[n]]$noisebeta <- noise_beta
     }
     
     ## Kappa
@@ -244,6 +247,7 @@ change_graphs <- function(truegraph = NULL,
       
       l_out_noise[[n]]$kappa <- tmp_kappa
       l_out_noise[[n]]$args <- paste0("noise", noise[n])
+      l_out_noise[[n]]$noisekappa <- noise_mat
       names(l_out_noise)[[n]] <- paste0("noise", noise[n])
     }
   } # end noise
