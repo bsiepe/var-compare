@@ -2743,6 +2743,88 @@ plot.compare_var <- function(compres,
 
 
 
+# Posterior Matrix Plot ---------------------------------------------------
+# use inspiration from stat_wilke function here: 
+# https://bookdown.org/content/8ba612b7-90f2-4ebc-b329-0159008e2340/metric-predicted-variable-with-multiple-metric-predictors.html#metric-predicted-variable-with-multiple-metric-predictors
+posterior_plot <- function(object,
+                           mat = beta,
+                           cis = c(0.8, 0.9, 0.95)){   # credible intervals for plotting
+  
+  require(ggdist)   # visualize uncertainty
+  
+  # TODO will throw a bug if one of the variable names contains an underscore
+  
+  # Obtain samples
+  samps <- BGGM::posterior_samples(object)
+  
+  # Split into betas and pcors
+  beta_cols <- grep(".l1", colnames(samps), value = TRUE)
+  pcor_cols <- grep("--", colnames(samps), value = TRUE)
+  
+  beta_samps <- as.data.frame(samps[,beta_cols])
+  pcor_samps <- as.data.frame(samps[,pcor_cols])
+  
+  # Pivot longer
+  beta <- beta_samps %>%
+    as.data.frame() %>%
+    dplyr::mutate(iteration = dplyr::row_number()) %>% 
+    tidyr::pivot_longer(cols = !iteration, names_to = "edge", values_to = "value") %>% 
+    # split edge description into nodes
+    tidyr::separate_wider_delim(cols = edge, delim = "_",
+                                names = c("dv" ,"iv"))
+  
+  pcor <- pcor_samps %>%
+    as.data.frame() %>%
+    dplyr::mutate(iteration = dplyr::row_number()) %>% 
+    tidyr::pivot_longer(cols = !iteration,names_to = "edge", values_to = "value") %>% 
+    # split edge description into nodes
+    tidyr::separate_wider_delim(cols = edge, delim = "--",
+                                names = c("dv" ,"iv"))
+  # TODO delete lower diagonal maybe?
+  
+  
+  # Create matrix layout
+  
+  
+  # Start plotting
+  beta_plot <- beta %>% 
+    group_by(dv, iv) %>% 
+    mutate(mean_value = mean(value, na.rm = TRUE)) %>% 
+    ungroup() %>% 
+    ggplot(aes(x = value))+
+    # ggdist::stat_halfeye(aes(fill = after_stat(level)), .width = cis)+
+    ggdist::stat_slab(aes(fill = after_stat(level), alpha = abs(mean_value)), .width = c(cis, 1)) +
+    ggdist::stat_pointinterval(aes(alpha = abs(mean_value)), size = 1) +
+    facet_grid(iv~dv,
+               switch = "y")+
+    theme_ggdist()+
+    geom_vline(xintercept = 0, linetype = "dashed")+
+    theme(axis.text.y = element_blank(),
+          axis.ticks.y = element_blank())+
+    scale_fill_brewer() +
+    labs(y = "",
+         fill = "CI")+
+    ylim(-0.1, 1)
+  
+  
+  # TODO adapt to beta_plot
+  pcor_plot <- pcor %>% 
+    ggplot(aes(x = value))+
+    ggdist::stat_halfeye()+
+    facet_grid(iv~dv,
+               switch = "y")+
+    theme_minimal()+
+    theme(axis.text.y = element_blank(),
+          axis.ticks.y = element_blank())+
+    labs(y = "")
+  
+  
+  print(beta_plot)
+  # print(pcor_plot)
+  # return(beta)
+  # return(pcor)
+  
+}
 
 
 
