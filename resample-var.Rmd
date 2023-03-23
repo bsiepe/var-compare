@@ -26,7 +26,7 @@ library(stats)         # KS-Test
 # library(philentropy)   # divergence measures
 # library(todor)         # keep on track with stuff to do
 source("aux_funs.R")
-library(ggokabeito)
+# library(ggokabeito)
 library(Matrix)
 library(here)
 library(rrapply)       # deeply nested list
@@ -609,8 +609,8 @@ file_list <- list.files(path = "data/compare_sim_eval", full.names = TRUE)
 l_comp_res <- lapply(file_list, readRDS)
 df_comp_res <- do.call(rbind, l_comp_res)
 
-# write_rds(df_comp_res, here::here("data/df_comp_res_2003.RDS"))
-df_comp_res <- readRDS(here::here("data/df_comp_res_2003.RDS"))
+# write_rds(df_comp_res, here::here("data/df_comp_res_1303.RDS"))
+# df_comp_res <- readRDS(here::here("data/df_comp_res_1303.RDS"))
 ```
 
 
@@ -618,7 +618,8 @@ Investigate nonconvergence:
 ```{r}
 df_comp_res %>% 
   filter(is.na(emp)) %>% 
-  count()    # 216600 did not converge
+  count()    # 103800 did not converge
+# everything in the change1.6 condition, probably happens because raw coefficients are too large
 
 df_comp_res %>% 
   filter(is.na(emp)) %>% 
@@ -630,9 +631,81 @@ df_comp_res %>%
 
 
 
+
+
+
+
+
+Visualize reference distributions and empirical value
+```{r}
+plot_test <- function(comp_obj,
+                      modmat,
+                      ref_dist = null,
+                      emp_diff = emp,
+                      ind = model_ind,
+                      comp_type = comp){
+  
+  # Store params
+  pr <- comp_obj$params
+  
+  # get comp type
+  ct <- comp_obj$res %>% distinct({{comp_type}})
+  
+  # Get matrix as character
+  c_matrix <- deparse(substitute(modmat))
+
+  
+  comp_obj$res %>% 
+    filter(mat == c_matrix) %>%  
+    ggplot()+
+    geom_histogram(aes(x = {{ref_dist}}, fill = as.factor({{ind}})), alpha = 0.65,  position = "identity", bins = 100)+
+    geom_vline(aes(xintercept = max({{emp_diff}})))+
+    theme_minimal()+
+    labs(x = paste0(ct, " Norm Value"),
+         fill = "Model",
+         caption = paste0("DGP: ", pr$dgp,", TP: ", pr$tp, ", Comparison Graph: ", pr$comp_graph, ", Matrix: ", c_matrix))+
+    ggokabeito::scale_fill_okabe_ito()
+
+}
+
+pdf(file = "figures/distributions/reference_dists_xlim10.pdf")
+for(i in 1:4){
+  for(j in 1:7){
+    for(c in 1:3){
+          b <- plot_test(l_comp_within[[1]][[i]][[j]][[5]][[c]], modmat = beta)
+          plot(b)
+          p <- plot_test(l_comp_within[[1]][[i]][[j]][[5]][[c]], modmat = pcor)
+          plot(p)      
+      }
+  }
+}
+dev.off()
+
+
+```
+
+Then, try approximating the norm distribution with known densities. This did not really lead anywhere.
+```{r}
+ref_dist <- l_comp_within[[1]][[3]][[6]][[5]][[1]]$res %>% 
+  as.data.frame() %>% 
+  filter(mat == "beta") %>% 
+  filter(model_ind == 1) %>% 
+  pull(null)
+
+hist(ref_dist, breaks = 40)
+
+
+cs_res<- MASS::fitdistr(ref_dist, densfun = "chi-squared", start = list(df = 1))
+no_res <- MASS::fitdistr(ref_dist, densfun = "normal")
+
+```
+
+
+
 ### Plotting Posterior Bootstrap approach
 Plot results. This is still too much code, I will collapse this later so that it iterates over the different DGPs. 
 
+TODO: extend all this to graph 4 as well.
 
 
 #### Power
@@ -652,10 +725,10 @@ plot_within_power05_graph1 <- df_comp_res %>%
   ggplot(aes(x = as.numeric(tp), y = power05, col = comp)) + 
   geom_line()+
   facet_grid(change ~ res)+
-  theme_minimal()+
-  scale_color_okabe_ito()
+  theme_minimal()
+  # scale_color_okabe_ito()
 
-ggsave("plot_within_power05_graph1.svg", plot_within_power05_graph1, device = "svg", path = here("figures/"))  
+ggsave("plot_within_power05_graph1_1303.svg", plot_within_power05_graph1, device = "svg", path = here("figures/"))  
 
 plot_within_power05_graph2 <- df_comp_res %>% 
   pivot_longer(cols = c("beta_a", "beta_b", "pcor_a", "pcor_b"), names_to = "res") %>% 
@@ -671,10 +744,10 @@ plot_within_power05_graph2 <- df_comp_res %>%
   ggplot(aes(x = as.numeric(tp), y = power05, col = comp)) + 
   geom_line()+
   facet_grid(change ~ res)+
-  theme_minimal()+
-  scale_color_okabe_ito()
+  theme_minimal()
+  # scale_color_okabe_ito()
 
-ggsave("plot_within_power05_graph2.svg", plot_within_power05_graph2, device = "svg", path = here("figures/"))  
+ggsave("plot_within_power05_graph2_1303.svg", plot_within_power05_graph2, device = "svg", path = here("figures/"))  
 
 plot_within_power05_graph3 <- df_comp_res %>% 
   pivot_longer(cols = c("beta_a", "beta_b", "pcor_a", "pcor_b"), names_to = "res") %>% 
@@ -690,10 +763,10 @@ plot_within_power05_graph3 <- df_comp_res %>%
   ggplot(aes(x = as.numeric(tp), y = power05, col = comp)) + 
   geom_line()+
   facet_grid(change ~ res)+
-  theme_minimal()+
-  scale_color_okabe_ito()
+  theme_minimal()
+  # scale_color_okabe_ito()
 
-ggsave("plot_within_power05_graph3.svg", plot_within_power05_graph3, device = "svg", path = here("figures/"))  
+ggsave("plot_within_power05_graph3_1303.svg", plot_within_power05_graph3, device = "svg", path = here("figures/"))  
 
 plot_within_power05_graph4 <- df_comp_res %>%
   pivot_longer(cols = c("beta_a", "beta_b", "pcor_a", "pcor_b"), names_to = "res") %>%
@@ -709,27 +782,10 @@ plot_within_power05_graph4 <- df_comp_res %>%
   ggplot(aes(x = as.numeric(tp), y = power05, col = comp)) +
   geom_line()+
   facet_grid(change ~ res)+
-  theme_minimal()+
-  scale_color_okabe_ito()
-# 
-ggsave("plot_within_power05_graph4.svg", plot_within_power05_graph4, device = "svg", path = here("figures/"))
-
-plot_within_power05_graph5 <- df_comp_res %>%
-  pivot_longer(cols = c("beta_a", "beta_b", "pcor_a", "pcor_b"), names_to = "res") %>%
-  filter(dgp == "graph5") %>%
-  mutate(sig05 = ifelse(value < 50, 1, 0),
-         sig01 = ifelse(value < 10, 1, 0)) %>%
-  group_by(comp, tp, change, res) %>%
-  mutate(n_comp = n()) %>%
-  # need the max here so that it reduces to one row
-  # n_comp is the same for every row anyway
-  summarize(power05 = sum(sig05)/max(n_comp)) %>%
-  ungroup() %>%
-  ggplot(aes(x = as.numeric(tp), y = power05, col = comp)) +
-  geom_line()+
-  facet_grid(change ~ res)+
   theme_minimal()
-ggsave("plot_within_power05_graph5.svg", plot_within_power05_graph4, device = "svg", path = here("figures/"))
+  # scale_color_okabe_ito()
+# 
+# ggsave("plot_within_power05_graph4_1303.svg", plot_within_power05_graph4, device = "svg", path = here("figures/"))  
 
 
 
@@ -801,49 +857,7 @@ plot_within_raw_graph3 <- df_comp_res %>%
   theme_minimal()+
   scale_color_okabe_ito()+ 
   labs(caption = "% of post. diff. larger than empirical. graph3.")
-ggsave("plot_within_raw_graph3.svg", plot_within_raw_graph3, device = "svg", path = here("figures/"))
-
-plot_within_raw_graph4 <- df_comp_res %>% 
-  pivot_longer(cols = c("beta_a", "beta_b", "pcor_a", "pcor_b"), names_to = "res") %>% 
-  # mutate(across(c(comp, dgp, tp, comp_graph, res),
-  # ~ as.factor(.))) %>% 
-  filter(dgp == "graph4") %>% 
-  mutate(comp = as.factor(comp),
-         tp = as.numeric(tp),
-         change = as.factor(change),
-         res = as.factor(res)) %>% 
-  dplyr::group_by(comp, tp, change, res) %>%
-  dplyr::summarize(pct_larger = value/10) %>%
-  dplyr::summarize(pct_larger = mean(pct_larger)) %>% 
-  ggplot(aes(x = as.numeric(tp), y = pct_larger, col = comp)) + 
-  # geom_text(aes(label = round(pct_larger,1)), size = 4)+
-  geom_line()+
-  facet_grid(change ~ res)+
-  theme_minimal()+
-  scale_color_okabe_ito()+ 
-  labs(caption = "% of post. diff. larger than empirical. graph5.")
-ggsave("plot_within_raw_graph4.svg", plot_within_raw_graph4, device = "svg", path = here("figures/")) 
-
-plot_within_raw_graph5 <- df_comp_res %>% 
-  pivot_longer(cols = c("beta_a", "beta_b", "pcor_a", "pcor_b"), names_to = "res") %>% 
-  # mutate(across(c(comp, dgp, tp, comp_graph, res),
-  # ~ as.factor(.))) %>% 
-  filter(dgp == "graph5") %>% 
-  mutate(comp = as.factor(comp),
-         tp = as.numeric(tp),
-         change = as.factor(change),
-         res = as.factor(res)) %>% 
-  dplyr::group_by(comp, tp, change, res) %>%
-  dplyr::summarize(pct_larger = value/10) %>%
-  dplyr::summarize(pct_larger = mean(pct_larger)) %>% 
-  ggplot(aes(x = as.numeric(tp), y = pct_larger, col = comp)) + 
-  # geom_text(aes(label = round(pct_larger,1)), size = 4)+
-  geom_line()+
-  facet_grid(change ~ res)+
-  theme_minimal()+
-  scale_color_okabe_ito()+ 
-  labs(caption = "% of post. diff. larger than empirical. graph5.")
-ggsave("plot_within_raw_graph5.svg", plot_within_raw_graph5, device = "svg", path = here("figures/")) 
+ggsave("plot_within_raw_graph3.svg", plot_within_raw_graph3, device = "svg", path = here("figures/"))  
 
 ```
 
@@ -854,7 +868,6 @@ This does not account for the correct dgp at the moment.
 plot_within_fp05_graph1 <- df_comp_res %>% 
   # here, beta_b and pcor_b are irrelevant, as we compare within the same graph
   pivot_longer(cols = c("beta_a", "pcor_a"), names_to = "res") %>% 
-  filter(dgp == "graph1") %>%
   filter(change == "truegraph") %>% 
   mutate(sig05 = ifelse(value < 50, 1, 0),
          sig01 = ifelse(value < 10, 1, 0)) %>%
@@ -877,7 +890,6 @@ plot_within_fp05_graph2 <- df_comp_res %>%
   # here, beta_b and pcor_b are irrelevant, as we compare within the same graph
   pivot_longer(cols = c("beta_a", "pcor_a"), names_to = "res") %>% 
   filter(change == "truegraph") %>% 
-  filter(dgp == "graph2") %>% 
   mutate(sig05 = ifelse(value < 50, 1, 0),
          sig01 = ifelse(value < 10, 1, 0)) %>%
   group_by(dgp, comp, tp, change, res) %>%
@@ -901,7 +913,6 @@ plot_within_fp05_graph3 <- df_comp_res %>%
   # here, beta_b and pcor_b are irrelevant, as we compare within the same graph
   pivot_longer(cols = c("beta_a", "pcor_a"), names_to = "res") %>% 
   filter(change == "truegraph") %>% 
-  filter(dgp == "graph3") %>% 
   mutate(sig05 = ifelse(value < 50, 1, 0),
          sig01 = ifelse(value < 10, 1, 0)) %>%
   group_by(dgp, comp, tp, change, res) %>%
@@ -924,7 +935,6 @@ plot_within_fp05_graph4 <- df_comp_res %>%
   # here, beta_b and pcor_b are irrelevant, as we compare within the same graph
   pivot_longer(cols = c("beta_a", "pcor_a"), names_to = "res") %>% 
   filter(change == "truegraph") %>% 
-  filter(dgp == "graph4") %>% 
   mutate(sig05 = ifelse(value < 50, 1, 0),
          sig01 = ifelse(value < 10, 1, 0)) %>%
   group_by(dgp, comp, tp, change, res) %>%
@@ -941,28 +951,6 @@ plot_within_fp05_graph4 <- df_comp_res %>%
   labs(caption = "Percentage of false positives for different norms.")
 
 ggsave("plot_within_fp05_graph4.svg", plot_within_fp05_graph4, device = "svg", path = here("figures/")) 
-
-plot_within_fp05_graph5 <- df_comp_res %>% 
-  # here, beta_b and pcor_b are irrelevant, as we compare within the same graph
-  pivot_longer(cols = c("beta_a", "pcor_a"), names_to = "res") %>% 
-  filter(change == "truegraph") %>% 
-  filter(dgp == "graph5") %>% 
-  mutate(sig05 = ifelse(value < 50, 1, 0),
-         sig01 = ifelse(value < 10, 1, 0)) %>%
-  group_by(dgp, comp, tp, change, res) %>%
-  mutate(n_comp = n()) %>%  
-  summarize(fp05 = sum(sig05)/n_comp) %>% 
-  # somehow does not cut everything if I don't do this
-  summarize(fp05 = mean(fp05)) %>% 
-  ggplot(aes(x = as.numeric(tp), y = fp05, col = comp)) + 
-  geom_line()+
-  facet_grid(dgp ~ res)+
-  theme_minimal()+
-  # scale_color_okabe_ito()+
-  ylim(c(-0.01, 0.2))+
-  labs(caption = "Percentage of false positives for different norms.")
-
-ggsave("plot_within_fp05_graph5.svg", plot_within_fp05_graph5, device = "svg", path = here("figures/")) 
 
 
 ```
@@ -996,7 +984,7 @@ ggsave("plot_dec_rule_graph1.svg", plot_dec_rule_graph1, device = "svg", path = 
 
 
 plot_dec_rule_graph2 <- df_comp_res %>% 
-  # dplyr::select(-c("kappa_a", "kappa_b")) %>% 
+  dplyr::select(-c("kappa_a", "kappa_b")) %>% 
   filter(dgp == "graph2") %>% 
   # setup decision rule
   mutate(sig_beta05 = ifelse(beta_a < 50 | beta_b < 50, 1, 0),
@@ -1019,7 +1007,7 @@ ggsave("plot_dec_rule_graph2.svg", plot_dec_rule_graph2, device = "svg", path = 
 
 
 plot_dec_rule_graph3 <- df_comp_res %>% 
-  # dplyr::select(-c("kappa_a", "kappa_b")) %>% 
+  dplyr::select(-c("kappa_a", "kappa_b")) %>% 
   filter(dgp == "graph3") %>% 
   # setup decision rule
   mutate(sig_beta05 = ifelse(beta_a < 50 | beta_b < 50, 1, 0),
@@ -1084,52 +1072,6 @@ plot_dec_rule_graph5 <- df_comp_res %>%
   labs(caption = "Power of decision rule \"OR\" for graph5")
 ggsave("plot_dec_rule_graph5.svg", plot_dec_rule_graph5, device = "svg", path = here("figures/")) 
 ```
-Plot decision rule for all graphs, seperately for beta and pcor
-```{r}
-plot_dec_rule_beta <- df_comp_res %>% 
-  # setup decision rule
-  dplyr::mutate(sig_beta05 = ifelse(beta_a < 50 | beta_b < 50, 1, 0),
-         sig_pcor05 = ifelse(pcor_a < 50 | pcor_b < 50, 1, 0)) %>% 
-  dplyr::group_by(dgp, comp, tp, change) %>% 
-  dplyr::mutate(n_comp = n()) %>% 
-  dplyr::summarize(power_beta05 = sum(sig_beta05)/n_comp,
-            power_pcor05 = sum(sig_pcor05)/n_comp) %>% 
-  # somehow does not cut everything if I don't do this because of n_comp
-  dplyr::summarize(power_beta05 = mean(power_beta05),
-            power_pcor05 = mean(power_pcor05)) %>% 
-  dplyr::select(-contains("pcor")) %>% 
-  # pivot_longer(cols = c("power_beta05", "power_pcor05"), names_to = "res") %>% 
-  ggplot(aes(x = as.numeric(tp), y = power_beta05, col = comp)) + 
-  geom_line()+
-  facet_grid(change ~ dgp)+
-  theme_minimal()+
-  scale_color_okabe_ito()+
-  labs(caption = "Power of decision rule \"OR\" for beta")
-ggsave("plot_dec_rule_beta.svg", plot_dec_rule_beta, device = "svg", path = here("figures/")) 
-```
-Same for Pcor
-```{r}
-plot_dec_rule_pcor <- df_comp_res %>% 
-  # setup decision rule
-  dplyr::mutate(sig_beta05 = ifelse(beta_a < 50 | beta_b < 50, 1, 0),
-         sig_pcor05 = ifelse(pcor_a < 50 | pcor_b < 50, 1, 0)) %>% 
-  dplyr::group_by(dgp, comp, tp, change) %>% 
-  dplyr::mutate(n_comp = n()) %>% 
-  dplyr::summarize(power_beta05 = sum(sig_beta05)/n_comp,
-            power_pcor05 = sum(sig_pcor05)/n_comp) %>% 
-  # somehow does not cut everything if I don't do this because of n_comp
-  dplyr::summarize(power_beta05 = mean(power_beta05),
-            power_pcor05 = mean(power_pcor05)) %>% 
-  dplyr::select(-contains("beta")) %>% 
-  # pivot_longer(cols = c("power_beta05", "power_pcor05"), names_to = "res") %>% 
-  ggplot(aes(x = as.numeric(tp), y = power_pcor05, col = comp)) + 
-  geom_line()+
-  facet_grid(change ~ dgp)+
-  theme_minimal()+
-  scale_color_okabe_ito()+
-  labs(caption = "Power of decision rule \"OR\" for pcor")
-ggsave("plot_dec_rule_pcor.svg", plot_dec_rule_pcor, device = "svg", path = here("figures/")) 
-```
 
 
 
@@ -1141,7 +1083,7 @@ How large are the norms across the simulation conditions?
 
 ```{r}
 plot_emp_norms_graph1 <- df_comp_res %>% 
-  # dplyr::select(-c("kappa_a", "kappa_b")) %>% 
+  dplyr::select(-c("kappa_a", "kappa_b")) %>% 
   # mutate(across(c(comp, dgp, tp, comp_graph, res),
   # ~ as.factor(.))) %>% 
   filter(dgp == "graph1") %>% 
@@ -1224,4 +1166,416 @@ ggsave("plot_emp_norms_graph3.svg", plot_emp_norms_graph3, device = "svg", path 
 
 
 
+
+
+
+# Simulating from posterior approach
+Use random samples from the posterior to simulate new datasets. This is not our current approach anymore. 
+```{r sim-from-posterior}
+before_simpost <- Sys.time()
+# Setup parallel
+ncores = parallel::detectCores() - 2
+cl = makeCluster(ncores)
+registerDoParallel(cl)
+# Create storage
+l_data <- list()
+l_data$graph3 <- l_data$graph2 <- l_data$graph1 <- list()
+# Loop over timepoint conditions
+for(t in seq_along(n_tp)){
+  l_data$graph1[[t]] <- lapply(l_res$graph1[[t]], function(x){sim_from_post_parallel(
+    fitobj = x, n = n_ind, n_datasets = n_postds, tp = n_tp,
+    iterations = n_iter, means = 0, seed = seed, convert_bggm = FALSE)})
+  
+  l_data$graph2[[t]] <- lapply(l_res$graph2[[t]], function(x){sim_from_post_parallel(
+    fitobj = x, n = n_ind, n_datasets = n_postds, tp = n_tp,
+    iterations = n_iter, means = 0, seed = seed, convert_bggm = FALSE)})
+
+  l_data$graph3[[t]] <- lapply(l_res$graph3[[t]], function(x){sim_from_post_parallel(
+    fitobj = x, n = n_ind, n_datasets = n_postds, tp = n_tp,
+    iterations = n_iter, means = 0, seed = seed, convert_bggm = FALSE)})
+}
+
+stopCluster(cl)
+after_simpost <- Sys.time()
+
+write_rds(l_data, "l_data_new.Rds")
+# l_data <- readRDS(here("l_data.Rds"))
+
+
+```
+
+Double check simulation for correct transposing of weights matrix
+```{r}
+sim_check <- graphicalVARsim(3000, beta = t(l_res$graph1[[4]]$truegraph[[1]]$beta_mu), kappa = l_res$graph1[[4]]$truegraph[[1]]$kappa_mu)
+sim_check <- as.data.frame(sim_check)
+sim_check_res <- var_estimate(sim_check)
+
+sim_check_res$beta_mu-l_res$graph1[[4]]$truegraph[[1]]$beta_mu
+
+```
+
+
+
+
+## Refit on posterior predictive data
+Compute different norms between models on resampled datasets compared to reference model and then compare to actual difference between two models. 
+```{r}
+before_par_fit <- Sys.time()
+ncores = parallel::detectCores() - 3
+cl = makeCluster(ncores)
+registerDoParallel(cl)
+l_postres <- list()
+l_postres$graph3 <- l_postres$graph2 <- l_postres$graph1 <- list()
+for(t in seq_along(n_tp)){
+  l_postres$graph1[[t]] <- lapply(l_data$graph1[[t]], function(x){fit_var_parallel_post(
+                 data = x, n = n_ind, nds = n_postds,
+                 rho_prior = rho_sd, beta_prior = beta_sd, seed = seed,
+                 iterations = n_iter, posteriorsamples = TRUE, pruneresults = TRUE)}) 
+  
+  l_postres$graph2[[t]] <- lapply(l_data$graph2[[t]], function(x){fit_var_parallel_post(
+                 data = x, n = n_ind, nds = n_postds,
+                 rho_prior = rho_sd, beta_prior = beta_sd, seed = seed,
+                 iterations = n_iter, posteriorsamples = TRUE, pruneresults = TRUE)})
+
+  l_postres$graph3[[t]] <- lapply(l_data$graph3[[t]], function(x){fit_var_parallel_post(
+                 data = x, n = n_ind, nds = n_postds,
+                 rho_prior = rho_sd, beta_prior = beta_sd, seed = seed,
+                 iterations = n_iter, posteriorsamples = TRUE, pruneresults = TRUE)})
+
+
+}
+
+
+stopCluster(cl)
+after_par_fit <- Sys.time() - before_par_fit    # around 1h per graph (with 15 individuals)
+
+write_rds(l_postres, "l_postres_new.Rds")
+# l_postres <- readRDS(here("l_postres.Rds"))
+
+
+
+```
+
+
+## Evaluation of posterior refitting approach
+
+Then, start the evaluation. 
+Maxdiff still throws an error here, which is indicative of non-convergence
+
+```{r eval-posterior-refit}
+# All possible model combinations
+comp_combinations <- expand_grid_unique(mod_a = seq(1, n_ind, 1),
+                                 mod_b = seq(1, n_ind, 1))
+# number of data-generating processes
+n_dgp <- 1
+# Number of comparison types
+n_c_types <- 3
+
+# Number of different changed graph structures
+n_g_types <- 7
+
+# Number of different tp conditions
+n_t_types <- 4
+
+
+dgp_names <- c("graph1", "graph2", "graph3")
+change_names <- c("truegraph", "change1.4", "change1.6",
+                  "noise0.1", "noise0.2", "noise0.3", "perm")
+comp_names <- c("frob","maxdiff", "l1")
+
+
+# Number of comparison combinations
+n_c_comb <- nrow(comp_combinations)
+
+
+# Setup storage
+l_comp<- list()
+
+# Loop over data-generating processes
+for(d in seq(n_dgp)){
+  l_comp[[d]] <- list()
+  # Loop over timepoint conditions
+  for(t in seq(n_t_types)){
+    l_comp[[d]][[t]] <- list() 
+    # Loop over changed graphs
+    for(c in seq(n_g_types)){
+      l_comp[[d]][[t]][[c]] <- list()
+      # Loop over model combinations
+      for(m in seq(n_c_comb)){
+        l_comp[[d]][[t]][[c]][[m]] <- list()
+        # Loop over comparison types
+        for(c_type in seq(n_c_types)){
+          l_comp[[d]][[t]][[c]][[m]][[c_type]] <- list()
+          l_comp[[d]][[t]][[c]][[m]][[c_type]] <- cross_compare(
+                      postpost = FALSE,
+                      mod_a = comp_combinations[m, 1],
+                      mod_b = comp_combinations[m, 2],
+                      # [[1]] indexes the truegraph
+                      fitpost_a = l_postres[[d]][[t]][[1]],
+                      fitpost_b = l_postres[[d]][[t]][[c]],
+                      fitemp_a = l_res[[d]][[t]][[1]],
+                      fitemp_b = l_res[[d]][[t]][[c]],
+                      n_datasets = 100,
+                      comparison = comp_names[c_type])
+          # Store relevant parameters for evaluation
+         l_comp[[d]][[t]][[c]][[m]][[c_type]]$params <- data.frame(
+           dgp = dgp_names[d],
+           tp = n_tp[t],
+           comp_graph = change_names[c]
+         )
+        } 
+
+        
+        
+      }
+    }
+  }
+}
+
+
+
+```
+
+
+Evaluation: 
+- number of posterior sample distances > empirical distance
+```{r eval-comp}
+l_eval <- list()
+# Loop over data-generating processes
+for(d in seq(n_dgp)){
+  l_eval[[d]] <- list()
+  # Loop over timepoint conditions
+  for(t in seq(n_t_types)){
+    l_eval[[d]][[t]] <- list() 
+    # Loop over changed graphs
+    for(c in seq(n_g_types)){
+      l_eval[[d]][[t]][[c]] <- list()
+      # Loop over model combinations
+      for(m in seq(n_c_comb)){
+        l_eval[[d]][[t]][[c]][[m]] <- list()
+        l_eval[[d]][[t]][[c]][[m]] <- lapply(l_comp[[d]][[t]][[c]][[m]],cross_compare_eval)
+
+      }
+    }
+  }
+}
+
+
+# Now unpack
+df_eval <- rrapply::rrapply(l_eval, how = "bind")
+
+
+
+
+```
+
+
+Now we can plot the results. First, power to detect true differences:
+```{r}
+eval_plot_diffgraph <- df_eval %>% 
+  pivot_longer(cols = c("beta_a", "beta_b", "pcor_a", "pcor_b"), names_to = "res") %>% 
+  # mutate(across(c(comp, dgp, tp, comp_graph, res),
+                # ~ as.factor(.))) %>% 
+  filter(dgp == "graph1") %>% 
+  # comp_graph == truegraph is comparison with same dgp, so null
+  filter(comp_graph != "truegraph") %>% 
+  mutate(sig05 = ifelse(value <= 5, 1, 0),
+         sig01 = ifelse(value <= 1, 1, 0)) %>%
+  group_by(comp, tp, comp_graph, res) %>%
+  mutate(n_comp = n()) %>%  
+  summarize(power05 = sum(sig05)/n_comp) %>% 
+  # somehow does not cut everything if I don't do this
+  summarize(power05 = mean(power05)) %>% 
+  ggplot(aes(x = tp, y = power05, col = comp)) + 
+  geom_line()+
+  facet_grid(comp_graph ~ res)+
+  theme_minimal()+
+  scale_color_okabe_ito()+
+  labs(title = "Graph Fried (2020) as Comparison",
+       caption = "Rho_SD = 0.3, Beta_sd = 1")
+ggsave("eval_plot_diffgraph.svg", device = "svg", path = here("figures/"))  
+
+
+```
+
+
+
+
+
+
+
+## Compare with full posterior differences
+Instead of only taking the empirical difference between fits, we generate a distribution of posterior differences _between_ models.  
+
+```{r posterior-differences-between}
+post_diff <- cross_compare_post(comparison = "l1")
+post_diff %>% 
+  bind_rows(., .id = "matrix") %>% 
+  pivot_longer(cols = c("null", "emp"), names_to = "dist") %>% 
+  ggplot(aes(x = value, group = dist, color = dist, fill = dist))+
+  geom_density()+
+  theme_minimal()
+```
+
+
+## Compare with bootstrapped posterior models
+We now generate a distribution of posterior differences _within_ models. 
+```{r posterior differences-within}
+wc_res <- within_compare(
+                      mod_a = 1,
+                      mod_b = 2,
+                      # [[1]] indexes the truegraph
+                      fitpost_a = l_postres[[1]][[3]][[1]],
+                      fitpost_b = l_postres[[1]][[3]][[2]],
+                      fitemp_a = l_res[[1]][[3]][[1]],
+                      fitemp_b = l_res[[1]][[3]][[2]],
+                      n_datasets = 100,
+                      comparison = "frob",
+                      n_draws = 1000)
+
+
+wc_res %>% 
+  filter(mat == "beta") %>% 
+  # pivot_longer(cols = c("null", "emp"), names_to = "res") %>% 
+  ggplot(aes(x = null))+
+  geom_density()+
+  geom_vline(aes(xintercept = emp))
+
+
+```
+
+Do this for all models.
+```{r}
+# All possible model combinations
+comp_combinations <- expand_grid_unique(mod_a = seq(1, n_ind, 1),
+                                 mod_b = seq(1, n_ind, 1))
+# number of data-generating processes
+n_dgp <- 3
+# Number of comparison types
+n_c_types <- 3
+
+# Number of different changed graph structures
+n_g_types <- 7
+
+# Number of different tp conditions
+n_t_types <- 4
+
+dgp_names <- c("graph1", "graph2", "graph3")
+
+change_names <- c("truegraph", "change1.2", "change1.4", "change1.6",
+                  "noise0.1", "noise0.2", "noise0.3", "perm")
+
+
+comp_names <- c("frob","maxdiff", "l1")
+
+# Number of comparison combinations
+n_c_comb <- nrow(comp_combinations)
+
+# Setup storage
+l_comp_within<- list()
+
+# Loop over data-generating processes
+for(d in seq(n_dgp)){
+  l_comp_within[[d]] <- list()
+  # Loop over timepoint conditions
+  for(t in seq(n_t_types)){
+    l_comp_within[[d]][[t]] <- list() 
+    # Loop over changed graphs
+    for(c in seq(n_g_types)){
+      l_comp_within[[d]][[t]][[c]] <- list()
+      # Loop over model combinations
+      for(m in seq(n_c_comb)){
+        l_comp_within[[d]][[t]][[c]][[m]] <- list()
+        # Loop over comparison types
+        for(c_type in seq(n_c_types)){
+          l_comp_within[[d]][[t]][[c]][[m]][[c_type]] <- list()
+          l_comp_within[[d]][[t]][[c]][[m]][[c_type]]$res <- within_compare(
+                      mod_a = comp_combinations[m, 1],
+                      mod_b = comp_combinations[m, 2],
+                      # [[1]] indexes the truegraph
+                      fitpost_a = l_postres[[d]][[t]][[1]],
+                      fitpost_b = l_postres[[d]][[t]][[c]],
+                      fitemp_a = l_res[[d]][[t]][[1]],
+                      fitemp_b = l_res[[d]][[t]][[c]],
+                      n_datasets = 100,
+                      n_draws = 1000,
+                      comparison = comp_names[c_type])
+         # Store relevant parameters for evaluation
+         l_comp_within[[d]][[t]][[c]][[m]][[c_type]]$params <- list(
+           dgp = dgp_names[d],
+           tp = n_tp[t],
+           comp_graph = change_names[c]
+         )
+        } 
+
+        
+        
+      }
+    }
+  }
+}
+
+
+```
+
+Now evaluate this: 
+```{r}
+within_compare_eval(l_res = l_comp_within[[1]][[3]][[4]][[1]][[1]])
+
+
+# Set up for all simulation conditions
+l_eval_within <- list()
+# Loop over data-generating processes
+# TODO change back to seg(n_dgp)
+for(d in seq(n_dgp)){
+  l_eval_within[[d]] <- list()
+  # Loop over timepoint conditions
+  for(t in seq(n_t_types)){
+    l_eval_within[[d]][[t]] <- list() 
+    # Loop over changed graphs
+    for(c in seq(n_g_types)){
+      l_eval_within[[d]][[t]][[c]] <- list()
+      # Loop over model combinations
+      for(m in seq(n_c_comb)){
+        l_eval_within[[d]][[t]][[c]][[m]] <- list()
+        l_eval_within[[d]][[t]][[c]][[m]] <- lapply(l_comp_within[[d]][[t]][[c]][[m]],within_compare_eval)
+
+      }
+    }
+  }
+}
+
+
+# Now unpack
+df_eval_within <- rrapply::rrapply(l_eval_within, how = "bind")
+
+
+```
+
+
+Plot
+```{r}
+df_eval_within %>% 
+  pivot_longer(cols = c("beta_a", "beta_b", "pcor_a", "pcor_b"), names_to = "res") %>% 
+  # mutate(across(c(comp, dgp, tp, comp_graph, res),
+                # ~ as.factor(.))) %>% 
+  filter(dgp == "graph1") %>% 
+  # comp_graph == truegraph is comparison with same dgp, so null
+  filter(comp_graph != "truegraph") %>% 
+  mutate(sig05 = ifelse(value < 50, 1, 0),
+         sig01 = ifelse(value < 10, 1, 0)) %>%
+  group_by(comp, tp, comp_graph, res) %>%
+  mutate(n_comp = n()) %>%  
+  summarize(power05 = sum(sig05)/n_comp) %>% 
+  # somehow does not cut everything if I don't do this
+  summarize(power05 = mean(power05)) %>% 
+  ggplot(aes(x = tp, y = power05, col = comp)) + 
+  geom_line()+
+  facet_grid(comp_graph ~ res)+
+  theme_minimal()+
+  scale_color_okabe_ito()
+
+
+
+```
 
