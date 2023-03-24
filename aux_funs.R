@@ -2796,9 +2796,9 @@ posterior_plot <- function(object,
   # Start plotting
   # TODO add option for numerical value per plot
   beta_plot <- beta %>% 
-    group_by(dv, iv) %>% 
-    mutate(mean_value = mean(value, na.rm = TRUE)) %>% 
-    ungroup() %>% 
+    dplyr::group_by(dv, iv) %>% 
+    dplyr::mutate(mean_value = mean(value, na.rm = TRUE)) %>% 
+    dplyr::ungroup() %>% 
     ggplot(aes(x = value))+
     # ggdist::stat_halfeye(aes(fill = after_stat(level)), .width = cis)+
     ggdist::stat_slab(aes(fill = after_stat(level), alpha = abs(mean_value)), .width = c(cis, 1)) +
@@ -2806,7 +2806,7 @@ posterior_plot <- function(object,
     scale_alpha(guide = "none")+
     facet_grid(iv~dv,
                switch = "y")+
-    theme_ggdist()+
+    ggdist::theme_ggdist()+
     geom_vline(xintercept = 0, linetype = "dashed")+
     theme(axis.text.y = element_blank(),
           axis.ticks.y = element_blank())+
@@ -2818,10 +2818,24 @@ posterior_plot <- function(object,
   
   # TODO does not work yet
   # has to be made symmetric, maybe reorder variable
+  # create duplicate plot
+  pcor_tmp1<- pcor %>% 
+    dplyr::group_by(dv, iv) %>% 
+    dplyr::mutate(mean_value = mean(value, na.rm = TRUE)) %>% 
+    dplyr::ungroup()
+  pcor_tmp2 <- pcor %>% 
+    dplyr::group_by(dv, iv) %>% 
+    dplyr::mutate(mean_value = mean(value, na.rm = TRUE)) %>% 
+    dplyr::ungroup() %>% 
+    dplyr::mutate(dv2 = dv, iv2 = iv) %>% 
+    dplyr::mutate(dv = iv2, iv = dv2) %>% 
+    dplyr::select(-c(iv2, dv2))
+  pcor <- rbind(pcor_tmp1, pcor_tmp2)
+  
   pcor_plot <- pcor %>% 
-    group_by(dv, iv) %>% 
-    mutate(mean_value = mean(value, na.rm = TRUE)) %>% 
-    ungroup() %>% 
+    dplyr::group_by(dv, iv) %>% 
+    dplyr::mutate(mean_value = mean(value, na.rm = TRUE)) %>% 
+    dplyr::ungroup() %>% 
     ggplot(aes(x = value))+
     # ggdist::stat_halfeye(aes(fill = after_stat(level)), .width = cis)+
     ggdist::stat_slab(aes(fill = after_stat(level), alpha = abs(mean_value)), .width = c(cis, 1)) +
@@ -2829,18 +2843,21 @@ posterior_plot <- function(object,
     # scale_alpha_manual(guide = "none")+
     facet_grid(iv~dv,
                switch = "y")+
-    theme_ggdist()+
+    ggdist::theme_ggdist()+
+    scale_alpha(guide = "none")+
     geom_vline(xintercept = 0, linetype = "dashed")+
     theme(axis.text.y = element_blank(),
           axis.ticks.y = element_blank())+
     scale_fill_brewer() +
     labs(y = "",
-         fill = "CI")+
+         fill = "CI",
+         alpha = "")+
     ylim(-0.1, 1)
   
   
-  print(beta_plot)
-  # print(pcor_plot)
+    # print(beta_plot)
+    print(pcor_plot)
+
   # return(beta)
   # return(pcor)
   
