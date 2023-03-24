@@ -2787,6 +2787,7 @@ posterior_plot <- function(object,
   
   
   # Start plotting
+  # TODO add option for numerical value per plot
   beta_plot <- beta %>% 
     group_by(dv, iv) %>% 
     mutate(mean_value = mean(value, na.rm = TRUE)) %>% 
@@ -2795,6 +2796,7 @@ posterior_plot <- function(object,
     # ggdist::stat_halfeye(aes(fill = after_stat(level)), .width = cis)+
     ggdist::stat_slab(aes(fill = after_stat(level), alpha = abs(mean_value)), .width = c(cis, 1)) +
     ggdist::stat_pointinterval(aes(alpha = abs(mean_value)), size = 1) +
+    scale_alpha(guide = "none")+
     facet_grid(iv~dv,
                switch = "y")+
     theme_ggdist()+
@@ -2807,16 +2809,27 @@ posterior_plot <- function(object,
     ylim(-0.1, 1)
   
   
-  # TODO adapt to beta_plot
+  # TODO does not work yet
+  # has to be made symmetric, maybe reorder variable
   pcor_plot <- pcor %>% 
+    group_by(dv, iv) %>% 
+    mutate(mean_value = mean(value, na.rm = TRUE)) %>% 
+    ungroup() %>% 
     ggplot(aes(x = value))+
-    ggdist::stat_halfeye()+
+    # ggdist::stat_halfeye(aes(fill = after_stat(level)), .width = cis)+
+    ggdist::stat_slab(aes(fill = after_stat(level), alpha = abs(mean_value)), .width = c(cis, 1)) +
+    ggdist::stat_pointinterval(aes(alpha = abs(mean_value)), size = 1) +
+    # scale_alpha_manual(guide = "none")+
     facet_grid(iv~dv,
                switch = "y")+
-    theme_minimal()+
+    theme_ggdist()+
+    geom_vline(xintercept = 0, linetype = "dashed")+
     theme(axis.text.y = element_blank(),
           axis.ticks.y = element_blank())+
-    labs(y = "")
+    scale_fill_brewer() +
+    labs(y = "",
+         fill = "CI")+
+    ylim(-0.1, 1)
   
   
   print(beta_plot)
@@ -2828,6 +2841,37 @@ posterior_plot <- function(object,
 
 
 
+
+# Plot test results -------------------------------------------------------
+plot_test <- function(comp_obj,
+                      modmat,
+                      ref_dist = null,
+                      emp_diff = emp,
+                      ind = model_ind,
+                      comp_type = comp){
+  
+  # Store params
+  pr <- comp_obj$params
+  
+  # get comp type
+  ct <- comp_obj$res %>% distinct({{comp_type}})
+  
+  # Get matrix as character
+  c_matrix <- deparse(substitute(modmat))
+  
+  
+  comp_obj$res %>% 
+    filter(mat == c_matrix) %>%  
+    ggplot()+
+    geom_histogram(aes(x = {{ref_dist}}, fill = as.factor({{ind}})), alpha = 0.65,  position = "identity", bins = 100)+
+    geom_vline(aes(xintercept = max({{emp_diff}})))+
+    theme_minimal()+
+    labs(x = paste0(ct, " Norm Value"),
+         fill = "Model",
+         caption = paste0("DGP: ", pr$dgp,", TP: ", pr$tp, ", Comparison Graph: ", pr$comp_graph, ", Matrix: ", c_matrix))+
+    ggokabeito::scale_fill_okabe_ito()
+  
+}
 
 
 
