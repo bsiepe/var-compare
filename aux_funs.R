@@ -2335,7 +2335,6 @@ eval_bggm <- function(fit,
   kappa_true <- true_graph$kappa
   
   # Calculate PCOR 
-  # TODO doublecheck this
   pcor_true <- -1*stats::cov2cor(kappa_true)
   
   
@@ -2386,13 +2385,17 @@ eval_bggm <- function(fit,
   l_out$cor_beta_sel <- cor_zero(beta_est_sel_vec, beta_true_vec)
   l_out$cor_pcor_sel <- cor_zero(pcor_est_sel_vec, pcor_true_vec)
   
-  ## Bias
+  # Bias
   l_out$bias_beta_sel <- bias(beta_est_sel, beta_true)
   l_out$bias_pcor_sel <- bias(pcor_est_sel, pcor_true)
   
-  ## rmse
+  # rmse
   l_out$rmse_beta_sel <- rmse(beta_est_sel, beta_true)
   l_out$rmse_pcor_sel <- rmse(pcor_est_sel, pcor_true)
+  
+  # Amount of zeros
+  l_out$zeros_beta_sel <- sum(beta_est_sel == 0)
+  l_out$zeros_pcor_sel <- sum(pcor_est_sel[upper.tri(pcor_est_sel, diag = FALSE)] == 0)
   
   
   ## True/False Positive/Negative
@@ -2526,6 +2529,10 @@ eval_gvar <- function(fit,
   # add conditions for very sparse matrices
   l_out$cor_beta <- cor_zero(beta_est_vec, beta_true_vec)
   l_out$cor_pcor <- cor_zero(pcor_est_vec, pcor_true_vec)
+  
+  # Sum of zeros
+  l_out$zeros_beta <- sum(beta_est == 0)
+  l_out$zeros_pcor <- sum(pcor_est[upper.tri(pcor_est, diag = FALSE)] == 0)
   
   
   ## True/False Positive/Negative
@@ -2871,6 +2878,39 @@ plot_test <- function(comp_obj,
          caption = paste0("DGP: ", pr$dgp,", TP: ", pr$tp, ", Comparison Graph: ", pr$comp_graph, ", Matrix: ", c_matrix))+
     ggokabeito::scale_fill_okabe_ito()
   
+}
+
+
+# Plotting Theme ----------------------------------------------------------
+theme_compare <- function(){
+  # add google font
+  sysfonts::font_add_google("News Cycle", "news")
+  # use showtext
+  showtext::showtext_auto()
+  # theme
+  ggplot2::theme_minimal(base_family = "news") +
+    ggplot2::theme(
+      # remove minor grid
+      panel.grid.minor = ggplot2::element_blank(),
+      # Title and Axis Texts
+      plot.title = ggplot2::element_text(face = "bold", size = ggplot2::rel(1.2), hjust = 0.5),
+      plot.subtitle = ggplot2::element_text(size = ggplot2::rel(1.1), hjust = 0.5),
+      axis.title = ggplot2::element_text(size = ggplot2::rel(1.1)),
+      axis.text = ggplot2::element_text(size = ggplot2::rel(1)),
+      axis.text.x = ggplot2::element_text(margin = ggplot2::margin(5, b = 10)),
+      
+      # Faceting
+      strip.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.1), hjust = 0.5),
+      strip.background = ggplot2::element_rect(fill = NA, color = NA),
+      # Grid
+      panel.grid = ggplot2::element_line(colour = "#F3F4F5"),
+      # Legend
+      legend.title = ggplot2::element_text(face = "bold"),
+      legend.position = "top",
+      legend.justification = 1,
+      # Panel/Facets
+      panel.spacing.y = ggplot2::unit(1.5, "lines")
+    )
 }
 
 
