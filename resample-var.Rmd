@@ -641,8 +641,8 @@ file_list <- list.files(path = "data/compare_sim_eval", full.names = TRUE)
 l_comp_res <- lapply(file_list, readRDS)
 df_comp_res <- do.call(rbind, l_comp_res)
 
-# write_rds(df_comp_res, here::here("data/df_comp_res_1303.RDS"))
-# df_comp_res <- readRDS(here::here("data/df_comp_res_1303.RDS"))
+# write_rds(df_comp_res, here::here("data/df_comp_res_2303.RDS"))
+df_comp_res <- readRDS(here::here("data/df_comp_res_2303.RDS"))
 ```
 
 
@@ -663,535 +663,210 @@ df_comp_res %>%
 
 
 
-
-
-
-
-
-Visualize reference distributions and empirical value
-```{r}
-plot_test <- function(comp_obj,
-                      modmat,
-                      ref_dist = null,
-                      emp_diff = emp,
-                      ind = model_ind,
-                      comp_type = comp){
-  
-  # Store params
-  pr <- comp_obj$params
-  
-  # get comp type
-  ct <- comp_obj$res %>% distinct({{comp_type}})
-  
-  # Get matrix as character
-  c_matrix <- deparse(substitute(modmat))
-
-  
-  comp_obj$res %>% 
-    filter(mat == c_matrix) %>%  
-    ggplot()+
-    geom_histogram(aes(x = {{ref_dist}}, fill = as.factor({{ind}})), alpha = 0.65,  position = "identity", bins = 100)+
-    geom_vline(aes(xintercept = max({{emp_diff}})))+
-    theme_minimal()+
-    labs(x = paste0(ct, " Norm Value"),
-         fill = "Model",
-         caption = paste0("DGP: ", pr$dgp,", TP: ", pr$tp, ", Comparison Graph: ", pr$comp_graph, ", Matrix: ", c_matrix))+
-    ggokabeito::scale_fill_okabe_ito()
-
-}
-
-pdf(file = "figures/distributions/reference_dists_xlim10.pdf")
-for(i in 1:4){
-  for(j in 1:7){
-    for(c in 1:3){
-          b <- plot_test(l_comp_within[[1]][[i]][[j]][[5]][[c]], modmat = beta)
-          plot(b)
-          p <- plot_test(l_comp_within[[1]][[i]][[j]][[5]][[c]], modmat = pcor)
-          plot(p)      
-      }
-  }
-}
-dev.off()
-
-
-```
-
-Then, try approximating the norm distribution with known densities. This did not really lead anywhere.
-```{r}
-ref_dist <- l_comp_within[[1]][[3]][[6]][[5]][[1]]$res %>% 
-  as.data.frame() %>% 
-  filter(mat == "beta") %>% 
-  filter(model_ind == 1) %>% 
-  pull(null)
-
-hist(ref_dist, breaks = 40)
-
-
-cs_res<- MASS::fitdistr(ref_dist, densfun = "chi-squared", start = list(df = 1))
-no_res <- MASS::fitdistr(ref_dist, densfun = "normal")
-
-```
-
-
-
 ### Plotting Posterior Bootstrap approach
-Plot results. This is still too much code, I will collapse this later so that it iterates over the different DGPs. 
-
-TODO: extend all this to graph 4 as well.
 
 
 #### Power
 n  = 2450. Combinatorics for 50 elements gives 1225, but we have two graphs two draw from, so 2450.
+
 ```{r}
-plot_within_power05_graph1 <- df_comp_res %>% 
-  pivot_longer(cols = c("beta_a", "beta_b", "pcor_a", "pcor_b"), names_to = "res") %>% 
-  filter(dgp == "graph1") %>% 
-  mutate(sig05 = ifelse(value < 50, 1, 0),
-         sig01 = ifelse(value < 10, 1, 0)) %>%
-  group_by(comp, tp, change, res) %>%
-  mutate(n_comp = n()) %>%  
-  # need the max here so that it reduces to one row
-  # n_comp is the same for every row anyway
-  summarize(power05 = sum(sig05)/max(n_comp)) %>% 
-  ungroup() %>% 
-  ggplot(aes(x = as.numeric(tp), y = power05, col = comp)) + 
-  geom_line()+
-  facet_grid(change ~ res)+
-  theme_minimal()
-  # scale_color_okabe_ito()
+v_graphs <- c("graph1", "graph2", "graph3", "graph4", "graph5")
 
-ggsave("plot_within_power05_graph1_1303.svg", plot_within_power05_graph1, device = "svg", path = here("figures/"))  
-
-plot_within_power05_graph2 <- df_comp_res %>% 
-  pivot_longer(cols = c("beta_a", "beta_b", "pcor_a", "pcor_b"), names_to = "res") %>% 
-  filter(dgp == "graph2") %>% 
-  mutate(sig05 = ifelse(value < 50, 1, 0),
-         sig01 = ifelse(value < 10, 1, 0)) %>%
-  group_by(comp, tp, change, res) %>%
-  mutate(n_comp = n()) %>%  
-  # need the max here so that it reduces to one row
-  # n_comp is the same for every row anyway
-  summarize(power05 = sum(sig05)/max(n_comp)) %>% 
-  ungroup() %>% 
-  ggplot(aes(x = as.numeric(tp), y = power05, col = comp)) + 
-  geom_line()+
-  facet_grid(change ~ res)+
-  theme_minimal()
-  # scale_color_okabe_ito()
-
-ggsave("plot_within_power05_graph2_1303.svg", plot_within_power05_graph2, device = "svg", path = here("figures/"))  
-
-plot_within_power05_graph3 <- df_comp_res %>% 
-  pivot_longer(cols = c("beta_a", "beta_b", "pcor_a", "pcor_b"), names_to = "res") %>% 
-  filter(dgp == "graph3") %>% 
-  mutate(sig05 = ifelse(value < 50, 1, 0),
-         sig01 = ifelse(value < 10, 1, 0)) %>%
-  group_by(comp, tp, change, res) %>%
-  mutate(n_comp = n()) %>%  
-  # need the max here so that it reduces to one row
-  # n_comp is the same for every row anyway
-  summarize(power05 = sum(sig05)/max(n_comp)) %>% 
-  ungroup() %>% 
-  ggplot(aes(x = as.numeric(tp), y = power05, col = comp)) + 
-  geom_line()+
-  facet_grid(change ~ res)+
-  theme_minimal()
-  # scale_color_okabe_ito()
-
-ggsave("plot_within_power05_graph3_1303.svg", plot_within_power05_graph3, device = "svg", path = here("figures/"))  
-
-plot_within_power05_graph4 <- df_comp_res %>%
-  pivot_longer(cols = c("beta_a", "beta_b", "pcor_a", "pcor_b"), names_to = "res") %>%
-  filter(dgp == "graph4") %>%
-  mutate(sig05 = ifelse(value < 50, 1, 0),
-         sig01 = ifelse(value < 10, 1, 0)) %>%
-  group_by(comp, tp, change, res) %>%
-  mutate(n_comp = n()) %>%
-  # need the max here so that it reduces to one row
-  # n_comp is the same for every row anyway
-  summarize(power05 = sum(sig05)/max(n_comp)) %>%
-  ungroup() %>%
-  ggplot(aes(x = as.numeric(tp), y = power05, col = comp)) +
-  geom_line()+
-  facet_grid(change ~ res)+
-  theme_minimal()
-  # scale_color_okabe_ito()
-# 
-# ggsave("plot_within_power05_graph4_1303.svg", plot_within_power05_graph4, device = "svg", path = here("figures/"))  
-
-
-
+for(g in v_graphs){
+  
+  p <- df_comp_res %>%
+          pivot_longer(cols = c("beta_a", "beta_b", "pcor_a", "pcor_b"), names_to = "res") %>%
+          filter(dgp == g) %>%
+          mutate(sig05 = ifelse(value < 50, 1, 0),
+                 sig01 = ifelse(value < 10, 1, 0)) %>%
+          group_by(comp, tp, change, res) %>%
+          mutate(n_comp = n()) %>%
+          # need the max here so that it reduces to one row
+          # n_comp is the same for every row anyway
+          summarize(power05 = sum(sig05)/max(n_comp)) %>%
+          ungroup() %>%
+          mutate(res = case_match(res,
+                                  "beta_a" ~ "Beta A",
+                                  "beta_b" ~ "Beta B",
+                                  "pcor_a" ~ "Pcor A",
+                                  "pcor_b" ~ "Pcor B")) %>% 
+          ggplot(aes(x = as.numeric(tp), y = power05, col = comp)) +
+          geom_line()+
+          facet_grid(change ~ res)+
+          theme_minimal()+
+          ggokabeito::scale_color_okabe_ito()+
+          labs(caption = g,
+               x = "Timepeoints",
+               y = "Power")
+  
+  ggsave(filename = paste0("plot_power05_abseparate_", g, ".svg"),p, device = "svg",
+         path = here("figures/"), height = 10, width = 7)
+  print(p)
+}
 ```
+
+
+
 
 
 #### Posterior Diff > Empirical
 Instead of power, we can plot the median number of bootstrapped differences larger than empirical.
+
 ```{r}
-plot_within_raw_graph1 <- df_comp_res %>% 
-  pivot_longer(cols = c("beta_a", "beta_b", "pcor_a", "pcor_b"), names_to = "res") %>% 
-  # mutate(across(c(comp, dgp, tp, comp_graph, res),
-  # ~ as.factor(.))) %>% 
-  filter(dgp == "graph1") %>% 
-  mutate(comp = as.factor(comp),
-         tp = as.numeric(tp),
-         change = as.factor(change),
-         res = as.factor(res)) %>% 
-  dplyr::group_by(comp, tp, change, res) %>%
-  dplyr::summarize(pct_larger = mean(value/10)) %>%
-  ggplot(aes(x = as.numeric(tp), y = pct_larger, col = comp)) + 
-  # geom_text(aes(label = round(pct_larger,1)), size = 4)+
-  geom_line()+
-  facet_grid(change ~ res)+
-  theme_minimal()+
-  labs(caption = "% of post. diff. larger than empirical. Graph1.")
-ggsave("plot_within_raw_graph1.svg", plot_within_raw_graph1, device = "svg", path = here("figures/"))  
+v_graphs <- c("graph1", "graph2", "graph3", "graph4", "graph5")
 
-
-plot_within_raw_graph2 <- df_comp_res %>% 
-  pivot_longer(cols = c("beta_a", "beta_b", "pcor_a", "pcor_b"), names_to = "res") %>% 
-  # mutate(across(c(comp, dgp, tp, comp_graph, res),
-  # ~ as.factor(.))) %>% 
-  filter(dgp == "graph2") %>% 
-  mutate(comp = as.factor(comp),
-         tp = as.numeric(tp),
-         change = as.factor(change),
-         res = as.factor(res)) %>% 
-  dplyr::group_by(comp, tp, change, res) %>%
-  dplyr::summarize(pct_larger = value/10) %>%
-  dplyr::summarize(pct_larger = mean(pct_larger)) %>% 
-  ggplot(aes(x = as.numeric(tp), y = pct_larger, col = comp)) + 
-  # geom_text(aes(label = round(pct_larger,1)), size = 4)+
-  geom_line()+
-  facet_grid(change ~ res)+
-  theme_minimal()+
-  scale_color_okabe_ito()+ 
-  labs(caption = "% of post. diff. larger than empirical. graph2.")
-ggsave("plot_within_raw_graph2.svg", plot_within_raw_graph2, device = "svg", path = here("figures/"))  
+for(g in v_graphs){
+  
+  p <- df_comp_res %>% 
+          pivot_longer(cols = c("beta_a", "beta_b", "pcor_a", "pcor_b"), names_to = "res") %>% 
+          filter(dgp == g) %>% 
+          mutate(comp = as.factor(comp),
+                 tp = as.numeric(tp),
+                 change = as.factor(change),
+                 res = as.factor(res)) %>% 
+          dplyr::group_by(comp, tp, change, res) %>%
+          dplyr::summarize(pct_larger = value/10) %>%
+          dplyr::summarize(pct_larger = mean(pct_larger)) %>% 
+          ggplot(aes(x = as.numeric(tp), y = pct_larger, col = comp)) + 
+          # geom_text(aes(label = round(pct_larger,1)), size = 4)+
+          geom_line()+
+          facet_grid(change ~ res)+
+          theme_minimal()+
+          scale_color_okabe_ito()+ 
+          labs(caption = g,
+               x = "Timepeoints",
+               y = "% larger than empirical")
+  
+  ggsave(filename = paste0("plot_count_difference_", g, ".svg"),p, device = "svg",
+         path = here("figures/"), height = 10, width = 7)
+  print(p)
+}
 
 
 
-plot_within_raw_graph3 <- df_comp_res %>% 
-  pivot_longer(cols = c("beta_a", "beta_b", "pcor_a", "pcor_b"), names_to = "res") %>% 
-  # mutate(across(c(comp, dgp, tp, comp_graph, res),
-  # ~ as.factor(.))) %>% 
-  filter(dgp == "graph3") %>% 
-  mutate(comp = as.factor(comp),
-         tp = as.numeric(tp),
-         change = as.factor(change),
-         res = as.factor(res)) %>% 
-  dplyr::group_by(comp, tp, change, res) %>%
-  dplyr::summarize(pct_larger = value/10) %>%
-  dplyr::summarize(pct_larger = mean(pct_larger)) %>% 
-  ggplot(aes(x = as.numeric(tp), y = pct_larger, col = comp)) + 
-  # geom_text(aes(label = round(pct_larger,1)), size = 4)+
-  geom_line()+
-  facet_grid(change ~ res)+
-  theme_minimal()+
-  scale_color_okabe_ito()+ 
-  labs(caption = "% of post. diff. larger than empirical. graph3.")
-ggsave("plot_within_raw_graph3.svg", plot_within_raw_graph3, device = "svg", path = here("figures/"))  
 
 ```
 
-#### False Positives
-Plot false positives across graphs. 
-This does not account for the correct dgp at the moment. 
-```{r}
-plot_within_fp05_graph1 <- df_comp_res %>% 
-  # here, beta_b and pcor_b are irrelevant, as we compare within the same graph
-  pivot_longer(cols = c("beta_a", "pcor_a"), names_to = "res") %>% 
-  filter(change == "truegraph") %>% 
-  mutate(sig05 = ifelse(value < 50, 1, 0),
-         sig01 = ifelse(value < 10, 1, 0)) %>%
-  group_by(dgp, comp, tp, change, res) %>%
-  mutate(n_comp = n()) %>%  
-  summarize(fp05 = sum(sig05)/n_comp) %>% 
-  # somehow does not cut everything if I don't do this
-  summarize(fp05 = mean(fp05)) %>% 
-  ggplot(aes(x = as.numeric(tp), y = fp05, col = comp)) + 
-  geom_line()+
-  facet_grid(dgp ~ res)+
-  theme_minimal()+
-  scale_color_okabe_ito()+
-  ylim(c(-0.01, 0.2))+
-  labs(caption = "Percentage of false positives for different norms.")
 
-ggsave("plot_within_fp05_graph1.svg", plot_within_fp05_graph1, device = "svg", path = here("figures/"))  
-
-plot_within_fp05_graph2 <- df_comp_res %>% 
-  # here, beta_b and pcor_b are irrelevant, as we compare within the same graph
-  pivot_longer(cols = c("beta_a", "pcor_a"), names_to = "res") %>% 
-  filter(change == "truegraph") %>% 
-  mutate(sig05 = ifelse(value < 50, 1, 0),
-         sig01 = ifelse(value < 10, 1, 0)) %>%
-  group_by(dgp, comp, tp, change, res) %>%
-  mutate(n_comp = n()) %>%  
-  summarize(fp05 = sum(sig05)/n_comp) %>% 
-  # somehow does not cut everything if I don't do this
-  summarize(fp05 = mean(fp05)) %>% 
-  ggplot(aes(x = as.numeric(tp), y = fp05, col = comp)) + 
-  geom_line()+
-  facet_grid(dgp ~ res)+
-  theme_minimal()+
-  scale_color_okabe_ito()+
-  ylim(c(-0.01, 0.2))+
-  labs(caption = "Percentage of false positives for different norms.")
-
-ggsave("plot_within_fp05_graph2.svg", plot_within_fp05_graph2, device = "svg", path = here("figures/")) 
-
-
-
-plot_within_fp05_graph3 <- df_comp_res %>% 
-  # here, beta_b and pcor_b are irrelevant, as we compare within the same graph
-  pivot_longer(cols = c("beta_a", "pcor_a"), names_to = "res") %>% 
-  filter(change == "truegraph") %>% 
-  mutate(sig05 = ifelse(value < 50, 1, 0),
-         sig01 = ifelse(value < 10, 1, 0)) %>%
-  group_by(dgp, comp, tp, change, res) %>%
-  mutate(n_comp = n()) %>%  
-  summarize(fp05 = sum(sig05)/n_comp) %>% 
-  # somehow does not cut everything if I don't do this
-  summarize(fp05 = mean(fp05)) %>% 
-  ggplot(aes(x = as.numeric(tp), y = fp05, col = comp)) + 
-  geom_line()+
-  facet_grid(dgp ~ res)+
-  theme_minimal()+
-  scale_color_okabe_ito()+
-  ylim(c(-0.01, 0.2))+
-  labs(caption = "Percentage of false positives for different norms.")
-
-ggsave("plot_within_fp05_graph3.svg", plot_within_fp05_graph3, device = "svg", path = here("figures/")) 
-
-
-plot_within_fp05_graph4 <- df_comp_res %>% 
-  # here, beta_b and pcor_b are irrelevant, as we compare within the same graph
-  pivot_longer(cols = c("beta_a", "pcor_a"), names_to = "res") %>% 
-  filter(change == "truegraph") %>% 
-  mutate(sig05 = ifelse(value < 50, 1, 0),
-         sig01 = ifelse(value < 10, 1, 0)) %>%
-  group_by(dgp, comp, tp, change, res) %>%
-  mutate(n_comp = n()) %>%  
-  summarize(fp05 = sum(sig05)/n_comp) %>% 
-  # somehow does not cut everything if I don't do this
-  summarize(fp05 = mean(fp05)) %>% 
-  ggplot(aes(x = as.numeric(tp), y = fp05, col = comp)) + 
-  geom_line()+
-  facet_grid(dgp ~ res)+
-  theme_minimal()+
-  # scale_color_okabe_ito()+
-  ylim(c(-0.01, 0.2))+
-  labs(caption = "Percentage of false positives for different norms.")
-
-ggsave("plot_within_fp05_graph4.svg", plot_within_fp05_graph4, device = "svg", path = here("figures/")) 
-
-
-```
 
 
 ### Decision Rule
 What happens to power/false positives if we implement the following decision rule:
 If either A or B are "significant", we have evidence for a difference in the networks.
 
+Decision rule figure in loop 
 ```{r}
-plot_dec_rule_graph1 <- df_comp_res %>% 
-  filter(dgp == "graph1") %>% 
-  # setup decision rule
-  mutate(sig_beta05 = ifelse(beta_a < 50 | beta_b < 50, 1, 0),
-         sig_pcor05 = ifelse(pcor_a < 50 | pcor_b < 50, 1, 0)) %>% 
-  group_by(dgp, comp, tp, change) %>% 
-  mutate(n_comp = n()) %>% 
-  summarize(power_beta05 = sum(sig_beta05)/n_comp,
-            power_pcor05 = sum(sig_pcor05)/n_comp) %>% 
-  # somehow does not cut everything if I don't do this
-  summarize(power_beta05 = mean(power_beta05),
-            power_pcor05 = mean(power_pcor05)) %>% 
-  pivot_longer(cols = c("power_beta05", "power_pcor05"), names_to = "res") %>% 
-  ggplot(aes(x = as.numeric(tp), y = value, col = comp)) + 
-  geom_line()+
-  facet_grid(change ~ res)+
-  theme_minimal()+
-  scale_color_okabe_ito()+
-  labs(caption = "Power of decision rule \"OR\" for graph1")
-ggsave("plot_dec_rule_graph1.svg", plot_dec_rule_graph1, device = "svg", path = here("figures/")) 
+v_graphs <- c("graph1", "graph2", "graph3", "graph4", "graph5")
+
+for(g in v_graphs){
+  
+  p <- df_comp_res %>% 
+          filter(dgp == g) %>% 
+          # setup decision rule
+          mutate(sig_beta05 = ifelse(beta_a < 50 | beta_b < 50, 1, 0),
+                 sig_pcor05 = ifelse(pcor_a < 50 | pcor_b < 50, 1, 0)) %>% 
+          group_by(dgp, comp, tp, change) %>% 
+          mutate(n_comp = n()) %>% 
+          summarize(power_beta05 = sum(sig_beta05)/n_comp,
+                    power_pcor05 = sum(sig_pcor05)/n_comp) %>% 
+          # somehow does not cut everything if I don't do this
+          # TODO
+          summarize(power_beta05 = mean(power_beta05),
+                    power_pcor05 = mean(power_pcor05)) %>% 
+          pivot_longer(cols = c("power_beta05", "power_pcor05"), names_to = "res") %>% 
+          ggplot(aes(x = as.numeric(tp), y = value, col = comp)) + 
+          geom_line()+
+          facet_grid(change ~ res)+
+          theme_minimal()+
+          ggokabeito::scale_color_okabe_ito()+
+          labs(caption = paste0("Power of decision rule \"OR\" for ", g))
+  
+  ggsave(filename = paste0("plot_dec_rule_", g, ".svg"),p, device = "svg",
+         path = here("figures/"))
+  print(p)
+}
 
 
-plot_dec_rule_graph2 <- df_comp_res %>% 
-  dplyr::select(-c("kappa_a", "kappa_b")) %>% 
-  filter(dgp == "graph2") %>% 
-  # setup decision rule
-  mutate(sig_beta05 = ifelse(beta_a < 50 | beta_b < 50, 1, 0),
-         sig_pcor05 = ifelse(pcor_a < 50 | pcor_b < 50, 1, 0)) %>% 
-  group_by(dgp, comp, tp, change) %>% 
-  mutate(n_comp = n()) %>% 
-  summarize(power_beta05 = sum(sig_beta05)/n_comp,
-            power_pcor05 = sum(sig_pcor05)/n_comp) %>% 
-  # somehow does not cut everything if I don't do this
-  summarize(power_beta05 = mean(power_beta05),
-            power_pcor05 = mean(power_pcor05)) %>% 
-  pivot_longer(cols = c("power_beta05", "power_pcor05"), names_to = "res") %>% 
-  ggplot(aes(x = as.numeric(tp), y = value, col = comp)) + 
-  geom_line()+
-  facet_grid(change ~ res)+
-  theme_minimal()+
-  scale_color_okabe_ito()+
-  labs(caption = "Power of decision rule \"OR\" for graph2")
-ggsave("plot_dec_rule_graph2.svg", plot_dec_rule_graph2, device = "svg", path = here("figures/")) 
-
-
-plot_dec_rule_graph3 <- df_comp_res %>% 
-  dplyr::select(-c("kappa_a", "kappa_b")) %>% 
-  filter(dgp == "graph3") %>% 
-  # setup decision rule
-  mutate(sig_beta05 = ifelse(beta_a < 50 | beta_b < 50, 1, 0),
-         sig_pcor05 = ifelse(pcor_a < 50 | pcor_b < 50, 1, 0)) %>% 
-  group_by(dgp, comp, tp, change) %>% 
-  mutate(n_comp = n()) %>% 
-  summarize(power_beta05 = sum(sig_beta05)/n_comp,
-            power_pcor05 = sum(sig_pcor05)/n_comp) %>% 
-  # somehow does not cut everything if I don't do this
-  summarize(power_beta05 = mean(power_beta05),
-            power_pcor05 = mean(power_pcor05)) %>% 
-  pivot_longer(cols = c("power_beta05", "power_pcor05"), names_to = "res") %>% 
-  ggplot(aes(x = as.numeric(tp), y = value, col = comp)) + 
-  geom_line()+
-  facet_grid(change ~ res)+
-  theme_minimal()+
-  scale_color_okabe_ito()+
-  labs(caption = "Power of decision rule \"OR\" for graph3")
-ggsave("plot_dec_rule_graph3.svg", plot_dec_rule_graph3, device = "svg", path = here("figures/")) 
-
-
-plot_dec_rule_graph4 <- df_comp_res %>% 
-  filter(dgp == "graph4") %>% 
-  # setup decision rule
-  mutate(sig_beta05 = ifelse(beta_a < 50 | beta_b < 50, 1, 0),
-         sig_pcor05 = ifelse(pcor_a < 50 | pcor_b < 50, 1, 0)) %>% 
-  group_by(dgp, comp, tp, change) %>% 
-  mutate(n_comp = n()) %>% 
-  summarize(power_beta05 = sum(sig_beta05)/n_comp,
-            power_pcor05 = sum(sig_pcor05)/n_comp) %>% 
-  # somehow does not cut everything if I don't do this
-  summarize(power_beta05 = mean(power_beta05),
-            power_pcor05 = mean(power_pcor05)) %>% 
-  pivot_longer(cols = c("power_beta05", "power_pcor05"), names_to = "res") %>% 
-  ggplot(aes(x = as.numeric(tp), y = value, col = comp)) + 
-  geom_line()+
-  facet_grid(change ~ res)+
-  theme_minimal()+
-  # scale_color_okabe_ito()+
-  labs(caption = "Power of decision rule \"OR\" for graph4")
-ggsave("plot_dec_rule_graph4.svg", plot_dec_rule_graph4, device = "svg", path = here("figures/")) 
-
-
-plot_dec_rule_graph5 <- df_comp_res %>% 
-  filter(dgp == "graph5") %>% 
-  # setup decision rule
-  mutate(sig_beta05 = ifelse(beta_a < 50 | beta_b < 50, 1, 0),
-         sig_pcor05 = ifelse(pcor_a < 50 | pcor_b < 50, 1, 0)) %>% 
-  group_by(dgp, comp, tp, change) %>% 
-  mutate(n_comp = n()) %>% 
-  summarize(power_beta05 = sum(sig_beta05)/n_comp,
-            power_pcor05 = sum(sig_pcor05)/n_comp) %>% 
-  # somehow does not cut everything if I don't do this
-  summarize(power_beta05 = mean(power_beta05),
-            power_pcor05 = mean(power_pcor05)) %>% 
-  pivot_longer(cols = c("power_beta05", "power_pcor05"), names_to = "res") %>% 
-  ggplot(aes(x = as.numeric(tp), y = value, col = comp)) + 
-  geom_line()+
-  facet_grid(change ~ res)+
-  theme_minimal()+
-  # scale_color_okabe_ito()+
-  labs(caption = "Power of decision rule \"OR\" for graph5")
-ggsave("plot_dec_rule_graph5.svg", plot_dec_rule_graph5, device = "svg", path = here("figures/")) 
 ```
 
 
 
+#### False Positives
+Plot false positives across graphs. 
+In loop:
+```{r}
+v_graphs <- c("graph1", "graph2", "graph3", "graph4", "graph5")
+
+for(g in v_graphs){
+  
+  p <- df_comp_res %>% 
+          filter(dgp == g) %>%
+          filter(change == "truegraph") %>% 
+          # setup decision rule
+          mutate(sig_beta05 = ifelse(beta_a < 50 | beta_b < 50, 1, 0),
+                 sig_pcor05 = ifelse(pcor_a < 50 | pcor_b < 50, 1, 0)) %>% 
+          group_by(dgp, comp, tp, change) %>% 
+          mutate(n_comp = n()) %>% 
+          summarize(fp_beta05 = sum(sig_beta05)/n_comp,
+                    fp_pcor05 = sum(sig_pcor05)/n_comp) %>% 
+          # somehow does not cut everything if I don't do this
+          # TODO
+          summarize(fp_beta05 = mean(fp_beta05),
+                    fp_pcor05 = mean(fp_pcor05)) %>% 
+          rename("Beta" = fp_beta05,
+                 "Pcor" = fp_pcor05) %>% 
+          pivot_longer(cols = c("Beta", "Pcor"), names_to = "res") %>% 
+          ggplot(aes(x = as.numeric(tp), y = value, col = comp)) + 
+          geom_line()+
+          facet_grid(.~ res)+
+          theme_minimal()+
+          ylim(0,.1)+
+          ggokabeito::scale_color_okabe_ito()+
+          labs(caption = paste0("False Positives for ", g),
+               x = "Timepoints")
+  
+  ggsave(filename = paste0("plot_fp05_", g, ".svg"),p, device = "svg",
+         path = here("figures/"))
+  print(p)
+}
+
+```
 
 
 
 ### Norms across conditions
 How large are the norms across the simulation conditions?
-
 ```{r}
-plot_emp_norms_graph1 <- df_comp_res %>% 
-  dplyr::select(-c("kappa_a", "kappa_b")) %>% 
-  # mutate(across(c(comp, dgp, tp, comp_graph, res),
-  # ~ as.factor(.))) %>% 
-  filter(dgp == "graph1") %>% 
-  mutate(comp = as.factor(comp),
-         tp = as.numeric(tp),
-         change = as.factor(change),
-         emp  = as.numeric(emp)) %>% 
-  group_by(comp, dgp, change, tp) %>% 
-  summarize(mean_emp = mean(emp),
-            sd_emp = sd(emp)) %>%
-  ggplot(aes(x = as.numeric(tp), y = mean_emp, col = comp))+
-  geom_line()+
-  geom_ribbon(aes(ymin = mean_emp - sd_emp, ymax = mean_emp + sd_emp, fill = comp), 
-              alpha = 0.4, colour = NA)+
-  ggh4x::facet_grid2(change ~ comp, scales = "free", independent = "y")+
-  theme_minimal()+
-  scale_color_okabe_ito()+
-  scale_fill_okabe_ito()+
-  labs(caption = "Empirical distance for different norms with SDs.",
-       x = "tp",
-       y = "Mean Distance")
-ggsave("plot_emp_norms_graph1.svg", plot_emp_norms_graph1, device = "svg", path = here("figures/"))  
+v_graphs <- c("graph1", "graph2", "graph3", "graph4", "graph5")
 
-
-
-plot_emp_norms_graph2 <- df_comp_res %>% 
-  dplyr::select(-c("kappa_a", "kappa_b")) %>% 
-  # mutate(across(c(comp, dgp, tp, comp_graph, res),
-  # ~ as.factor(.))) %>% 
-  filter(dgp == "graph2") %>% 
-  mutate(comp = as.factor(comp),
-         tp = as.numeric(tp),
-         change = as.factor(change),
-         emp  = as.numeric(emp)) %>% 
-  group_by(comp, dgp, change, tp) %>% 
-  summarize(mean_emp = mean(emp),
-            sd_emp = sd(emp)) %>%
-  ggplot(aes(x = as.numeric(tp), y = mean_emp, col = comp))+
-  geom_line()+
-  geom_ribbon(aes(ymin = mean_emp - sd_emp, ymax = mean_emp + sd_emp, fill = comp), 
-              alpha = 0.4, colour = NA)+
-  ggh4x::facet_grid2(change ~ comp, scales = "free", independent = "y")+
-  theme_minimal()+
-  scale_color_okabe_ito()+
-  scale_fill_okabe_ito()+
-  labs(caption = "Empirical distance for different norms with SDs.",
-       x = "tp",
-       y = "Mean Distance")
-ggsave("plot_emp_norms_graph2.svg", plot_emp_norms_graph2, device = "svg", path = here("figures/"))  
-
-
-
-plot_emp_norms_graph3 <- df_comp_res %>% 
-  dplyr::select(-c("kappa_a", "kappa_b")) %>% 
-  # mutate(across(c(comp, dgp, tp, comp_graph, res),
-  # ~ as.factor(.))) %>% 
-  filter(dgp == "graph3") %>% 
-  mutate(comp = as.factor(comp),
-         tp = as.numeric(tp),
-         change = as.factor(change),
-         emp  = as.numeric(emp)) %>% 
-  group_by(comp, dgp, change, tp) %>% 
-  summarize(mean_emp = mean(emp),
-            sd_emp = sd(emp)) %>%
-  ggplot(aes(x = as.numeric(tp), y = mean_emp, col = comp))+
-  geom_line()+
-  geom_ribbon(aes(ymin = mean_emp - sd_emp, ymax = mean_emp + sd_emp, fill = comp), 
-              alpha = 0.4, colour = NA)+
-  ggh4x::facet_grid2(change ~ comp, scales = "free", independent = "y")+
-  theme_minimal()+
-  scale_color_okabe_ito()+
-  scale_fill_okabe_ito()+
-  labs(caption = "Empirical distance for different norms with SDs.",
-       x = "tp",
-       y = "Mean Distance")
-ggsave("plot_emp_norms_graph3.svg", plot_emp_norms_graph3, device = "svg", path = here("figures/"))  
+for(g in v_graphs){
   
+  p <- df_comp_res %>% 
+        filter(dgp == g) %>% 
+        mutate(comp = as.factor(comp),
+               tp = as.numeric(tp),
+               change = as.factor(change),
+               emp  = as.numeric(emp)) %>% 
+        group_by(comp, dgp, change, tp) %>% 
+        summarize(mean_emp = mean(emp),
+                  sd_emp = sd(emp)) %>%
+        ggplot(aes(x = as.numeric(tp), y = mean_emp, col = comp))+
+        geom_line()+
+        geom_ribbon(aes(ymin = mean_emp - sd_emp, ymax = mean_emp + sd_emp, fill = comp), 
+                    alpha = 0.4, colour = NA)+
+        ggh4x::facet_grid2(change ~ comp, scales = "free", independent = "y")+
+        theme_minimal()+
+        scale_color_okabe_ito()+
+        scale_fill_okabe_ito()+
+        labs(caption = g,
+             x = "Timepoints",
+             y = "Mean Distance")
+
+  
+  ggsave(filename = paste0("plot_emp_norms_", g, ".svg"),p, device = "svg",
+         path = here("figures/"))
+  print(p)
+}
 ```
+
 
