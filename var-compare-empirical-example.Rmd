@@ -163,7 +163,7 @@ for(i in 1:3){
 }
 
 # saveRDS(l_fits_c, here::here("data/empirical_example/l_fits_empirical_ex.RDS"))
-
+# l_fits_c <- readRDS(here::here("data/empirical_example/l_fits_empirical_ex.RDS")
 
 
 ```
@@ -174,40 +174,40 @@ for(i in 1:3){
 ## Convergence 
 
 ```{r}
-# Trace Plots
-BGGM::convergence(l_fits[[1]], type = "trace",  param = "reassure--accepted")
-
-# ACF
-BGGM::convergence(l_fits[[1]], type = "acf", param = "down--enthusiastic")
-
-
-# pdf("convergence_empirical.pdf")
-# for(i in 1:10){
-#   for(n in param_names){
+# # Trace Plots
+# BGGM::convergence(l_fits[[1]], type = "trace",  param = "reassure--accepted")
 # 
-#   print(BGGM::convergence(l_fits[[1]], type = "acf", param = n))
-#   
-# }
-# }
-# dev.off()
-
-# Try to calculate effective sample size
-bet <- l_fits[[1]]$fit$beta[,,51:iterations+50]
-
-# Convert to matrix where each col is a variable
-m_bet <- t(matrix(bet, 6*6, iterations))
-mcmc_bet <- as.mcmc(m_bet)
-coda::effectiveSize(mcmc_bet)
-
-# Same for pcor
-pcor <- l_fits[[1]]$fit$pcors[,,51:iterations+50]
-m_pcor <- t(matrix(pcor, 6*6, iterations))
-mcmc_pcor <- as.mcmc(m_pcor)
-ces <- coda::effectiveSize(mcmc_pcor)
-
-
-# Get ESS for all samples
-l_ess <- lapply(l_fits, var_ess)
+# # ACF
+# BGGM::convergence(l_fits[[1]], type = "acf", param = "down--enthusiastic")
+# 
+# 
+# # pdf("convergence_empirical.pdf")
+# # for(i in 1:10){
+# #   for(n in param_names){
+# # 
+# #   print(BGGM::convergence(l_fits[[1]], type = "acf", param = n))
+# #   
+# # }
+# # }
+# # dev.off()
+# 
+# # Try to calculate effective sample size
+# bet <- l_fits[[1]]$fit$beta[,,51:iterations+50]
+# 
+# # Convert to matrix where each col is a variable
+# m_bet <- t(matrix(bet, 6*6, iterations))
+# mcmc_bet <- as.mcmc(m_bet)
+# coda::effectiveSize(mcmc_bet)
+# 
+# # Same for pcor
+# pcor <- l_fits[[1]]$fit$pcors[,,51:iterations+50]
+# m_pcor <- t(matrix(pcor, 6*6, iterations))
+# mcmc_pcor <- as.mcmc(m_pcor)
+# ces <- coda::effectiveSize(mcmc_pcor)
+# 
+# 
+# # Get ESS for all samples
+# l_ess <- lapply(l_fits, var_ess)
 
 ```
 
@@ -669,84 +669,7 @@ Idea: Plot posterior distributions, color based on if the parameter is positive 
 ```{r}
 fit <- l_fits_c[[1]][[1]]
 
-# use inspiration from stat_wilke function here: 
-# https://bookdown.org/content/8ba612b7-90f2-4ebc-b329-0159008e2340/metric-predicted-variable-with-multiple-metric-predictors.html#metric-predicted-variable-with-multiple-metric-predictors
 
-posterior_plot <- function(object,
-                           mat = beta,
-                           cis = c(0.8, 0.9, 0.95)){   # credible intervals for plotting
-  
-  require(ggdist)   # visualize uncertainty
-  
-  # TODO will throw a bug if one of the variable names contains an underscore
-  
-  # Obtain samples
-  samps <- BGGM::posterior_samples(object)
-
-  # Split into betas and pcors
-  beta_cols <- grep(".l1", colnames(samps), value = TRUE)
-  pcor_cols <- grep("--", colnames(samps), value = TRUE)
-  
-  beta_samps <- as.data.frame(samps[,beta_cols])
-  pcor_samps <- as.data.frame(samps[,pcor_cols])
-  
-  # Pivot longer
-  beta <- beta_samps %>%
-    as.data.frame() %>%
-    dplyr::mutate(iteration = dplyr::row_number()) %>% 
-    tidyr::pivot_longer(cols = !iteration, names_to = "edge", values_to = "value") %>% 
-    # split edge description into nodes
-    tidyr::separate_wider_delim(cols = edge, delim = "_",
-                                names = c("dv" ,"iv"))
-    
-  pcor <- pcor_samps %>%
-    as.data.frame() %>%
-    dplyr::mutate(iteration = dplyr::row_number()) %>% 
-    tidyr::pivot_longer(cols = !iteration,names_to = "edge", values_to = "value") %>% 
-    # split edge description into nodes
-    tidyr::separate_wider_delim(cols = edge, delim = "--",
-                                names = c("dv" ,"iv"))
-  # TODO delete lower diagonal maybe?
-  
-  
-  # Create matrix layout
-  
-  
-  # Start plotting
-  beta_plot <- beta %>% 
-    ggplot(aes(x = value))+
-    # ggdist::stat_halfeye(aes(fill = after_stat(level)), .width = cis)+
-    ggdist::stat_slab(aes(fill = after_stat(level)), .width = c(cis, 1)) +
-    ggdist::stat_pointinterval() +
-    facet_grid(iv~dv,
-               switch = "y")+
-    theme_ggdist()+
-    geom_vline(xintercept = 0, linetype = "dashed")+
-    theme(axis.text.y = element_blank(),
-          axis.ticks.y = element_blank())+
-    scale_fill_brewer() +
-    labs(y = "",
-         fill = "CI")+
-    ylim(-0.1, 1)
-  
-  
-  pcor_plot <- pcor %>% 
-    ggplot(aes(x = value))+
-    ggdist::stat_halfeye()+
-    facet_grid(iv~dv,
-               switch = "y")+
-    theme_minimal()+
-    theme(axis.text.y = element_blank(),
-          axis.ticks.y = element_blank())+
-    labs(y = "")
-  
-  
-  print(beta_plot)
-  # print(pcor_plot)
-  # return(beta)
-  # return(pcor)
-  
-}
 
 plot_example_posterior <- posterior_plot(fit)
 
