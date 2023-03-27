@@ -1,8 +1,6 @@
-# Find ToDos --------------------------------------------------------------
-# todor::todor(c("TODO"))
-
-
-
+# -------------------------------------------------------------------------
+# Data Generation ---------------------------------------------------------
+# -------------------------------------------------------------------------
 # Temporary Server Imports Matrixcalc -------------------------------------
 # package matrixcalc was not installed on the server
 # so I copied source code
@@ -903,51 +901,10 @@ summarize_post <- function(res, cred = c(0.95)) {
 
 
 
-
-
-
-# # External data to BGGM format --------------------------------------------
-# # External data needs to have two objects
-# # Y: response data
-# # X: lagged response data
-# 
-# format_bggm <- function(Y){
-#   if(is.data.frame(Y)){
-#     Y <- scale(na.omit(Y))
-#     p <- ncol(Y)
-#     n <- nrow(Y)
-#     Y_lag <- rbind(NA, Y)
-#     colnames(Y_lag) <- paste0(colnames(Y), ".l1")
-#     Y_all <- na.omit(cbind.data.frame(rbind(Y, NA), Y_lag))
-#     Y <- as.matrix(Y_all[, 1:p])
-#     X <- as.matrix(Y_all[, (p + 1):(p * 2)])
-#     out <- list()
-#     out$Y <- Y
-#     out$X <- X
-#     
-#     
-#   }
-#   else out <- NA
-#   
-#   out
-# }
-# 
-# 
-# 
-# # External data from nested list to BGGM format ---------------------------
-# # same as format_bggm, but has nested list as input
-# format_bggm_list <- function(listname){
-#   l_out <- lapply(listname, format_bggm)
-#   l_out
-# }
-
-
-
-
-
-
+# -------------------------------------------------------------------------
+# Comparison Functions ----------------------------------------------------
+# -------------------------------------------------------------------------
 # Distance between empirical and posterior --------------------------------
-
 # THIS IS A NEW BETA VERSION! Not yet in use
 postemp_distance_new <- function(post,
                              emp,
@@ -993,19 +950,7 @@ if(!is.list(post[[mod]]$fit) | !is.list(post[[mod]]$fit)){
 }
 
 
-
-
-
-
-
-
-
-
-
-
-
 # TODO output structure
-# PCMD not yet implemented in other functions
 postemp_distance <- function(post,
                              emp,
                              comp,
@@ -1184,81 +1129,6 @@ postpost_distance <- function(post_a,
 }
 
 
-# # Distance within normal posterior samples --------------------------------
-# # This function resamples from the original posterior distribution
-# # so no posterior predictive stuff involved
-# 
-# post_distance_within <- function(post, 
-#                                  comp, 
-#                                  draws = 1000){
-#   
-#   # storage
-#   dist_out <- list()
-#   
-#   # define the distance function based on comp
-#   distance_fn_beta <- switch(comp,
-#                              frob =   {function(x, y, mod_one, mod_two) norm(x$fit[[mod_one]]$beta_mu-y$fit[[mod_two]]$beta_mu, type = "F")},
-#                              maxdiff = {function(x, y, mod_one, mod_two) max(abs((x$fit[[mod_one]]$beta_mu-y$fit[[mod_two]]$beta_mu)))},
-#                              l1 = {function(x, y, mod_one, mod_two) sum(abs((x$fit[[mod_one]]$beta_mu-y$fit[[mod_two]]$beta_mu)))}
-#   )
-#   distance_fn_pcor <- switch(comp,
-#                              frob = {function(x, y, mod_one, mod_two) norm(x$fit[[mod_one]]$pcor_mu-y$fit[[mod_two]]$pcor_mu, type = "F")},
-#                              maxdiff = {function(x, y, mod_one, mod_two) max(abs((x$fit[[mod_one]]$pcor_mu-y$fit[[mod_two]]$pcor_mu)))},
-#                              l1 = {function(x, y, mod_one, mod_two) sum(abs((x$fit[[mod_one]]$pcor_mu-y$fit[[mod_two]]$pcor_mu)))}
-#   )
-#   
-#   
-#   
-#   
-#   ## Draw two random models
-#   # Obtain number of models
-#   n_mod <- length(post$fit)
-#   
-#   # Draw pairs of models
-#   mod_pairs <- replicate(draws, sample(1:n_mod, size = 2, replace = TRUE))
-#   
-#   for(i in seq(draws)){
-#     # storage
-#     dist_out[[i]] <- list()
-#     mod_one <- mod_pairs[1,i]
-#     mod_two <- mod_pairs[2,i]
-#     
-#     # if mod_one and mod_two are equal, redraw
-#     if(mod_one == mod_two){
-#       mod_two <- sample(1:n_mod, size = 1)
-#     }
-#     
-#     ## Check if estimation worked
-#     # Should be unneccessary if non-converged attempts were deleted
-#     if(!is.list(post$fit[[mod_one]]) | !is.list(post$fit[[mod_two]])){
-#       beta_distance <- NA
-#       pcor_distance <- NA
-#       stop("Not a list.")
-#       
-#       
-#     } 
-#     # if both elements are lists
-#     else{
-#       beta_distance <- distance_fn_beta(post, post, mod_one, mod_two)
-#       pcor_distance <- distance_fn_pcor(post, post, mod_one, mod_two)
-#       
-#     }  
-#     dist_out[[i]]$comp <- comp
-#     dist_out[[i]]$mod_one <- mod_one
-#     dist_out[[i]]$mod_two <- mod_two
-#     dist_out[[i]]$beta <- beta_distance
-#     dist_out[[i]]$pcor <- pcor_distance  
-#     
-#   } # end for loop  
-#   out <- do.call(rbind, dist_out)
-#   out <- as.data.frame(out)
-#   
-#   
-#   return(out)
-# }
-
-
-
 
 # Distance within posterior predictive samples ---------------------------------
 # Looks at differences between models sampled from the same
@@ -1403,157 +1273,6 @@ post_distance_within <- function(post,
 
 
 
-
-# 
-# 
-# ### Parallel beta
-# post_distance_within_par <- function(post, 
-#                                  comp,
-#                                  pred,         # posterior predictive?
-#                                  draws = 1000,
-#                                  ncores){
-#   
-#   # storage
-#   dist_out <- list()
-#   
-#   
-#   # for posterior predictive approach
-#   if(isTRUE(pred)){
-#     # define the distance function based on comp
-#     distance_fn_beta <- switch(comp,
-#                                frob =   {function(x, y, mod_one, mod_two) norm(x$fit[[mod_one]]$beta_mu-y$fit[[mod_two]]$beta_mu, type = "F")},
-#                                maxdiff = {function(x, y, mod_one, mod_two) max(abs((x$fit[[mod_one]]$beta_mu-y$fit[[mod_two]]$beta_mu)))},
-#                                l1 = {function(x, y, mod_one, mod_two) sum(abs((x$fit[[mod_one]]$beta_mu-y$fit[[mod_two]]$beta_mu)))}
-#     )
-#     distance_fn_pcor <- switch(comp,
-#                                frob = {function(x, y, mod_one, mod_two) norm(x$fit[[mod_one]]$pcor_mu-y$fit[[mod_two]]$pcor_mu, type = "F")},
-#                                maxdiff = {function(x, y, mod_one, mod_two) max(abs((x$fit[[mod_one]]$pcor_mu-y$fit[[mod_two]]$pcor_mu)))},
-#                                l1 = {function(x, y, mod_one, mod_two) sum(abs((x$fit[[mod_one]]$pcor_mu-y$fit[[mod_two]]$pcor_mu)))}
-#     )
-#     distance_fn_kappa <- switch(comp,
-#                                 frob = {function(x, y, mod_one, mod_two) norm(x$fit[[mod_one]]$kappa_mu-y$fit[[mod_two]]$kappa_mu, type = "F")},
-#                                 maxdiff = {function(x, y, mod_one, mod_two) max(abs((x$fit[[mod_one]]$kappa_mu-y$fit[[mod_two]]$kappa_mu)))},
-#                                 l1 = {function(x, y, mod_one, mod_two) sum(abs((x$fit[[mod_one]]$kappa_mu-y$fit[[mod_two]]$kappa_mu)))}
-#     )
-#     
-#     
-#     
-#     # Obtain number of models
-#     n_mod <- length(post$fit)
-#     
-#   }
-#   
-#   
-#   # for posteriors of empirical models
-#   if(isFALSE(pred)){
-#     # define the distance function based on comp
-#     # draw from all posterior samples
-#     
-#     # Convert Kappas to Pcors
-#     post$fit$pcor<- array(apply(post$fit$kappa, 3, function(x){-1*cov2cor(x)}), dim = dim(post$fit$kappa))
-#     
-#     
-#     
-#     distance_fn_beta <- switch(comp,
-#                                frob =   {function(x, y, mod_one, mod_two) norm(x$fit$beta[,,mod_one]-y$fit$beta[,,mod_two], type = "F")},
-#                                maxdiff = {function(x, y, mod_one, mod_two) max(abs((x$fit$beta[,,mod_one]-y$fit$beta[,,mod_two])))},
-#                                l1 = {function(x, y, mod_one, mod_two) sum(abs((x$fit$beta[,,mod_one]-y$fit$beta[,,mod_two])))}
-#     )
-#     distance_fn_pcor <- switch(comp,
-#                                frob = {function(x, y, mod_one, mod_two) norm(x$fit$pcor[,,mod_one]-y$fit$pcor[,,mod_two], type = "F")},
-#                                maxdiff = {function(x, y, mod_one, mod_two) max(abs((x$fit$pcor[,,mod_one]-y$fit$pcor[,,mod_two])))},
-#                                l1 = {function(x, y, mod_one, mod_two) sum(abs((x$fit$pcor[,,mod_one]-y$fit$pcor[,,mod_two])))}
-#     )
-#     distance_fn_kappa <- switch(comp,
-#                                 frob = {function(x, y, mod_one, mod_two) norm(x$fit$kappa[,,mod_one]-y$fit$kappa[,,mod_two], type = "F")},
-#                                 maxdiff = {function(x, y, mod_one, mod_two) max(abs((x$fit$kappa[,,mod_one]-y$fit$kappa[,,mod_two])))},
-#                                 l1 = {function(x, y, mod_one, mod_two) sum(abs((x$fit$kappa[,,mod_one]-y$fit$kappa[,,mod_two])))}
-#     )
-#     
-#     # Obtain number of posterior samples
-#     n_mod <- dim(post$fit$beta)[3]
-#     
-#   }
-#   
-#   
-#   
-#   ## Draw two random models
-#   # TODO:
-#   # Draw pairs of models, spaced far apart so we don't have autocorrelation
-#   # delete burn-in iterations (to 50)
-#   mod_pairs <- replicate(draws, sample(1:n_mod, size = 2, replace = TRUE))
-#   
-#   
-#   require(doParallel)
-#   cl = parallel::makeCluster(ncores)
-#   registerDoParallel(cl)
-#   
-#   dist_out <- foreach(i = seq(draws)) %dopar% {
-#     # storage
-#     d_out <- list()
-#     mod_one <- mod_pairs[1,i]
-#     mod_two <- mod_pairs[2,i]
-#     
-#     # if mod_one and mod_two are equal, redraw
-#     if(mod_one == mod_two){
-#       mod_two <- sample(1:n_mod, size = 1)
-#     }
-#     
-#     ## Check if estimation worked
-#     # Should be unneccessary if non-converged attempts were deleted
-#     if(isTRUE(pred)){
-#       if(!is.list(post$fit[[mod_one]]) | !is.list(post$fit[[mod_two]])){
-#         beta_distance <- NA
-#         pcor_distance <- NA
-#         kappa_distance <- NA
-#         stop("Not a list.")
-#         
-#         
-#       } 
-#       # if both elements are lists
-#       else{
-#         beta_distance <- distance_fn_beta(post, post, mod_one, mod_two)
-#         pcor_distance <- distance_fn_pcor(post, post, mod_one, mod_two)
-#         kappa_distance <- distance_fn_kappa(post, post, mod_one, mod_two)
-#       }  
-#     }
-#     
-#     if(isFALSE(pred)){
-#       if(!is.list(post) | !is.list(post)){
-#         beta_distance <- NA
-#         pcor_distance <- NA
-#         kappa_distance <- NA
-#         stop("Not a list.")
-#         
-#       } 
-#       # if both elements are lists
-#       else{
-#         beta_distance <- distance_fn_beta(post, post, mod_one, mod_two)
-#         pcor_distance <- distance_fn_pcor(post, post, mod_one, mod_two)
-#         kappa_distance <- distance_fn_kappa(post, post, mod_one, mod_two)
-#       }  
-#     }
-#     
-#     
-#     
-#     
-#     d_out$comp <- comp
-#     d_out$mod_one <- mod_one
-#     d_out$mod_two <- mod_two
-#     d_out$beta <- beta_distance
-#     d_out$pcor <- pcor_distance  
-#     d_out$kappa <- kappa_distance
-#     
-#   } # end for loop  
-#   stopCluster(cl)
-#   out <- do.call(rbind, dist_out)
-#   out <- as.data.frame(out)
-#   
-#   
-#   return(out)
-# }
-
- 
 # # Cross-compare all posterior samples -------------------------------------
 
 cross_compare <- function(
@@ -1818,8 +1537,9 @@ within_compare <- function(
 
 
 
-
-
+# -------------------------------------------------------------------------
+# Comparison Evaluation ---------------------------------------------------
+# -------------------------------------------------------------------------
 # Evaluate Cross-Comparison with Matrix Norm ------------------------------
 #' Evaluate Cross-Comparison with Matrix Norm
 #'
@@ -1983,37 +1703,7 @@ within_compare_eval <- function(l_res,
 
 
 
-# Plot Test Results -------------------------------------------------------
-# plots results of comparison
-plot_test <- function(comp_obj,
-                      modmat,
-                      ref_dist = null,
-                      emp_diff = emp,
-                      ind = model_ind,
-                      comp_type = comp){
-  
-  # Store params
-  pr <- comp_obj$params
-  
-  # get comp type
-  ct <- comp_obj$res %>% distinct({{comp_type}})
-  
-  # Get matrix as character
-  c_matrix <- deparse(substitute(modmat))
-  
-  
-  comp_obj$res %>% 
-    filter(mat == c_matrix) %>%  
-    ggplot()+
-    geom_histogram(aes(x = {{ref_dist}}, fill = as.factor({{ind}})), alpha = 0.65,  position = "identity", bins = 100)+
-    geom_vline(aes(xintercept = max({{emp_diff}})))+
-    theme_minimal()+
-    labs(x = paste0(ct, " Norm Value"),
-         fill = "Model",
-         caption = paste0("DGP: ", pr$dgp,", TP: ", pr$tp, ", Comparison Graph: ", pr$comp_graph, ", Matrix: ", c_matrix))+
-    ggokabeito::scale_fill_okabe_ito()
-  
-}
+
 
 
 # Compare to DGP ----------------------------------------------------------
@@ -2079,6 +1769,15 @@ compare_dgp <- function(true,
 
 
 
+
+
+
+
+
+
+# -------------------------------------------------------------------------
+# BGGM-VAR-Simulation -----------------------------------------------------
+# -------------------------------------------------------------------------
 # Correlation with zero check ---------------------------------------------
 # Inspired by Mansueto et al. 2021
 cor_zero <- function(x,y){
@@ -2128,80 +1827,6 @@ compare_bggm_gvar <- function(fit_bggm,
   return(l_out)
   
 }
-
-
-
-
-
-# Expand grid unique ------------------------------------------------------
-# Adapted from GIMME
-# https://rdrr.io/cran/gimme/src/R/expand.grid.unique.R
-
-expand_grid_unique <- function(mod_a, mod_b){
-  g <- function(i){
-    z <- setdiff(mod_b, mod_a[seq_len(i - 1)])
-    if(length(z)) cbind(mod_a[i], z, deparse.level = 0)
-  }
-  comb <- do.call(rbind, lapply(seq_along(mod_a), g))
-  # delete where mod_a == mod_b 
-  comb <- comb[comb[,1] != comb[,2],]
-  comb
-}
-
-
-
-
-
-# Effective Sample Size VAR -----------------------------------------------
-var_ess <- function(fitobj,
-                    burnin = 50){
-  # Input Information
-  it <- fitobj$iter
-  p <- fitobj$p
-  
-  ## Get samples
-  beta <- fitobj$fit$beta[,,(burnin+1):(iterations+burnin)]
-  pcor <- fitobj$fit$pcors[,,(burnin+1):(iterations+burnin)]
-  
-  # Transform to mcmc objects
-  mcmc_beta <- coda::as.mcmc(t(matrix(beta, p*p, iterations)))
-  mcmc_pcor <- coda::as.mcmc(t(matrix(pcor, p*p, iterations)))
-  
-  # correct variable names
-  # column after column 
-  cnames <- colnames(fitobj$Y)
-  cnames_lag <- paste0(colnames(fitobj$Y), ".l1")
-  
-  beta_names <- c(sapply(cnames, paste, cnames_lag, sep = "--"))
-  pcor_names <- c(sapply(cnames, paste, cnames, sep = "--"))
-  
-  ## Calculate ESS
-  ess_beta <- coda::effectiveSize(mcmc_beta)
-  ess_pcor <- coda::effectiveSize(mcmc_pcor)
-  
-  names(ess_beta) <- beta_names
-  names(ess_pcor) <- pcor_names
-  
-  ## Return
-  l_out <- list(
-    ess_beta = ess_beta,
-    ess_pcor = ess_pcor
-  )
-  return(l_out)
-  
-}
-
-
-
-
-
-
-
-
-# -------------------------------------------------------------------------
-# BGGM-VAR-Simulation -----------------------------------------------------
-# -------------------------------------------------------------------------
-
 
 
 # Sim Select --------------------------------------------------------------
@@ -2499,14 +2124,14 @@ eval_gvar <- function(fit,
   ## Find corresponding true graph
   # transposing because we use graphicalVARsim
   true_graph <- dgp_list[[l_out$dgp_ind]]
-  beta_true <- t(true_graph$beta)
+  beta_true_vec <- t(true_graph$beta)
   kappa_true <- true_graph$kappa
   
   # Calculate PCOR 
-  pcor_true <- -1*stats::cov2cor(kappa_true)
+  pcor_true<- -1*stats::cov2cor(kappa_true)
   
   # Vectors for correlations
-  beta_true_vec <- c(beta_true)
+  beta_true_vec <- c(beta_true_vec)
   pcor_true_vec <- c(pcor_true[upper.tri(pcor_true, diag = FALSE)])
   
   #--- Nonselect Method ---#
@@ -2520,12 +2145,12 @@ eval_gvar <- function(fit,
   
   
   # Compute Bias
-  l_out$bias_beta <- bias(beta_est, beta_true)
-  l_out$bias_pcor <- bias(pcor_est, pcor_true)
+  l_out$bias_beta <- bias(beta_est_vec, beta_true_vec)
+  l_out$bias_pcor <- bias(pcor_est_vec, pcor_true_vec)
   
   # Compute rmse
-  l_out$rmse_beta <- rmse(beta_est, beta_true)
-  l_out$rmse_pcor <- rmse(pcor_est, pcor_true)
+  l_out$rmse_beta <- rmse(beta_est_vec, beta_true_vec)
+  l_out$rmse_pcor <- rmse(pcor_est_vec, pcor_true_vec)
   
   # Correlations
   # add conditions for very sparse matrices
@@ -2533,26 +2158,26 @@ eval_gvar <- function(fit,
   l_out$cor_pcor <- cor_zero(pcor_est_vec, pcor_true_vec)
   
   # Sum of zeros
-  l_out$zeros_beta <- sum(beta_est == 0)
-  l_out$zeros_pcor <- sum(pcor_est[upper.tri(pcor_est, diag = FALSE)] == 0)
+  l_out$zeros_beta <- sum(beta_est_vec == 0)
+  l_out$zeros_pcor <- sum(pcor_est_vec)
   
   
   ## True/False Positive/Negative
   # TP
-  l_out$true_pos_beta <- sum(beta_true != 0 & beta_est != 0)
-  l_out$true_pos_pcor <- sum(pcor_true != 0 & pcor_est != 0)
+  l_out$true_pos_beta <- sum(beta_true_vec != 0 & beta_est_vec != 0)
+  l_out$true_pos_pcor <- sum(pcor_true_vec != 0 & pcor_est_vec != 0)
   
   # FP
-  l_out$fal_pos_beta <- sum(beta_true == 0 & beta_est != 0)
-  l_out$fal_pos_pcor <- sum(pcor_true == 0 & pcor_est != 0)  
+  l_out$fal_pos_beta <- sum(beta_true_vec == 0 & beta_est_vec != 0)
+  l_out$fal_pos_pcor <- sum(pcor_true_vec == 0 & pcor_est_vec != 0)  
   
   # TN
-  l_out$true_neg_beta <- sum(beta_true == 0 & beta_est == 0)
-  l_out$true_neg_pcor <- sum(pcor_true == 0 & pcor_est == 0)
+  l_out$true_neg_beta <- sum(beta_true_vec == 0 & beta_est_vec == 0)
+  l_out$true_neg_pcor <- sum(pcor_true_vec == 0 & pcor_est_vec == 0)
   
   # FN
-  l_out$fal_neg_beta <- sum(beta_true != 0 & beta_est == 0)
-  l_out$fal_neg_pcor <- sum(pcor_true != 0 & pcor_est == 0)
+  l_out$fal_neg_beta <- sum(beta_true_vec != 0 & beta_est_vec == 0)
+  l_out$fal_neg_pcor <- sum(pcor_true_vec != 0 & pcor_est_vec == 0)
   
   ## Sensitivity
   l_out$sens_beta <- l_out$true_pos_beta / (l_out$true_pos_beta + l_out$fal_neg_beta)
@@ -2580,8 +2205,44 @@ eval_gvar <- function(fit,
 # -------------------------------------------------------------------------
 # Empirical Example -------------------------------------------------------
 # -------------------------------------------------------------------------
-
-
+# Effective Sample Size VAR -----------------------------------------------
+var_ess <- function(fitobj,
+                    burnin = 50){
+  # Input Information
+  it <- fitobj$iter
+  p <- fitobj$p
+  
+  ## Get samples
+  beta <- fitobj$fit$beta[,,(burnin+1):(iterations+burnin)]
+  pcor <- fitobj$fit$pcors[,,(burnin+1):(iterations+burnin)]
+  
+  # Transform to mcmc objects
+  mcmc_beta <- coda::as.mcmc(t(matrix(beta, p*p, iterations)))
+  mcmc_pcor <- coda::as.mcmc(t(matrix(pcor, p*p, iterations)))
+  
+  # correct variable names
+  # column after column 
+  cnames <- colnames(fitobj$Y)
+  cnames_lag <- paste0(colnames(fitobj$Y), ".l1")
+  
+  beta_names <- c(sapply(cnames, paste, cnames_lag, sep = "--"))
+  pcor_names <- c(sapply(cnames, paste, cnames, sep = "--"))
+  
+  ## Calculate ESS
+  ess_beta <- coda::effectiveSize(mcmc_beta)
+  ess_pcor <- coda::effectiveSize(mcmc_pcor)
+  
+  names(ess_beta) <- beta_names
+  names(ess_pcor) <- pcor_names
+  
+  ## Return
+  l_out <- list(
+    ess_beta = ess_beta,
+    ess_pcor = ess_pcor
+  )
+  return(l_out)
+  
+}
 
 # Compare VAR -------------------------------------------------------------
 compare_var <- function(fit_a, 
@@ -2706,7 +2367,7 @@ compare_var <- function(fit_a,
 }
 
 # Plotting method
-# THIS IS ONLY TEMPORARY!!!!!
+# THIS IS ONLY TEMPORARY!
 plot.compare_var <- function(compres,
                              ...){
   require(ggplot2)
@@ -2897,6 +2558,31 @@ plot_test <- function(comp_obj,
          caption = paste0("DGP: ", pr$dgp,", TP: ", pr$tp, ", Comparison Graph: ", pr$comp_graph, ", Matrix: ", c_matrix))+
     ggokabeito::scale_fill_okabe_ito()
   
+}
+
+
+
+
+
+
+
+
+# -------------------------------------------------------------------------
+# Miscellaneous -----------------------------------------------------------
+# -------------------------------------------------------------------------
+# Expand grid unique ------------------------------------------------------
+# Adapted from GIMME
+# https://rdrr.io/cran/gimme/src/R/expand.grid.unique.R
+
+expand_grid_unique <- function(mod_a, mod_b){
+  g <- function(i){
+    z <- setdiff(mod_b, mod_a[seq_len(i - 1)])
+    if(length(z)) cbind(mod_a[i], z, deparse.level = 0)
+  }
+  comb <- do.call(rbind, lapply(seq_along(mod_a), g))
+  # delete where mod_a == mod_b 
+  comb <- comb[comb[,1] != comb[,2],]
+  comb
 }
 
 
