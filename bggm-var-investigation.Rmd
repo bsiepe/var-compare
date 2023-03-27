@@ -18,6 +18,7 @@ library(foreach)
 library(BGGM)
 library(graphicalVAR)
 library(cowplot)
+library(sysfonts)
 source("aux_funs.R")
 
 seed = 2022
@@ -26,32 +27,19 @@ set.seed(seed)
 
 
 
+
+
+
 # Simulation study
 
 ## Data Generation
-Just use "truegraph" data from main simulation study for now. 
-TODO: Download this from the server. 
+
 ```{r}
 l_raw <- readRDS(here::here("output/l_raw.RDS"))
 l_graphs <- readRDS(here::here("data/l_graphs.RDS"))
-# 
-# # Only truegraph
-# l_dgp <- list()
-# l_dgp$graph1 <- lapply(l_raw$graph1, function(x){
-#   y <- x$truegraph
-#   y
-# })
-# l_dgp$graph2 <- lapply(l_raw$graph2, function(x){
-#   y <- x$truegraph
-#   y
-# })
-# l_dgp$graph3 <- lapply(l_raw$graph3, function(x){
-#   y <- x$truegraph
-#   y
-# })
 
 
-
+l_graphs$graph6 <- readRDS("data/hoekstra_synth_9node.RDS")
 
 ```
 
@@ -83,39 +71,47 @@ before_simraw <- Sys.time()
 ncores = 40
 cl = makeCluster(ncores)
 registerDoParallel(cl)
-# l_raw <- list()
-# l_raw$graph3 <- l_raw$graph2 <- l_raw$graph1 <-  list()
+l_raw <- list()
+l_raw$graph6 <- l_raw$graph5 <- l_raw$graph4 <- l_raw$graph3 <- l_raw$graph2 <- l_raw$graph1 <-  list()
 for(t in seq_along(n_tp)){
-  # l_raw$graph1[[t]] <- list()
-  # l_raw$graph1[[t]] <- sim_raw_parallel(dgp = l_graphs$graph1,
-  #                                   n = n_postds,
-  #                                   tp = n_tp[t],
-  #                                   seed = seed,
-  #                                   means = 0,
-  #                                   standardize = TRUE)
-  # 
-  # l_raw$graph2[[t]] <- list()
-  # l_raw$graph2[[t]] <- sim_raw_parallel(dgp = l_graphs$graph2,
-  #                                   n = n_postds,
-  #                                   tp = n_tp[t],
-  #                                   seed = seed,
-  #                                   means = 0,
-  #                                   standardize = TRUE)
-  # l_raw$graph3[[t]] <- list()
-  # l_raw$graph3[[t]] <- sim_raw_parallel(dgp = l_graphs$graph3,
-  #                                   n = n_postds,
-  #                                   tp = n_tp[t],
-  #                                   seed = seed,
-  #                                   means = 0,
-  #                                   standardize = TRUE)
-  # l_raw$graph4[[t]] <- sim_raw_parallel(dgp = l_graphs$graph4,
-  #                                   n = n_postds,
-  #                                   tp = n_tp[t],
-  #                                   seed = seed,
-  #                                   means = 0,
-  #                                   standardize = TRUE)
-  
+  l_raw$graph1[[t]] <- list()
+  l_raw$graph1[[t]] <- sim_raw_parallel(dgp = l_graphs$graph1,
+                                    n = n_postds,
+                                    tp = n_tp[t],
+                                    seed = seed,
+                                    means = 0,
+                                    standardize = TRUE)
+
+  l_raw$graph2[[t]] <- list()
+  l_raw$graph2[[t]] <- sim_raw_parallel(dgp = l_graphs$graph2,
+                                    n = n_postds,
+                                    tp = n_tp[t],
+                                    seed = seed,
+                                    means = 0,
+                                    standardize = TRUE)
+  l_raw$graph3[[t]] <- list()
+  l_raw$graph3[[t]] <- sim_raw_parallel(dgp = l_graphs$graph3,
+                                    n = n_postds,
+                                    tp = n_tp[t],
+                                    seed = seed,
+                                    means = 0,
+                                    standardize = TRUE)
+  l_raw$graph4[[t]] <- list()
+  l_raw$graph4[[t]] <- sim_raw_parallel(dgp = l_graphs$graph4,
+                                    n = n_postds,
+                                    tp = n_tp[t],
+                                    seed = seed,
+                                    means = 0,
+                                    standardize = TRUE)
+  l_raw$graph5[[t]] <- list()
   l_raw$graph5[[t]] <- sim_raw_parallel(dgp = l_graphs$graph5,
+                                    n = n_postds,
+                                    tp = n_tp[t],
+                                    seed = seed,
+                                    means = 0,
+                                    standardize = TRUE)
+  l_raw$graph6[[t]] <- list()
+  l_raw$graph6[[t]] <- sim_raw_parallel(dgp = l_graphs$graph6,
                                     n = n_postds,
                                     tp = n_tp[t],
                                     seed = seed,
@@ -145,8 +141,8 @@ Estimate both graphicalVAR in default settings as well as BGGM with varying prio
 Next steps here: load results, then figure out which files haven't been done yet
 ```{r}
 # Priors
-dgp_names <- c("graph1", "graph2", "graph3", "graph4", "graph5")
-dgp <- c(1,2,3,4,5)
+dgp_names <- c("graph1", "graph2", "graph3", "graph4", "graph5", "graph6")
+dgp <- c(1,2,3,4,5,6)
 rho_sd <- c(0.1, 0.3, 0.5)
 beta_sd <- c(0.2, 0.5, 1)
 n_tp <- c(50, 100, 200, 400, 1000) 
@@ -205,10 +201,10 @@ for(m in 1:nrow(cond_grid)){
   }
 }
 
-# saveRDS(l_res_bggm, here::here("output/bggm-var-sim-res_1703.Rds"))
+saveRDS(l_res_bggm, here::here("output/bggm-var-sim-res_2403.Rds"))
 # l_res_bggm <- readRDS(here::here("output/bggm-var-sim-res_1703.Rds"))
 
-rm(l_res)
+
 
 
 ```
@@ -274,7 +270,7 @@ for(m in 1:nrow(cond_grid_gvar)){
   }
 }
 
-# saveRDS(l_res_gvar, here::here("output/graphicalvar-sim-res_1703.Rds"))
+saveRDS(l_res_gvar, here::here("output/graphicalvar-sim-res_2403.Rds"))
 # l_res_gvar <- readRDS(here::here("output/graphicalvar-sim-res_1703.Rds"))
 
     
@@ -290,8 +286,8 @@ for(m in 1:nrow(cond_grid_gvar)){
 Evaluate both with and without graph selection.
 
 ```{r}
-l_res_bggm <- readRDS(here::here("output/bggm-var-sim-res_1703.Rds"))
-l_res_gvar <- readRDS(here::here("output/graphicalvar-sim-res_1703.Rds"))
+l_res_bggm <- readRDS(here::here("output/bggm-var-sim-res_2403.Rds"))
+l_res_gvar <- readRDS(here::here("output/graphicalvar-sim-res_2403.Rds"))
 l_graphs <- readRDS(here::here("data/l_graphs.RDS"))
 
 
@@ -300,6 +296,8 @@ l_eval_bggm <- lapply(l_res_bggm, function(x){
   res <- lapply(x, eval_bggm)
   return(res)
 })
+
+rm(l_res_bggm)
 df_eval_bggm <- purrr::flatten(l_eval_bggm)
 df_eval_bggm <- dplyr::bind_rows(df_eval_bggm)
 # Pivot CIs wider
@@ -310,6 +308,7 @@ df_eval_bggm_wide <- df_eval_bggm %>%
 rm(df_eval_bggm)
 rm(l_eval_bggm)
 df_eval_bggm <- df_eval_bggm_wide
+rm(df_eval_bggm_wide)
 
 
 ## GVAR
@@ -323,9 +322,22 @@ df_eval_gvar <- purrr::flatten(l_eval_gvar)
 df_eval_gvar <- dplyr::bind_rows(df_eval_gvar)
 rm(l_eval_gvar)
 
-# TODO save evaluations
-saveRDS(df_eval_gvar, here::here("output/df_eval_gvar.RDS"))
-saveRDS(df_eval_bggm, here::here("output/df_eval_bggm.RDS"))
+# save evaluations
+# saveRDS(df_eval_gvar, here::here("output/df_eval_gvar.RDS"))
+# saveRDS(df_eval_bggm, here::here("output/df_eval_bggm_2703.RDS"))
+df_eval_gvar <- readRDS(here::here("output/df_eval_gvar_2703.RDS"))
+df_eval_bggm <- readRDS(here::here("output/df_eval_bggm_2703.RDS"))
+
+```
+
+
+
+### Plotting results
+
+Prepare plotting
+```{r}
+# Timepoint values
+tp_levels <- c("50" = "1", "100" = "2", "200" = "3", "400" = "4", "1000" = "5")
 
 
 ```
@@ -334,55 +346,97 @@ saveRDS(df_eval_bggm, here::here("output/df_eval_bggm.RDS"))
 #### Plot BGGM
 ```{r}
 df_eval_bggm_summary <- df_eval_bggm %>% 
+  # mutate tp_ind into factor
+  mutate(tp_ind = fct_recode(as_factor(as.character(tp_ind)), !!!tp_levels))
   group_by(dgp_ind, tp_ind, rho_prior, beta_prior) %>% 
   # convert coverage into proportion
+  mutate(n_nodes = ifelse(dgp_ind == 6, 8, 6)) %>% 
   mutate(across(contains("sum_cover_beta"),
-                ~ ./36)) %>% 
+                ~ ./n_nodes^2)) %>% 
   # divide by number of unique off-diagonal elements
   mutate(across(contains("sum_cover_pcor"),
-                ~ ./15)) %>% 
+                ~ ./((n_nodes/2)*(n_nodes-1)))) %>% 
   summarize(across(c(bias_beta, bias_pcor, cor_beta, cor_pcor, 
                    bias_beta_sel, bias_pcor_sel, cor_beta_sel,                                    cor_pcor_sel, spec_beta, spec_pcor,
                    sens_beta, sens_pcor, contains("sum_cover")), 
                    .fns = list(mean = mean, 
                                sd = sd,
-                               se = ~ sd / sqrt(sum(!is.na(.x))), 
-                               lower = ~ mean - 1.96*se, 
-                               upper = ~ mean + 1.96*se, 
+                               # se = ~ sd / sqrt(1000),
+                               # lower = ~ mean - 1.96*se, 
+                               # upper = ~ mean + 1.96*se, 
                                median = ~ median(.x, na.rm = TRUE))))
 
-
-plot_eval_bggm <- df_eval_bggm_wide %>% 
+df_eval_bggm_long <- df_eval_bggm %>% 
+  # mutate tp_ind into factor - TODO does not work yet
+  mutate(tp_ind = fct_recode(as_factor(as.character(tp_ind)), !!!tp_levels)) %>% 
   group_by(dgp_ind, tp_ind, rho_prior, beta_prior) %>% 
   # convert coverage into proportion
+  mutate(n_nodes = ifelse(dgp_ind == 6, 8, 6)) %>% 
   mutate(across(contains("sum_cover_beta"),
-                ~ ./36)) %>% 
+                ~ ./n_nodes^2)) %>% 
   # divide by number of unique off-diagonal elements
   mutate(across(contains("sum_cover_pcor"),
-                ~ ./15)) %>% 
+                ~ ./((n_nodes/2)*(n_nodes-1)))) %>% 
   summarize(across(c(bias_beta, bias_pcor, cor_beta, cor_pcor, 
-                   bias_beta_sel, bias_pcor_sel, cor_beta_sel,                              cor_pcor_sel, spec_beta, spec_pcor,
+                   bias_beta_sel, bias_pcor_sel, cor_beta_sel, cor_pcor_sel, spec_beta, spec_pcor,
                    sens_beta, sens_pcor, contains("sum_cover")), 
                    ~mean(.))) %>% 
   pivot_longer(cols = c(bias_beta, bias_pcor, cor_beta, cor_pcor, 
-                   bias_beta_sel, bias_pcor_sel, cor_beta_sel,                              cor_pcor_sel, spec_beta, spec_pcor,
+                   bias_beta_sel, bias_pcor_sel, cor_beta_sel, cor_pcor_sel, spec_beta, spec_pcor,
+                   sens_beta, sens_pcor, contains("sum_cover")), names_to = "stat", 
+               values_to = "value") %>% 
+  mutate(prior_comb = paste0(expression(rho)," = ", rho_prior,", ", expression(beta)," = ", beta_prior)) %>% 
+  ungroup() 
+  
+  
+plot_eval_bggm <- df_eval_bggm_long %>% 
+  ggplot(aes(x = tp_ind, y = value, col = prior_comb, group = prior_comb)) + 
+  facet_grid(dgp_ind ~ stat) + 
+  geom_line() + 
+  theme_bw()+
+  theme_compare()+
+  labs(x = "Timepoints",
+       col = "Priors")+
+  # guides(color = guide_legend(col = parse(text = prior_comb)))+
+  ylim(0,1)+
+  ggokabeito::scale_color_okabe_ito()
+
+ggsave("plot_eval_bggm.svg", plot_eval_bggm, path = here::here("figures/"), device = "svg", width = 30, height = 9)  
+
+
+# Eval plot with boxplots
+# TODO: Use less conditions
+plot_eval_bggm_box <- df_eval_bggm %>% 
+  group_by(dgp_ind, tp_ind, rho_prior, beta_prior) %>% 
+  # convert coverage into proportion
+  mutate(n_nodes = ifelse(dgp_ind == 6, 8, 6)) %>% 
+  mutate(across(contains("sum_cover_beta"),
+                ~ ./n_nodes^2)) %>% 
+  # divide by number of unique off-diagonal elements
+  mutate(across(contains("sum_cover_pcor"),
+                ~ ./((n_nodes/2)*(n_nodes-1)))) %>% 
+  # summarize(across(c(bias_beta, bias_pcor, cor_beta, cor_pcor, 
+  #                  bias_beta_sel, bias_pcor_sel, cor_beta_sel,                              cor_pcor_sel, spec_beta, spec_pcor,
+  #                  sens_beta, sens_pcor, contains("sum_cover")), 
+  #                  ~mean(.))) %>% 
+  pivot_longer(cols = c(bias_beta, bias_pcor, cor_beta, cor_pcor, 
+                   bias_beta_sel, bias_pcor_sel, cor_beta_sel, cor_pcor_sel, spec_beta, spec_pcor,
                    sens_beta, sens_pcor, contains("sum_cover")), names_to = "stat", 
                values_to = "value") %>% 
   mutate(prior_comb = paste0("rho = ", rho_prior, ", beta = ", beta_prior)) %>% 
   ungroup() %>% 
   ggplot(aes(x = tp_ind, y = value, col = prior_comb)) + 
   facet_grid(dgp_ind ~ stat) + 
-  geom_line() + 
+  geom_boxplot(outlier.size = 0.5, outlier.alpha = 0.4, outlier.color = "grey") + 
   theme_bw()+
   ylim(0,1)+
   ggokabeito::scale_color_okabe_ito()
-
-ggsave("plot_eval_bggm.svg", plot_eval_bggm, path = here::here("figures/"), device = "svg", width = 20, height = 9)  
+plot_eval_bggm
+ggsave("plot_eval_bggm_boxplot.svg", plot_eval_bggm_box, path = here::here("figures/"), device = "svg", width = 16, height = 9)  
 
 ```
 
 ### Plot GVAR
-
 Plot results
 ```{r}
 plot_eval_gvar <- df_eval_gvar %>% 
@@ -445,8 +499,6 @@ df_cor_full <- df_cor %>%
   mutate(across(contains("cor"),
                 ~tidyr::replace_na(., replace = 0))) %>% 
   left_join(cond_grid_full, by = c("iter_bggm", "iter_gvar"))
-
-
 
 
 ```
@@ -566,7 +618,7 @@ df_eval_gvar_ind <- df_eval_gvar %>%
   
 # For joining, select one of the prior conditions
 df_eval_both <- df_eval_bggm_ind %>% 
-  filter(beta_prior == 0.5 & rho_prior == 0.5) %>% 
+  # filter(beta_prior == 0.5 & rho_prior == 0.5) %>% 
   left_join(df_eval_gvar_ind, by = c("dgp_ind", "tp_ind", "data_ind"),
             suffix = c("_bggm", "_gvar")) %>% 
   ungroup()
@@ -582,42 +634,63 @@ df_eval_both <- df_eval_bggm_ind %>%
 
 ```{r}
 plot_eval_both <- df_eval_both %>% 
-  dplyr::select(c(dgp_ind, tp_ind, lambda, ebic, contains("bias"),contains("rmse"))) %>% 
-  dplyr::group_by(dgp_ind, tp_ind, lambda, ebic) %>% 
+  dplyr::select(c(dgp_ind, tp_ind, lambda, ebic, contains("prior"), contains("bias"),contains("rmse"))) %>%
+  mutate(prior_comb = paste0("b", beta_prior,  "_r", rho_prior)) %>% 
+  filter(prior_comb == "b1_r0.5" | prior_comb == "b0.2_r0.3") %>% 
+  dplyr::group_by(dgp_ind, tp_ind, lambda, ebic, prior_comb) %>% 
   dplyr::summarize(across(c(contains("bias"),contains("rmse")),
                    ~mean(., na.rm = TRUE))) %>% 
+  pivot_wider(names_from = prior_comb, 
+              values_from = c(contains("bggm"), contains("sel"))) %>% 
   pivot_longer(cols = c(contains("bias"), contains("rmse")),
                         names_to = "stat") %>%
   mutate(method = case_when(
-    stringr::str_detect(stat, "bggm") ~ "bggm",
+    stringr::str_detect(stat, "bggm_b0.2") ~ "bggm_narrow",
+    stringr::str_detect(stat, "bggm_b1") ~ "bggm_wide",
     stringr::str_detect(stat, "gvar") ~ "gvar",
-    stringr::str_detect(stat, "sel") ~ "sel",
+    stringr::str_detect(stat, "sel_b0.2") ~ "sel_narrow",
+    stringr::str_detect(stat, "sel_b1") ~ "sel_wide"
   )) %>% 
   mutate(mat = case_when(
-    stringr::str_detect(stat, "beta") ~ "beta",
-    stringr::str_detect(stat, "pcor") ~ "pcor"
+    stringr::str_detect(stat, "beta") ~ "Temp.",
+    stringr::str_detect(stat, "pcor") ~ "Contemp."
   )) %>% 
+  mutate(stat = case_when(
+    stringr::str_detect(stat, "bias") ~ "Bias",
+    stringr::str_detect(stat, "rmse") ~ "RMSE"
+  )) %>% 
+  # mutate(timepoints = case_when(
+  #   tp_ind == 1 ~ 50,
+  #   tp_ind == 2 ~ 100,
+  #   tp_ind == 3 ~ 200,
+  #   tp_ind == 4 ~ 400,
+  #   tp_ind == 5 ~ 1000
+  # )) %>% 
   # remove everything after first underscore
   # remove matrix from stat column
   mutate(stat = stringr::str_remove(stat, "_.*")) %>% 
   # only take default values for now
   filter(is.na(lambda) & ebic == 0) %>% 
   # only show bias for now
-  ggplot(aes(x = tp_ind, y = value, col = method))+
+  ggplot(aes(x = timepoints, y = value, col = method, ))+
   geom_line()+
-  facet_grid(as.factor(stat) + as.factor(mat) ~ as.factor(dgp_ind))+
+  # geom_point()+
+  # facet_grid(as.factor(stat) + as.factor(mat) ~ as.factor(dgp_ind))+
+  ggh4x::facet_nested(as.factor(stat) + as.factor(mat) ~ as.factor(dgp_ind),
+                      scales = "free_y")+
+  scale_x_continuous(breaks = c(50,100,200,400,1000))+
   theme_bw()+
   ggokabeito::scale_color_okabe_ito()+
-  labs(caption = "GVAR default, BGGM rho = 0.5, beta = 1")
-ggsave("plot_eval_both2.svg", plot_eval_both, height = 7, width = 10, path = here::here("figures/"), device = "svg")
+  labs(caption = "GVAR default",
+       x = "Timepoints",
+       col = "Method",
+       y = "")+
+  theme_compare()
+plot_eval_both
+
+ggsave("plot_eval_both_crazy.svg", plot_eval_both, height = 7, width = 10, path = here::here("figures/"), device = "svg")
 
 ```
-
-
-
-
-
-
 
 
 
