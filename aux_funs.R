@@ -2331,16 +2331,16 @@ eval_bggm <- function(fit,
   ## Find corresponding true graph
   # transposing bc we use graphicalVARsim
   true_graph <- dgp_list[[l_out$dgp_ind]]
-  beta_true <- t(true_graph$beta)
+  beta_true_vec <- t(true_graph$beta)
   kappa_true <- true_graph$kappa
   
   # Calculate PCOR 
-  pcor_true <- -1*stats::cov2cor(kappa_true)
+  pcor_true_vec <- -1*stats::cov2cor(kappa_true)
   
   
   # Vectors for correlations
-  beta_true_vec <- c(beta_true)
-  pcor_true_vec <- c(pcor_true[upper.tri(pcor_true, diag = FALSE)])
+  beta_true_vec <- c(beta_true_vec)
+  pcor_true_vec <- c(pcor_true_vec[upper.tri(pcor_true_vec, diag = FALSE)])
   
   
   #--- Nonselect Method ---#
@@ -2354,12 +2354,12 @@ eval_bggm <- function(fit,
   
   
   # Compute Bias
-  l_out$bias_beta <- bias(beta_est, beta_true)
-  l_out$bias_pcor <- bias(pcor_est, pcor_true)
+  l_out$bias_beta <- bias(beta_est_vec, beta_true_vec)
+  l_out$bias_pcor <- bias(pcor_est_vec, pcor_true_vec)
   
   # RMSE
-  l_out$rmse_beta <- rmse(beta_est, beta_true)
-  l_out$rmse_pcor <- rmse(pcor_est, pcor_true)
+  l_out$rmse_beta <- rmse(beta_est_vec, beta_true_vec)
+  l_out$rmse_pcor <- rmse(pcor_est_vec, pcor_true_vec)
   
   # Correlations
   # TODO should I do it like this? just ignore matrix structure?
@@ -2374,46 +2374,46 @@ eval_bggm <- function(fit,
   
   
   # Obtain estimates with selection
-  beta_est_sel <- fit$beta_weighted_adj
-  pcor_est_sel <- fit$pcor_weighted_adj
+  beta_est_sel_vec <- fit$beta_weighted_adj
+  pcor_est_sel_vec <- fit$pcor_weighted_adj
   
   # Vectors for correlations
-  beta_est_sel_vec <- c(beta_est_sel)
-  pcor_est_sel_vec <- c(pcor_est_sel[upper.tri(pcor_est_sel, diag = FALSE)])
+  beta_est_sel_vec <- c(beta_est_sel_vec)
+  pcor_est_sel_vec <- c(pcor_est_sel_vec[upper.tri(pcor_est_sel_vec, diag = FALSE)])
   
   # Correlations
   l_out$cor_beta_sel <- cor_zero(beta_est_sel_vec, beta_true_vec)
   l_out$cor_pcor_sel <- cor_zero(pcor_est_sel_vec, pcor_true_vec)
   
   # Bias
-  l_out$bias_beta_sel <- bias(beta_est_sel, beta_true)
-  l_out$bias_pcor_sel <- bias(pcor_est_sel, pcor_true)
+  l_out$bias_beta_sel <- bias(beta_est_sel_vec, beta_true_vec)
+  l_out$bias_pcor_sel <- bias(pcor_est_sel_vec, pcor_true_vec)
   
   # rmse
-  l_out$rmse_beta_sel <- rmse(beta_est_sel, beta_true)
-  l_out$rmse_pcor_sel <- rmse(pcor_est_sel, pcor_true)
+  l_out$rmse_beta_sel <- rmse(beta_est_sel_vec, beta_true_vec)
+  l_out$rmse_pcor_sel <- rmse(pcor_est_sel_vec, pcor_true_vec)
   
   # Amount of zeros
-  l_out$zeros_beta_sel <- sum(beta_est_sel == 0)
-  l_out$zeros_pcor_sel <- sum(pcor_est_sel[upper.tri(pcor_est_sel, diag = FALSE)] == 0)
+  l_out$zeros_beta_sel <- sum(beta_est_sel_vec == 0)
+  l_out$zeros_pcor_sel <- sum(pcor_est_sel_vec == 0)
   
   
   ## True/False Positive/Negative
   # TP
-  l_out$true_pos_beta <- sum(beta_true != 0 & beta_est_sel != 0)
-  l_out$true_pos_pcor <- sum(pcor_true != 0 & pcor_est_sel != 0)
+  l_out$true_pos_beta <- sum(beta_true_vec != 0 & beta_est_sel_vec != 0)
+  l_out$true_pos_pcor <- sum(pcor_true_vec != 0 & pcor_est_sel_vec != 0)
   
   # FP
-  l_out$fal_pos_beta <- sum(beta_true == 0 & beta_est_sel != 0)
-  l_out$fal_pos_pcor <- sum(pcor_true == 0 & pcor_est_sel != 0)  
+  l_out$fal_pos_beta <- sum(beta_true_vec == 0 & beta_est_sel_vec != 0)
+  l_out$fal_pos_pcor <- sum(pcor_true_vec == 0 & pcor_est_sel_vec != 0)  
   
   # TN
-  l_out$true_neg_beta <- sum(beta_true == 0 & beta_est_sel == 0)
-  l_out$true_neg_pcor <- sum(pcor_true == 0 & pcor_est_sel == 0)
+  l_out$true_neg_beta <- sum(beta_true_vec == 0 & beta_est_sel_vec == 0)
+  l_out$true_neg_pcor <- sum(pcor_true_vec == 0 & pcor_est_sel_vec == 0)
   
   # FN
-  l_out$fal_neg_beta <- sum(beta_true != 0 & beta_est_sel == 0)
-  l_out$fal_neg_pcor <- sum(pcor_true != 0 & pcor_est_sel == 0)
+  l_out$fal_neg_beta <- sum(beta_true_vec != 0 & beta_est_sel_vec == 0)
+  l_out$fal_neg_pcor <- sum(pcor_true_vec != 0 & pcor_est_sel_vec == 0)
   
   ## Sensitivity
   l_out$sens_beta <- l_out$true_pos_beta / (l_out$true_pos_beta + l_out$fal_neg_beta)
@@ -2436,17 +2436,19 @@ eval_bggm <- function(fit,
                       width_beta = rep(NA, length(cred_int)),
                       width_pcor = rep(NA, length(cred_int)) )
   for(i in 1:length(cred_int)){
-    lb_beta <- cred_interval$beta_lb[[i]]
-    ub_beta <- cred_interval$beta_ub[[i]]
+    lb_beta <- c(cred_interval$beta_lb[[i]])
+    ub_beta <- c(cred_interval$beta_ub[[i]])
     lb_pcor <- cred_interval$pcor_lb[[i]]
+    lb_pcor <- lb_pcor[upper.tri(lb_pcor)]
     ub_pcor <- cred_interval$pcor_ub[[i]]  
+    ub_pcor <- ub_pcor[upper.tri(ub_pcor)]
     
-    m_cover_beta <- beta_true >= lb_beta & beta_true <= ub_beta 
-    m_cover_pcor <- pcor_true >= lb_pcor & pcor_true <= ub_pcor 
+    m_cover_beta <- beta_true_vec >= lb_beta & beta_true_vec <= ub_beta 
+    m_cover_pcor <- pcor_true_vec >= lb_pcor & pcor_true_vec <= ub_pcor 
     
     # Only consider upper diagonal of pcor
     df_ci[i, "sum_cover_beta"] <- sum(m_cover_beta)
-    df_ci[i, "sum_cover_pcor"] <- sum(m_cover_pcor[upper.tri(m_cover_pcor)])
+    df_ci[i, "sum_cover_pcor"] <- sum(m_cover_pcor)
     
     
   }
@@ -2460,7 +2462,7 @@ eval_bggm <- function(fit,
     ub_pcor <- cred_interval$pcor_ub[[i]]
     
     df_ci[i,"width_beta"] <- mean(ub_beta - lb_beta)
-    df_ci[i,"width_pcor"] <- mean(ub_pcor[upper.tri(ub_pcor)] - lb_pcor[upper.tri(lb_pcor)])
+    df_ci[i,"width_pcor"] <- mean(ub_pcor - lb_pcor)
     
   }
   
