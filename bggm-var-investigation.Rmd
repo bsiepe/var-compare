@@ -270,7 +270,7 @@ for(m in 1:nrow(cond_grid_gvar)){
   }
 }
 
-saveRDS(l_res_gvar, here::here("output/graphicalvar-sim-res_2403.Rds"))
+# saveRDS(l_res_gvar, here::here("output/graphicalvar-sim-res_2403.Rds"))
 # l_res_gvar <- readRDS(here::here("output/graphicalvar-sim-res_1703.Rds"))
 
     
@@ -323,7 +323,7 @@ df_eval_gvar <- dplyr::bind_rows(df_eval_gvar)
 rm(l_eval_gvar)
 
 # save evaluations
-# saveRDS(df_eval_gvar, here::here("output/df_eval_gvar.RDS"))
+# saveRDS(df_eval_gvar, here::here("output/df_eval_gvar_2703.RDS"))
 # saveRDS(df_eval_bggm, here::here("output/df_eval_bggm_2703.RDS"))
 df_eval_gvar <- readRDS(here::here("output/df_eval_gvar_2703.RDS"))
 df_eval_bggm <- readRDS(here::here("output/df_eval_bggm_2703.RDS"))
@@ -338,6 +338,9 @@ Prepare plotting
 ```{r}
 # Timepoint values
 tp_levels <- c("50" = "1", "100" = "2", "200" = "3", "400" = "4", "1000" = "5")
+dgp_levels <- c("Old1" = "1", "Old2" = "2", "Empirical\nSparse" = "3",
+                 "Simulated\nChain 6N" = "4", "Simulated\nNonsparse" = "5",
+                 "Simulated\nChain 8N" = "6")
 
 
 ```
@@ -367,7 +370,7 @@ df_eval_bggm_summary <- df_eval_bggm %>%
                                median = ~ median(.x, na.rm = TRUE))))
 
 df_eval_bggm_long <- df_eval_bggm %>% 
-  # mutate tp_ind into factor - TODO does not work yet
+  # mutate tp_ind into factor
   mutate(tp_ind = fct_recode(as_factor(as.character(tp_ind)), !!!tp_levels)) %>% 
   group_by(dgp_ind, tp_ind, rho_prior, beta_prior) %>% 
   # convert coverage into proportion
@@ -428,7 +431,6 @@ plot_eval_bggm_box <- df_eval_bggm %>%
   ggplot(aes(x = tp_ind, y = value, col = prior_comb)) + 
   facet_grid(dgp_ind ~ stat) + 
   geom_boxplot(outlier.size = 0.5, outlier.alpha = 0.4, outlier.color = "grey") + 
-  theme_bw()+
   ylim(0,1)+
   ggokabeito::scale_color_okabe_ito()
 plot_eval_bggm
@@ -457,7 +459,7 @@ plot_eval_gvar <- df_eval_gvar %>%
   geom_line()+
   facet_grid(dgp_ind ~ stat) + 
   ylim(0,1)+
-  theme_bw()+
+  theme_compare()+
   ggokabeito::scale_colour_okabe_ito()
 
 ggsave("plot_eval_gvar.svg", plot_eval_gvar, path = here::here("figures/"), device = "svg", width = 16, height = 9)  
@@ -532,6 +534,7 @@ ggsave("df_cor_grid.svg", df_cor_grid, height = 5, width = 25, path = here::here
 ```
 
 Divide correlation plot by gvar regularized vs. non-regularized
+TODO: add diff_beta
 ```{r}
 df_cor_grid_nonreg <- df_cor_full %>% 
   group_by(iter_bggm, iter_gvar) %>% 
@@ -601,8 +604,6 @@ cond_grid <- cond_grid %>%
 cond_grid_gvar <- cond_grid_gvar %>% 
   mutate(iter_gvar = dplyr::row_number())
 
-df_eval_bggm %>% 
-  left_join(cond_grid, by = c("dgp_ind", "tp_ind", "rho_prior", "beta_prior"))
 
 
 # add dataset iteration information to each
@@ -635,6 +636,10 @@ df_eval_both <- df_eval_bggm_ind %>%
 ```{r}
 plot_eval_both <- df_eval_both %>% 
   dplyr::select(c(dgp_ind, tp_ind, lambda, ebic, contains("prior"), contains("bias"),contains("rmse"))) %>%
+  # mutate tp_ind into factor
+  mutate(tp_ind = fct_recode(as_factor(as.character(tp_ind)), !!!tp_levels)) %>% 
+  # mutate dgp_ind into factor
+  mutate(dgp_ind = fct_recode(as_factor(as.character(dgp_ind)), !!!dgp_levels)) %>% 
   mutate(prior_comb = paste0("b", beta_prior,  "_r", rho_prior)) %>% 
   filter(prior_comb == "b1_r0.5" | prior_comb == "b0.2_r0.3") %>% 
   dplyr::group_by(dgp_ind, tp_ind, lambda, ebic, prior_comb) %>% 
@@ -645,11 +650,11 @@ plot_eval_both <- df_eval_both %>%
   pivot_longer(cols = c(contains("bias"), contains("rmse")),
                         names_to = "stat") %>%
   mutate(method = case_when(
-    stringr::str_detect(stat, "bggm_b0.2") ~ "bggm_narrow",
-    stringr::str_detect(stat, "bggm_b1") ~ "bggm_wide",
-    stringr::str_detect(stat, "gvar") ~ "gvar",
-    stringr::str_detect(stat, "sel_b0.2") ~ "sel_narrow",
-    stringr::str_detect(stat, "sel_b1") ~ "sel_wide"
+    stringr::str_detect(stat, "bggm_b0.2") ~ "BGMM narrow",
+    stringr::str_detect(stat, "bggm_b1") ~ "BGGM wide",
+    stringr::str_detect(stat, "gvar") ~ "gVAR",
+    stringr::str_detect(stat, "sel_b0.2") ~ "SEL narrow",
+    stringr::str_detect(stat, "sel_b1") ~ "SEL wide"
   )) %>% 
   mutate(mat = case_when(
     stringr::str_detect(stat, "beta") ~ "Temp.",
@@ -659,26 +664,15 @@ plot_eval_both <- df_eval_both %>%
     stringr::str_detect(stat, "bias") ~ "Bias",
     stringr::str_detect(stat, "rmse") ~ "RMSE"
   )) %>% 
-  # mutate(timepoints = case_when(
-  #   tp_ind == 1 ~ 50,
-  #   tp_ind == 2 ~ 100,
-  #   tp_ind == 3 ~ 200,
-  #   tp_ind == 4 ~ 400,
-  #   tp_ind == 5 ~ 1000
-  # )) %>% 
   # remove everything after first underscore
   # remove matrix from stat column
   mutate(stat = stringr::str_remove(stat, "_.*")) %>% 
   # only take default values for now
   filter(is.na(lambda) & ebic == 0) %>% 
   # only show bias for now
-  ggplot(aes(x = timepoints, y = value, col = method, ))+
+  ggplot(aes(x = tp_ind, y = value, col = method, group = method))+
   geom_line()+
-  # geom_point()+
-  # facet_grid(as.factor(stat) + as.factor(mat) ~ as.factor(dgp_ind))+
-  ggh4x::facet_nested(as.factor(stat) + as.factor(mat) ~ as.factor(dgp_ind),
-                      scales = "free_y")+
-  scale_x_continuous(breaks = c(50,100,200,400,1000))+
+  ggh4x::facet_nested(as.factor(dgp_ind) ~ as.factor(stat) + as.factor(mat))+
   theme_bw()+
   ggokabeito::scale_color_okabe_ito()+
   labs(caption = "GVAR default",
@@ -688,7 +682,7 @@ plot_eval_both <- df_eval_both %>%
   theme_compare()
 plot_eval_both
 
-ggsave("plot_eval_both_crazy.svg", plot_eval_both, height = 7, width = 10, path = here::here("figures/"), device = "svg")
+ggsave("plot_eval_both.svg", plot_eval_both, height = 7, width = 15, path = here::here("figures/"), device = "svg")
 
 ```
 

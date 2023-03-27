@@ -385,7 +385,7 @@ hoekstra_synth_6node$kappa <- hoekstra_synth$kappa[c(1:6), c(1:6)]
 hoekstra_synth_6node$kappa[1,6] <- -0.29
 hoekstra_synth_6node$kappa[6,1] <- -0.29
 
-
+saveRDS(hoekstra_synth, "data/hoekstra_synth_9node.RDS")
 saveRDS(hoekstra_synth_6node, "data/hoekstra_synth_6node.RDS")
 
 ```
@@ -444,19 +444,96 @@ saveRDS(graph5, here::here("data/graph5.RDS"))
 sum(graph_fried$beta[1:6, 1:6] != 0)
 sum(graph_fried$pcor[1:6, 1:6] != 0)
 
-
-
-
-
 ```
 
 
 
 # Plot data-generating processes
-TODO
+
+
+Graph Fried:
+```{r}
+graph_fried <- readRDS(here("data/graph_fried.Rds"))
+graph_fried$beta <- graph_fried$beta[1:6, 1:6]
+graph_fried$pcor <- graph_fried$pcor[1:6, 1:6]
+
+graph_fried<- lapply(graph_fried, function(x){
+  dimnames(x) <- NULL
+  return(x)
+})
+svg(here::here("figures/dgp_fried.svg"), width = 14)
+par(mfrow = c(1,2))
+qgraph(graph_fried$beta, layout = "circle", theme = "colorblind", 
+       edge.labels = TRUE, edge.label.cex = 1.25)
+qgraph(graph_fried$pcor, layout = "circle", theme = "colorblind", 
+       edge.labels = TRUE, edge.label.cex = 1.25)
+dev.off()
+
+```
+
+
+Chain Graph:
+Six Nodes:
+```{r}
+hoekstra_synth_6node<- readRDS("data/hoekstra_synth_6node.RDS")
+hoekstra_synth_6node$pcor <- -stats::cov2cor(hoekstra_synth_6node$kappa)
+
+hoekstra_synth_6node<- lapply(hoekstra_synth_6node, function(x){
+  dimnames(x) <- NULL
+  return(x)
+})
+
+svg(here::here("figures/dgp_chain6node.svg"), width = 14)
+par(mfrow = c(1,2))
+qgraph(hoekstra_synth_6node$beta, layout = "circle", theme = "colorblind", 
+       edge.labels = TRUE, edge.label.cex = 1.25)
+qgraph(hoekstra_synth_6node$pcor, layout = "circle", theme = "colorblind", 
+       edge.labels = TRUE, edge.label.cex = 1.25)
+dev.off()
+
+```
+
+
+Nine Nodes:
+```{r}
+hoekstra_synth<- readRDS("data/hoekstra_synth_9node.RDS")
+hoekstra_synth$pcor <- -stats::cov2cor(hoekstra_synth$kappa)
+
+hoekstra_synth <- lapply(hoekstra_synth, function(x){
+  dimnames(x) <- NULL
+  return(x)
+})
+
+svg(here::here("figures/dgp_chain9node.svg"), width = 14)
+par(mfrow = c(1,2))
+qgraph(hoekstra_synth$beta, layout = "circle", theme = "colorblind", 
+       edge.labels = TRUE, edge.label.cex = 1.25)
+qgraph(hoekstra_synth$pcor, layout = "circle", theme = "colorblind", 
+       edge.labels = TRUE, edge.label.cex = 1.25)
+dev.off()
+
+```
+
+
+Non-Sparse Graph:
+```{r}
+non_sparse <- readRDS(here::here("data/graph5.RDS"))
+non_sparse <- lapply(non_sparse, function(x){
+  dimnames(x) <- NULL
+  return(x)
+})
+
+svg(here::here("figures/dgp_chain_nonsparse.svg"), width = 14)
+par(mfrow = c(1,2))
+qgraph(non_sparse$beta, layout = "circle", theme = "colorblind", 
+       edge.labels = TRUE, edge.label.cex = 1.25)
+qgraph(non_sparse$pcor, layout = "circle", theme = "colorblind", 
+       edge.labels = TRUE, edge.label.cex = 1.25)
+dev.off()
 
 
 
+```
 
 
 
