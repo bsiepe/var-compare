@@ -15,6 +15,8 @@ library(tidyverse)
 library(foreach)
 library(doParallel)
 library(parallel)
+library(Hmisc)
+library(imputeTS)
 source("aux_funs.R")
 
 data <- readRDS("data_Fisher2017.RDS")
@@ -24,48 +26,80 @@ data <- readRDS("data_Fisher2017.RDS")
 n_obs <- data %>% 
   count(subj_id)
 
-# Use 6 items
-short_data <- data %>% 
-  # dplyr::filter(subj_id %in% rel_ids) %>% 
-  dplyr::select(subj_id, content, worried, anhedonia, positive, fatigue, accepted) %>% 
-  group_by(subj_id) %>% 
-  mutate(tp = row_number()) %>% 
-  ungroup() %>% 
-  split(.$subj_id)
 
 
-short_data <- data %>% 
-  # dplyr::filter(subj_id %in% rel_ids) %>% 
-  dplyr::select(subj_id, reassure, down, anhedonia, enthusiastic, hopeless, accepted) %>% 
-  group_by(subj_id) %>% 
-  mutate(tp = row_number()) %>% 
-  ungroup() %>% 
-  split(.$subj_id)
-
-
+# Look at proportion of missingness
+data %>% 
+  dplyr::mutate(miss = ifelse(is.na(energetic), 1, 0)) %>% 
+  dplyr::add_count(subj_id) %>% 
+  dplyr::group_by(subj_id) %>% 
+  dplyr::mutate(sum_miss = sum(miss)) %>% 
+  dplyr::summarize(prop_miss = sum_miss/n) %>% 
+  dplyr::distinct(subj_id, prop_miss) %>% 
+  dplyr::arrange(desc(prop_miss))
 
 ```
 
 
-## Detrending
+Create histograms for each individual
+```{r}
+l_hist <- list()
+for(u in unique(data$subj_id)){
+  tmp_dat <- subset(data, subj_id == u)
+  l_hist[[u]] <- Hmisc::hist.data.frame(tmp_dat[,2:10])
+  
+}
 
-TODO: Double check if this worked
+# Create overall histograms
+# Hmisc::hist.data.frame(data[,2:23])
+
+```
+
+
+
+Focus on some items with relatively adequate distributions. 
+Impute missing data.
 ```{r}
 # Relevant variables
-rel_vars <- c("content", "worried", "anhedonia", "positive", "fatigue", "accepted")
-rel_vars <- c("reassure", "down", "anhedonia", "enthusiastic", "hopeless", "accepted")
+rel_vars <- c("content", "fatigue", "concentrate", "positive", "hopeless", "enthusiastic")
 
+cut_data <- data %>% 
+  # dplyr::filter(subj_id %in% rel_ids) %>% 
+  dplyr::select(c(all_of(rel_vars), subj_id)) %>% 
+  group_by(subj_id) %>% 
+  mutate(tp = row_number()) %>% 
+  ungroup()
+
+# impute with Kalman filter
+
+imp_data <- cut_data %>% 
+  group_by(subj_id) %>% 
+  mutate(across(all_of(rel_vars),  # columns to be imputed
+                ~imputeTS::na_kalman(.x, type = "level"))) %>%        
+                # .names = "{.col}_imp")) %>%                      # add "_imp" to new column names
+  ungroup()
+
+
+short_data <- imp_data %>% 
+  split(.$subj_id)
+
+```
+
+
+
+## Detrending
+Remove linear trend
+```{r}
 data_detrend <- lapply(short_data, function(x){
   for (v in 1:length(rel_vars)){
-  # Respektive Variable auf die Zeit regressieren
+  # Regress on time
   lm_form <- as.formula(paste0(rel_vars[v], "~ tp"))
-  # lineares Modell rechnen
   lm_res <- summary(lm(lm_form, data = x))
-  # wenn der Zeittrend signifikant ist, detrenden wir mit den Residuen
-  # [,4] greift auf die Spalte der p-Werte zu
-  # [2] auf den p-Wert des Regressionsgewichts des Datums
+  # detrend with residuals
+  # [,4] accesses p-values
+  # [2] p-value of beta of tp
   if(lm_res$coefficients[,4][2] < 0.05){
-    print(paste0("Detrende Variable: ", rel_vars[v]))
+    print(paste0("Detrending variable: ", rel_vars[v]))
     x[!is.na(x[rel_vars[v]]),rel_vars[v]] <- residuals(lm_res)
   }
   
@@ -94,29 +128,12 @@ df_prior <- data.frame(
   beta_prior = c(0.25, 0.5, 1)
 )
 
-# Investigate prior sensitivity with fixed beta prior
-# df_prior_2 <- data.frame(
-#   rho_prior = c(0.2, 0.3, 0.4),
-#   beta_prior = rep(.6, 3)
-# )
-# or fixed rho prior
-df_prior_2 <- data.frame(
-  rho_prior = rep(0.4,3),
-  beta_prior = c(.5, .7, .9)
-)
-
-# Investigate prior sensitivity with fixed beta prior
-df_prior<- data.frame(
-  rho_prior = c(0.2, 0.3, 0.4),
-  beta_prior = rep(.6, 3)
-)
-
 
 l_fits <- list()
 
 # Delete id and tp column for fitting
 data_detrend <- lapply(data_detrend, function(x){
-  x <- x[,-c(1,8)]
+  x <- subset(x, select=-c(subj_id,tp))
   x
 })
 
@@ -127,26 +144,16 @@ l_fits <- foreach(i = 1:nrow(df_prior), .packages = "BGGM") %dopar% {
   b_p <- df_prior[i, "beta_prior"]
   
   fit <- lapply(data_detrend, function(x){
-  tryCatch(BGGM::var_estimate(Y = x,      # delete id column and tp column for fitting
+  tryCatch(BGGM::var_estimate(Y = x,      
                      rho_sd = r_p,
                      beta_sd = b_p,
                      iter = 50000,
                      seed = 2022), error = function(e) NA)
-  # BGGM::var_estimate(Y = as.data.frame(x),
-  #                    rho_sd = r_p,
-  #                    beta_sd = b_p,
-  #                    iter = 50000,
-  #                    seed = 2022)
+
     
     
 })
-  # if(is.list(fit)){
-  #   lapply(fit, function(x){
-  #     x$fit$Sigma <- NULL
-  #     x$fit$fisher_z <- NULL
-  #   })
 
-  # }
   return(fit)
 }
 
@@ -227,7 +234,7 @@ plot_net <- function(fit_obj){
 
 
  
-Test across all participants and across different priors. 
+Test across all participants and across different priors. I ran into some memory issues here, so I splitted based on priors. 
 ```{r}
 l_fits <- l_fits_c
 fit_grid <- expand.grid(fit_a = as.numeric(names(l_fits[[1]])), 
@@ -239,10 +246,6 @@ l_comps <- list()
 cl = makeCluster(14)
 registerDoParallel(cl)
 clusterExport(cl, c("compare_var", "post_distance_within"))
-# Rewrite in parallel
-
-
-
 l_fits_1 <- l_fits[[1]]
 fit_grid_1 <- fit_grid %>% 
   filter(priors == 1)
@@ -265,10 +268,6 @@ l_comps_1 <- foreach(i = 1:nrow(fit_grid_1)) %dopar% {
   else
     return(NA)
   
-  
-    
-  
-  
 }
 
 
@@ -285,16 +284,7 @@ l_comps_2 <- foreach(i = 1:nrow(fit_grid_2)) %dopar% {
   compa <-  as.character(fit_grid_2$comp[i])
 
   
-  # Compare
-  # if(is.list(l_fits[[p_ind]][[a]]) & is.list(l_fits[[p_ind]][[b]])){
-  # # comp_res  <- tryCatch({compare_var(l_fits_2[[a]],l_fits_2[[b]], pred = FALSE, comp = comp)},
-  #                       # error = function(e) NULL)
-  # comp_res  <- compare_var(l_fits[[p_ind]][[a]],l_fits[[p_ind]][[b]], comp = comp)
-  
-  
   if(is.list(l_fits_2[[a]]) & is.list(l_fits_2[[b]])){
-  # comp_res  <- tryCatch({compare_var(l_fits_2[[a]],l_fits_2[[b]], pred = FALSE, comp = comp)},
-                        # error = function(e) NULL)
   comp_res  <- compare_var(l_fits_2[[a]],l_fits_2[[b]], comp = compa)
 
   return(comp_res)
@@ -324,26 +314,14 @@ l_comps_3 <- foreach(i = 1:nrow(fit_grid_3)) %dopar% {
   compa <-  as.character(fit_grid_3$comp[i])
 
   
-  # Compare
-  # if(is.list(l_fits[[p_ind]][[a]]) & is.list(l_fits[[p_ind]][[b]])){
-  # # comp_res  <- tryCatch({compare_var(l_fits_3[[a]],l_fits_3[[b]], pred = FALSE, comp = comp)},
-  #                       # error = function(e) NULL)
-  # comp_res  <- compare_var(l_fits[[p_ind]][[a]],l_fits[[p_ind]][[b]], comp = comp)
-  
-  
   if(is.list(l_fits_3[[a]]) & is.list(l_fits_3[[b]])){
-  # comp_res  <- tryCatch({compare_var(l_fits_3[[a]],l_fits_3[[b]], pred = FALSE, comp = comp)},
-                        # error = function(e) NULL)
+
   comp_res  <- compare_var(l_fits_3[[a]],l_fits_3[[b]], comp = compa)
 
   return(comp_res)
   }
   else
     return(NA)
-  
-  
-    
-  
   
 }
 stopCluster(cl)
@@ -371,14 +349,8 @@ df_comps2 <- df_compsc2 %>%
 
 
 
-
-
-# saveRDS(df_comps, here::here("output/empirical-example/df_comps.RDS"))
+# saveRDS(df_comps2, here::here("output/empirical-example/df_comps.RDS"))
 # df_comps <- readRDS(here::here("output/empirical-example/df_comps.RDS"))
-
-
-
-
 ```
 
 ### Prior Sensitivity Plot
@@ -397,11 +369,11 @@ prior_names <- c(
   "3" = "Rho: 0.5, Beta: 1"
 )
 
-prior_names2 <- c(
-  "1" = "Rho: 0.2, Beta: 0.6",
-  "2" = "Rho: 0.3, Beta: 0.6",
-  "3" = "Rho: 0.4, Beta: 0.6"
-)
+# prior_names2 <- c(
+#   "1" = "Rho: 0.2, Beta: 0.6",
+#   "2" = "Rho: 0.3, Beta: 0.6",
+#   "3" = "Rho: 0.4, Beta: 0.6"
+# )
 # prior_names2 <- c(
 #   "1" = "Rho: 0.4, Beta: 0.5",
 #   "2" = "Rho: 0.4, Beta: 0.7",
@@ -423,7 +395,7 @@ emp_ex_prior_sensitivity2 <- df_comps2 %>%
   pivot_longer(cols = c("prop_sig_beta", "prop_sig_pcor"), names_to = "mat_prop", values_to = "prop") %>% 
   ggplot(aes(x = comp, y = prop, group = mat_prop, fill = mat_prop))+
   geom_bar(position = "dodge", stat = "identity")+
-  facet_wrap(priors~., labeller = as_labeller(prior_names2))+
+  facet_wrap(priors~., labeller = as_labeller(prior_names))+
   theme_minimal()+
   ggokabeito::scale_fill_okabe_ito(labels = c("Beta", "PCor"))+
   scale_y_continuous(limits = c(0,1),labels = function(x) paste0(x*100, "%"))+
@@ -432,7 +404,7 @@ emp_ex_prior_sensitivity2 <- df_comps2 %>%
        title = "Prior Sensitivity Empirical Example",
        fill = "Matrix")
 
-ggsave("emp_ex_prior_sensitivity2.svg", emp_ex_prior_sensitivity2, device = "svg", path = here::here("figures/"), width = 7, height = 5)
+ggsave("emp_ex_prior_sensitivity.svg", emp_ex_prior_sensitivity2, device = "svg", path = here::here("figures/"), width = 7, height = 5)
 
 ```
 
@@ -458,7 +430,7 @@ df_comps %>%
 # Both fully significant (both 2)
 # L1
 # for rho 0.5, beta 1: 100
-df_comps %>% 
+df_comps2 %>% 
   filter(sig_beta > 1 & sig_pcor  > 1) %>% 
   filter(fit_a != fit_b) %>% 
   left_join(n_obs, by = join_by(fit_a == subj_id)) %>% 
@@ -504,6 +476,7 @@ df_comps %>%
 
 ```
 
+Summary of significant tests.
 
 
 
@@ -671,9 +644,11 @@ fit <- l_fits_c[[1]][[1]]
 
 
 
-plot_example_posterior <- posterior_plot(fit)
+plot_example_posterior <- posterior_plot(fit, mat = beta)
 
-ggsave("plot_example_posterior.svg", plot_example_posterior, 
+plot_example_posterior+geom_text()
+
+ggsave("plot_example_posterior_beta.svg", plot_example_posterior, 
        device = "svg", path = here::here("figures/"), width = 20, height = 12, 
        units = "cm")
 
