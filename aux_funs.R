@@ -1131,8 +1131,19 @@ postpost_distance <- function(post_a,
 
 
 # Distance within posterior predictive samples ---------------------------------
-# Looks at differences between models sampled from the same
-# "original" model, so similar to bootstrapping
+#' Calculates distances between pairs of fitted models using the posterior samples or posterior predictive draws
+#'
+#' This function computes distances between a specified number of pairs of fitted models, which can be obtained either from posterior samples or posterior predictive draws. The distance between two models can be calculated based on three options: Frobenius norm, maximum difference, or L1 norm. The function allows for comparison of posterior samples or posterior predictive draws, and beta coefficients or partial correlations can be used as inputs.
+#'
+#' @param post An object of class \code{posterior}, which contains either posterior samples or posterior predictive draws.
+#' @param comp A character string indicating the type of distance between models that should be calculated. The options include: "frob" (Frobenius norm), "maxdiff" (maximum difference), or "l1" (L1 norm).
+#' @param pred A logical indicating whether the input is posterior predictive draws (TRUE) or posterior samples (FALSE).
+#' @param draws An integer specifying the number of random pairs of models that should be compared.
+#'
+#' @return A list of distances between the specified pairs of fitted models. The list has length equal to the specified number of random pairs. Each list element contains two distance values, one for beta coefficients and one for partial correlations.
+#'
+#'
+#' @export post_distance_within
 post_distance_within <- function(post, 
                                  comp,
                                  pred,         # posterior predictive?
@@ -1170,10 +1181,7 @@ post_distance_within <- function(post,
     # define the distance function based on comp
     # draw from all posterior samples
     
-    # Convert Kappas to Pcors
-    
-    
-    
+
     distance_fn_beta <- switch(comp,
                                frob =   {function(x, y, mod_one, mod_two) norm(x$fit$beta[,,mod_one]-y$fit$beta[,,mod_two], type = "F")},
                                maxdiff = {function(x, y, mod_one, mod_two) max(abs((x$fit$beta[,,mod_one]-y$fit$beta[,,mod_two])))},
@@ -2206,6 +2214,20 @@ eval_gvar <- function(fit,
 # Empirical Example -------------------------------------------------------
 # -------------------------------------------------------------------------
 # Effective Sample Size VAR -----------------------------------------------
+#' Compute Effective Sample Sizes for MCMC Samples of Beta and Partial Correlation Coefficients
+#'
+#' This function computes the effective sample sizes (ESS) of MCMC samples of beta and partial correlation coefficients (pcor) based on the provided MCMC fit object.
+#'
+#' @param fitobj A list containing an MCMC fit object.
+#' @param burnin An integer indicating the number of burn-in iterations to discard. Default is 50.
+#'
+#' @return A list with two elements: ess_beta and ess_pcor. ess_beta contains the ESS of MCMC samples of beta, and ess_pcor contains the ESS of MCMC samples of partial correlation coefficients.
+#'
+
+#'
+#' @import coda
+#' @export
+
 var_ess <- function(fitobj,
                     burnin = 50){
   # Input Information
@@ -2255,6 +2277,19 @@ compare_var <- function(fit_a,
   
   require(magrittr)
   
+  ## Helper function for computing distance metrics
+  compute_metric <- function(a, b, metric) {
+    tryCatch({
+      if (metric == "frob") {
+        norm(a - b, type = "F")
+      } else if (metric == "maxdiff") {
+        max(abs(a - b))
+      } else if (metric == "l1") {
+        sum(abs(a - b))
+      }
+    }, error = function(e) NA)
+  }
+  
   ## Create reference distributions for both models
   ref_a <- post_distance_within(fit_a, comp = comp, pred = FALSE, draws = n_draws)
   ref_b <- post_distance_within(fit_b, comp = comp, pred = FALSE, draws = n_draws)
@@ -2265,29 +2300,33 @@ compare_var <- function(fit_a,
     normtype = "F"
     # Compute Distance of empirical betas between a and b
     emp_beta <- tryCatch(norm(fit_a$beta_mu - fit_b$beta_mu, type = normtype), error = function(e) {NA})
-    
+
     # Compute Distance of empirical pcors between a and b
     emp_pcor <- tryCatch(norm(fit_a$pcor_mu - fit_b$pcor_mu, type = normtype), error = function(e) {NA})
-    
+
   }
-  
+
   if(comp == "maxdiff"){
     # Compute maxdiff of empirical betas between a and b
     emp_beta <- tryCatch(max(abs(fit_a$beta_mu - fit_b$beta_mu)), error = function(e) {NA})
-    
+
     # Compute maxdiff of empirical pcors between a and b
     emp_pcor <- tryCatch(max(abs(fit_a$pcor_mu - fit_b$pcor_mu)), error = function(e) {NA})
-    
+
   }
-  
+
   if(comp == "l1"){
     # Compute l1 of empirical betas between a and b
     emp_beta <- tryCatch(sum(abs(fit_a$beta_mu - fit_b$beta_mu)), error = function(e) {NA})
-    
+
     # Compute l1 of empirical pcors between a and b
     emp_pcor <- tryCatch(sum(abs(fit_a$pcor_mu - fit_b$pcor_mu)), error = function(e) {NA})
-    
+
   }
+  emp_beta <- compute_metric(fit_a$beta_mu, fit_b$beta_mu, comp)
+  emp_pcor <- compute_metric(fit_a$pcor_mu, fit_b$pcor_mu, comp)
+  
+  
   ## Combine results
   res_beta <- data.frame(null = c(unlist(ref_a[["beta"]]), unlist(ref_b[["beta"]])),
                          mod = c(rep("mod_a", n_draws), rep("mod_b", n_draws)),
@@ -2366,6 +2405,150 @@ compare_var <- function(fit_a,
   
 }
 
+##### New compare_var
+
+# TODO this roxygen is still incorrect, e.g. larger_beta
+
+#' Compare Variance Components between Two Models
+#'
+#' Computes the empirical distance between two models based on the variance components
+#' and compares them using reference distributions. Returns the p-value for the comparison
+#' based on a decision rule specified by the user.
+#'
+#' @param fit_a Fitted model object for Model A
+#' @param fit_b Fitted model object for Model B
+#' @param cutoff The percentage level of the test (default: 5%)
+#' @param dec_rule The decision rule to be used. Currently only supports default "OR".
+#' @param n_draws The number of draws to use for reference distributions (default: 1000)
+#' @param comp The distance metric to use. Should be one of "frob" (Frobenius norm), 
+#' "maxdiff" (maximum  difference), or "l1" (L1 norm) (default: "frob")
+#' @param return_all Logical indicating whether to return all distributions (default: FALSE)
+#'
+#' @return A list containing the results of the comparison. The list includes:
+#'   \item{sig_beta}{The decision on whether there is a significant difference between the variance components for Model A and Model B (based on the beta parameter)}
+#'   \item{sig_pcor}{The decision on whether there is a significant difference between the variance components for Model A and Model B (based on the partial correlation parameter)}
+#'   \item{res_beta}{The null distribution for the variance components (based on the beta parameter) for both models}
+#'   \item{res_pcor}{The null distribution for the variance components (based on the partial correlation parameter) for both models}
+#'   \item{emp_beta}{The empirical distance between the two models (based on the beta parameter)}
+#'   \item{emp_pcor}{The empirical distance between the two models (based on the partial correlation parameter)}
+#'   \item{larger_beta}{The number of times the null hypothesis (based on the beta parameter) was rejected across all draws}
+#'   \item{larger_pcor}{The number of times the null hypothesis (based on the partial correlation parameter) was rejected across all draws}
+#'
+#'
+#' @importFrom magrittr %>%
+#' @importFrom dplyr group_by summarize pull
+#' @importFrom stats norm max abs sum
+#'
+#' @export
+
+compare_var_new <- function(fit_a, 
+                        fit_b, 
+                        cutoff = 5,           # percentage level of test
+                        dec_rule = "OR",
+                        n_draws = 1000,
+                        comp = "frob",
+                        return_all = FALSE){  # return all distributions?
+  
+  require(magrittr)
+  
+  ## Helper function for computing distance metrics
+  compute_metric <- function(a, b, metric) {
+    tryCatch({
+      if (metric == "frob") {
+        norm(a - b, type = "F")
+      } else if (metric == "maxdiff") {
+        max(abs(a - b))
+      } else if (metric == "l1") {
+        sum(abs(a - b))
+      }
+    }, error = function(e) NA)
+  }
+  
+  ## Create reference distributions for both models
+  ref_a <- post_distance_within(fit_a, comp = comp, pred = FALSE, draws = n_draws)
+  ref_b <- post_distance_within(fit_b, comp = comp, pred = FALSE, draws = n_draws)
+  
+  ## Empirical distance
+  # Compute empirical distance as test statistic
+  emp_beta <- compute_metric(fit_a$beta_mu, fit_b$beta_mu, comp)
+  emp_pcor <- compute_metric(fit_a$pcor_mu, fit_b$pcor_mu, comp)
+  
+  
+  ## Combine results
+  res_beta <- data.frame(null = c(unlist(ref_a[["beta"]]), unlist(ref_b[["beta"]])),
+                         mod = c(rep("mod_a", n_draws), rep("mod_b", n_draws)),
+                         emp = rep(emp_beta, n_draws*2),
+                         comp = rep(comp, n_draws*2))
+  
+  
+  res_pcor <- data.frame(null = c(unlist(ref_a[["pcor"]]), unlist(ref_b[["pcor"]])),
+                         mod = c(rep("mod_a", n_draws), rep("mod_b", n_draws)),
+                         emp = rep(emp_pcor, n_draws*2),
+                         comp = rep(comp, n_draws*2))
+  
+  ## Implement decision rule "OR"
+  # Helper function
+  compute_stats <- function(data, var, cutoff, n_draws) {
+    sig_decision <- data %>%
+      dplyr::group_by(mod) %>%
+      dplyr::summarize(sum_larger = sum(null > emp)) %>%
+      dplyr::summarize(sig_decision = sum(sum_larger < cutoff * (n_draws/100))) %>%
+      dplyr::pull(sig_decision)
+    
+    sum_larger <- data %>%
+      dplyr::group_by(mod) %>%
+      dplyr::summarize(sum_larger = sum(null > emp)) %>%
+      dplyr::pull(sum_larger)
+    
+    return(list(sig_decision = sig_decision, sum_larger = sum_larger))
+  }
+  
+  if(dec_rule == "OR"){
+    sig_beta <- compute_stats(res_beta, "null", cutoff, n_draws)$sig_decision
+    larger_beta <- compute_stats(res_beta, "null", cutoff, n_draws)$sum_larger
+    sig_pcor <- compute_stats(res_pcor, "null", cutoff, n_draws)$sig_decision
+    larger_pcor <- compute_stats(res_pcor, "null", cutoff, n_draws)$sum_larger
+    
+  }
+
+  if(!return_all){
+    l_res <- list(sig_beta = sig_beta,
+                  sig_pcor = sig_pcor,
+                  # res_beta = res_beta,
+                  # res_pcor = res_pcor,
+                  emp_beta = emp_beta,
+                  emp_pcor = emp_pcor,
+                  larger_beta = larger_beta,
+                  larger_pcor = larger_pcor)
+    
+  }
+  if(isTRUE(return_all)){
+    l_res <- list(sig_beta = sig_beta,
+                  sig_pcor = sig_pcor,
+                  res_beta = res_beta,
+                  res_pcor = res_pcor,
+                  emp_beta = emp_beta,
+                  emp_pcor = emp_pcor,
+                  larger_beta = larger_beta,
+                  larger_pcor = larger_pcor)
+    
+  }
+  
+  
+  
+  return(l_res)
+  
+  
+  
+}
+
+
+
+
+
+
+
+
 # Plotting method
 # THIS IS ONLY TEMPORARY!
 plot.compare_var <- function(compres,
@@ -2416,16 +2599,37 @@ plot.compare_var <- function(compres,
 # Posterior Matrix Plot ---------------------------------------------------
 # use inspiration from stat_wilke function here: 
 # https://bookdown.org/content/8ba612b7-90f2-4ebc-b329-0159008e2340/metric-predicted-variable-with-multiple-metric-predictors.html#metric-predicted-variable-with-multiple-metric-predictors
+
+#' posterior_plot
+#'
+#' Plots posterior distributions of betas and partial correlations (pcors).
+#'
+#' @param object An object of class 'bggm'.
+#' @param mat A matrix to use for plotting. Default is beta.
+#' @param cis A numeric vector of credible intervals to use for plotting. Default is c(0.8, 0.9, 0.95).
+#'
+#' @import ggdist
+#' @import tidyr
+#' @import dplyr
+#' @importFrom BGGM posterior_samples
+#' @importFrom ggplot aes facet_grid geom_vline labs scale_alpha scale_fill_brewer
+#' @importFrom ggdist stat_pointinterval stat_slab
+#' @importFrom tidyr separate_wider_delim pivot_longer
+#' @export
+
 posterior_plot <- function(object,
                            mat = beta,
                            cis = c(0.8, 0.9, 0.95)){   # credible intervals for plotting
   
   require(ggdist)   # visualize uncertainty
   
-  # TODO will throw a bug if one of the variable names contains an underscore
   
   # Obtain samples
   samps <- BGGM::posterior_samples(object)
+  
+  # throw a bug if one of the variable names contains an underscore
+  if(length(grep("_", colnames(object$Y))) > 0) {
+    stop("Column names must not contain an underscore. Please rename.")}
   
   # Split into betas and pcors
   beta_cols <- grep(".l1", colnames(samps), value = TRUE)
@@ -2450,76 +2654,79 @@ posterior_plot <- function(object,
     # split edge description into nodes
     tidyr::separate_wider_delim(cols = edge, delim = "--",
                                 names = c("dv" ,"iv"))
-  # TODO delete lower diagonal maybe?
+  
   
   
   # Create matrix layout
   
+  if(mat == beta){
+    # Start plotting
+    # TODO add option for numerical value per plot
+    beta_plot <- beta %>% 
+      dplyr::group_by(dv, iv) %>% 
+      dplyr::mutate(mean_value = mean(value, na.rm = TRUE)) %>% 
+      dplyr::ungroup() %>% 
+      ggplot(aes(x = value))+
+      # ggdist::stat_halfeye(aes(fill = after_stat(level)), .width = cis)+
+      ggdist::stat_slab(aes(fill = after_stat(level), alpha = abs(mean_value)), .width = c(cis, 1)) +
+      ggdist::stat_pointinterval(aes(alpha = abs(mean_value)), size = 1) +
+      scale_alpha(guide = "none")+
+      facet_grid(iv~dv,
+                 switch = "y")+
+      ggdist::theme_ggdist()+
+      geom_vline(xintercept = 0, linetype = "dashed")+
+      theme(axis.text.y = element_blank(),
+            axis.ticks.y = element_blank())+
+      scale_fill_brewer() +
+      labs(y = "",
+           fill = "CI")+
+      ylim(-0.1, 1)
+    
+
+    print(beta_plot)
+  }
   
-  # Start plotting
-  # TODO add option for numerical value per plot
-  beta_plot <- beta %>% 
-    dplyr::group_by(dv, iv) %>% 
-    dplyr::mutate(mean_value = mean(value, na.rm = TRUE)) %>% 
-    dplyr::ungroup() %>% 
-    ggplot(aes(x = value))+
-    # ggdist::stat_halfeye(aes(fill = after_stat(level)), .width = cis)+
-    ggdist::stat_slab(aes(fill = after_stat(level), alpha = abs(mean_value)), .width = c(cis, 1)) +
-    ggdist::stat_pointinterval(aes(alpha = abs(mean_value)), size = 1) +
-    scale_alpha(guide = "none")+
-    facet_grid(iv~dv,
-               switch = "y")+
-    ggdist::theme_ggdist()+
-    geom_vline(xintercept = 0, linetype = "dashed")+
-    theme(axis.text.y = element_blank(),
-          axis.ticks.y = element_blank())+
-    scale_fill_brewer() +
-    labs(y = "",
-         fill = "CI")+
-    ylim(-0.1, 1)
-  
-  
-  # TODO does not work yet
-  # has to be made symmetric, maybe reorder variable
-  # create duplicate plot
-  pcor_tmp1<- pcor %>% 
-    dplyr::group_by(dv, iv) %>% 
-    dplyr::mutate(mean_value = mean(value, na.rm = TRUE)) %>% 
-    dplyr::ungroup()
-  pcor_tmp2 <- pcor %>% 
-    dplyr::group_by(dv, iv) %>% 
-    dplyr::mutate(mean_value = mean(value, na.rm = TRUE)) %>% 
-    dplyr::ungroup() %>% 
-    dplyr::mutate(dv2 = dv, iv2 = iv) %>% 
-    dplyr::mutate(dv = iv2, iv = dv2) %>% 
-    dplyr::select(-c(iv2, dv2))
-  pcor <- rbind(pcor_tmp1, pcor_tmp2)
-  
-  pcor_plot <- pcor %>% 
-    dplyr::group_by(dv, iv) %>% 
-    dplyr::mutate(mean_value = mean(value, na.rm = TRUE)) %>% 
-    dplyr::ungroup() %>% 
-    ggplot(aes(x = value))+
-    # ggdist::stat_halfeye(aes(fill = after_stat(level)), .width = cis)+
-    ggdist::stat_slab(aes(fill = after_stat(level), alpha = abs(mean_value)), .width = c(cis, 1)) +
-    ggdist::stat_pointinterval(aes(alpha = abs(mean_value)), size = 1) +
-    # scale_alpha_manual(guide = "none")+
-    facet_grid(iv~dv,
-               switch = "y")+
-    ggdist::theme_ggdist()+
-    scale_alpha(guide = "none")+
-    geom_vline(xintercept = 0, linetype = "dashed")+
-    theme(axis.text.y = element_blank(),
-          axis.ticks.y = element_blank())+
-    scale_fill_brewer() +
-    labs(y = "",
-         fill = "CI",
-         alpha = "")+
-    ylim(-0.1, 1)
-  
-  
-    # print(beta_plot)
+  if(mat == pcor){
+    # has to be made symmetric, maybe reorder variable
+    # create duplicate plot
+    pcor_tmp1<- pcor %>% 
+      dplyr::group_by(dv, iv) %>% 
+      dplyr::mutate(mean_value = mean(value, na.rm = TRUE)) %>% 
+      dplyr::ungroup()
+    pcor_tmp2 <- pcor %>% 
+      dplyr::group_by(dv, iv) %>% 
+      dplyr::mutate(mean_value = mean(value, na.rm = TRUE)) %>% 
+      dplyr::ungroup() %>% 
+      dplyr::mutate(dv2 = dv, iv2 = iv) %>% 
+      dplyr::mutate(dv = iv2, iv = dv2) %>% 
+      dplyr::select(-c(iv2, dv2))
+    pcor <- rbind(pcor_tmp1, pcor_tmp2)
+    
+    pcor_plot <- pcor %>% 
+      dplyr::group_by(dv, iv) %>% 
+      dplyr::mutate(mean_value = mean(value, na.rm = TRUE)) %>% 
+      dplyr::ungroup() %>% 
+      ggplot(aes(x = value))+
+      # ggdist::stat_halfeye(aes(fill = after_stat(level)), .width = cis)+
+      ggdist::stat_slab(aes(fill = after_stat(level), alpha = abs(mean_value)), .width = c(cis, 1)) +
+      ggdist::stat_pointinterval(aes(alpha = abs(mean_value)), size = 1) +
+      # scale_alpha_manual(guide = "none")+
+      facet_grid(iv~dv,
+                 switch = "y")+
+      ggdist::theme_ggdist()+
+      scale_alpha(guide = "none")+
+      geom_vline(xintercept = 0, linetype = "dashed")+
+      theme(axis.text.y = element_blank(),
+            axis.ticks.y = element_blank())+
+      scale_fill_brewer() +
+      labs(y = "",
+           fill = "CI",
+           alpha = "")+
+      ylim(-0.1, 1)
+    
     print(pcor_plot)
+  }
+
 
   # return(beta)
   # return(pcor)
@@ -2530,6 +2737,25 @@ posterior_plot <- function(object,
 
 
 # Plot test results -------------------------------------------------------
+#' Plot posterior difference test results
+#'
+#' This function plots the posterior difference test results using ggplot2.
+#'
+#' @param comp_obj Comparison object for the posterior difference test.
+#' @param modmat Model matrix used.
+#' @param ref_dist Reference distribution used.
+#' @param emp_diff Empirical difference used.
+#' @param ind Index of the model used.
+#' @param comp_type Type of comparison used.
+#'
+#' @return A ggplot2 object.
+#'
+#' @import ggplot2
+#' @import ggokabeito
+#' @import dplyr
+#'
+#' @export
+
 plot_test <- function(comp_obj,
                       modmat,
                       ref_dist = null,
