@@ -218,6 +218,56 @@ for(i in 1:3){
 
 ```
 
+## Example prior distributions
+Draw 5000 observations for temporal and contemporaneous priors. 
+```{r}
+## Temporal
+# Simply sample from normal distribution
+wide_beta <- rnorm(n = 5000, mean = 0, sd = 1)
+narrow_beta <- rnorm(n = 5000, mean = 0, sd = 0.5)
+
+## Contemporaneous
+# Wide prior
+wide_pcor <- BGGM::plot_prior(prior_sd = 0.5, iter = 5000)
+wide_pcor <- wide_pcor$plot_env$prior_samp$pcors[1,2,]
+
+# Narrow prior
+narrow_pcor <- BGGM::plot_prior(prior_sd = 0.25, iter = 5000)
+narrow_pcor <- narrow_pcor$plot_env$prior_samp$pcors[1,2,]
+
+
+df_prior <- data.frame(
+  value = c(wide_beta, narrow_beta, wide_pcor, narrow_pcor),
+  mat = c(rep("Temporal",2*5000), rep("Contemporaneous", 2*5000)),
+  prior = rep(c(rep("wide", 5000), rep("narrow", 5000)),2),
+  label = c(rep("1", 5000), rep("0.5", 5000), rep("0.5", 5000), rep("0.25", 5000))
+)
+
+
+# Create grid plot
+prior_example <- df_prior %>% 
+  mutate(mat = as.factor(mat),
+         prior = as.factor(prior)) %>% 
+  ggplot(aes(x = value))+
+  geom_histogram(fill = ggokabeito::palette_okabe_ito()[2],
+                 col = "black",
+                 bins = 50)+
+  theme_compare()+
+  ggh4x::facet_nested(prior~mat, scales = "free_x",)+
+  labs(y = "",
+       x = "")+
+  theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        strip.text = element_text(size = 20))
+
+prior_example
+ggsave("prior_example.svg", prior_example, path = here::here("figures/") ,device = "svg", width = 10, height = 7)
+
+
+```
+
+
+
 
 ## Plot all networks
 
