@@ -1898,7 +1898,7 @@ sim_select <- function(simobj,
 fit_graphicalvar_parallel <- function(data,
                                       n, 
                                       pruneresults = TRUE, 
-                                      ...){     # other arguments passend to graphicalVAR
+                                      ...){     # other arguments passed to graphicalVAR
   # Save arguments
   
   require(doParallel)
@@ -2113,7 +2113,7 @@ eval_bggm <- function(fit,
 # Evaluate GVAR Simulation ------------------------------------------------
 
 eval_gvar <- function(fit,
-                      nds = 100,         # number of datasets per simulation condition
+                      nds = 1000,         # number of datasets per simulation condition
                       dgp_list = l_graphs){
   
   
@@ -2167,7 +2167,7 @@ eval_gvar <- function(fit,
   
   # Sum of zeros
   l_out$zeros_beta <- sum(beta_est_vec == 0)
-  l_out$zeros_pcor <- sum(pcor_est_vec)
+  l_out$zeros_pcor <- sum(pcor_est_vec == 0)
   
   
   ## True/False Positive/Negative
@@ -2203,6 +2203,100 @@ eval_gvar <- function(fit,
   return(l_out)
 }
 
+
+
+# Rewrite to account for all repetitions of one condition at once
+eval_gvar_long <- function(fit,
+                           nds = 1000,         # number of datasets per simulation condition
+                           dgp_list = l_graphs){
+  
+
+l_eval <- foreach(cl, i = seq(nds)) %dopar% {
+  
+  
+  # Save arguments
+  args <- fit$args
+  l_out$dgp_ind <- fit$sim_cond$dgp
+  l_out$tp_ind <- fit$sim_cond$n_tp
+  l_out$ebic <- fit$sim_cond$gamma_ebic
+  l_out$lambda <- fit$sim_cond$lambda
+  
+  
+  ## Find corresponding true graph
+  # transposing because we use graphicalVARsim
+  true_graph <- dgp_list[[l_out$dgp_ind]]
+  beta_true_vec <- t(true_graph$beta)
+  kappa_true <- true_graph$kappa
+  
+  # Calculate PCOR 
+  pcor_true <- -1*stats::cov2cor(kappa_true)
+  
+  # Vectors for correlations
+  beta_true_vec <- c(beta_true_vec)
+  pcor_true_vec <- c(pcor_true[upper.tri(pcor_true, diag = FALSE)])
+  
+  #--- Nonselect Method ---#
+  # Point estimates
+  beta_est <- t(fit$beta[,-1])
+  pcor_est <- fit$PCC
+  
+  # Vectors for correlations
+  beta_est_vec <- c(beta_est)
+  pcor_est_vec <- c(pcor_est[upper.tri(pcor_est, diag = FALSE)])
+  
+  
+  # Compute Bias
+  l_out$bias_beta <- bias(beta_est_vec, beta_true_vec)
+  l_out$bias_pcor <- bias(pcor_est_vec, pcor_true_vec)
+  
+  # Compute rmse
+  l_out$rmse_beta <- rmse(beta_est_vec, beta_true_vec)
+  l_out$rmse_pcor <- rmse(pcor_est_vec, pcor_true_vec)
+  
+  # Correlations
+  # add conditions for very sparse matrices
+  l_out$cor_beta <- cor_zero(beta_est_vec, beta_true_vec)
+  l_out$cor_pcor <- cor_zero(pcor_est_vec, pcor_true_vec)
+  
+  # Sum of zeros
+  l_out$zeros_beta <- sum(beta_est_vec == 0)
+  l_out$zeros_pcor <- sum(pcor_est_vec == 0)
+  
+  
+  ## True/False Positive/Negative
+  # TP
+  l_out$true_pos_beta <- sum(beta_true_vec != 0 & beta_est_vec != 0)
+  l_out$true_pos_pcor <- sum(pcor_true_vec != 0 & pcor_est_vec != 0)
+  
+  # FP
+  l_out$fal_pos_beta <- sum(beta_true_vec == 0 & beta_est_vec != 0)
+  l_out$fal_pos_pcor <- sum(pcor_true_vec == 0 & pcor_est_vec != 0)  
+  
+  # TN
+  l_out$true_neg_beta <- sum(beta_true_vec == 0 & beta_est_vec == 0)
+  l_out$true_neg_pcor <- sum(pcor_true_vec == 0 & pcor_est_vec == 0)
+  
+  # FN
+  l_out$fal_neg_beta <- sum(beta_true_vec != 0 & beta_est_vec == 0)
+  l_out$fal_neg_pcor <- sum(pcor_true_vec != 0 & pcor_est_vec == 0)
+  
+  ## Sensitivity
+  l_out$sens_beta <- l_out$true_pos_beta / (l_out$true_pos_beta + l_out$fal_neg_beta)
+  l_out$sens_pcor <- l_out$true_pos_pcor / (l_out$true_pos_pcor + l_out$fal_neg_pcor)
+  
+  ## Specificity
+  l_out$spec_beta <- l_out$true_neg_beta / (l_out$true_neg_beta + l_out$fal_pos_beta)
+  l_out$spec_pcor <- l_out$true_neg_pcor / (l_out$true_neg_pcor + l_out$fal_pos_pcor)
+  
+  #--- Output ---#
+  
+  return(l_out)
+  
+}  
+  
+  return(l_eval)
+
+}
 
 
 
@@ -2267,7 +2361,7 @@ var_ess <- function(fitobj,
 }
 
 # Compare VAR -------------------------------------------------------------
-compare_var <- function(fit_a, 
+compare_var_old <- function(fit_a, 
                         fit_b, 
                         cutoff = 5,           # percentage level of test
                         dec_rule = "OR",
@@ -2441,7 +2535,7 @@ compare_var <- function(fit_a,
 #'
 #' @export
 
-compare_var_new <- function(fit_a, 
+compare_var <- function(fit_a, 
                         fit_b, 
                         cutoff = 5,           # percentage level of test
                         dec_rule = "OR",
@@ -2497,8 +2591,7 @@ compare_var_new <- function(fit_a,
     
     sum_larger <- data %>%
       dplyr::group_by(mod) %>%
-      dplyr::summarize(sum_larger = sum(null > emp)) %>%
-      dplyr::pull(sum_larger)
+      dplyr::summarize(sum_larger = sum(null > emp))
     
     return(list(sig_decision = sig_decision, sum_larger = sum_larger))
   }
@@ -2514,8 +2607,6 @@ compare_var_new <- function(fit_a,
   if(!return_all){
     l_res <- list(sig_beta = sig_beta,
                   sig_pcor = sig_pcor,
-                  # res_beta = res_beta,
-                  # res_pcor = res_pcor,
                   emp_beta = emp_beta,
                   emp_pcor = emp_pcor,
                   larger_beta = larger_beta,
