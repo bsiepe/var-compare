@@ -2111,7 +2111,6 @@ eval_bggm <- function(fit,
 
 
 # Evaluate GVAR Simulation ------------------------------------------------
-
 eval_gvar <- function(fit,
                       nds = 1000,         # number of datasets per simulation condition
                       dgp_list = l_graphs){
@@ -2132,14 +2131,14 @@ eval_gvar <- function(fit,
   ## Find corresponding true graph
   # transposing because we use graphicalVARsim
   true_graph <- dgp_list[[l_out$dgp_ind]]
-  beta_true_vec <- t(true_graph$beta)
+  beta_true <- t(true_graph$beta)
   kappa_true <- true_graph$kappa
   
   # Calculate PCOR 
   pcor_true<- -1*stats::cov2cor(kappa_true)
   
   # Vectors for correlations
-  beta_true_vec <- c(beta_true_vec)
+  beta_true_vec <- c(beta_true)
   pcor_true_vec <- c(pcor_true[upper.tri(pcor_true, diag = FALSE)])
   
   #--- Nonselect Method ---#
@@ -2205,80 +2204,55 @@ eval_gvar <- function(fit,
 
 
 
-# Rewrite to account for all repetitions of one condition at once
-eval_gvar_long <- function(fit,
-                           nds = 1000,         # number of datasets per simulation condition
-                           dgp_list = l_graphs){
+# TODO add args
+eval_across_gvar <- function(fit, 
+                             true_graph,
+                             n_rep = 1000){
+  # output
+  l_out <- list()
   
-
-l_eval <- foreach(cl, i = seq(nds)) %dopar% {
+  # Convert data into matrices
+  beta_est_vec <- unlist(lapply(fit, function(x) as.numeric(c(t(x$beta[,-1])))))
+  beta_true_vec <- rep(as.numeric(c(t(true_graph$beta))), n_rep)
+  beta_full_mat <- matrix(c(beta_est_vec, beta_true_vec), ncol = 2)
   
+  pcor_est_vec <- unlist(lapply(fit, function(x) as.numeric(c(x$PCC[upper.tri(x$PCC, diag = FALSE)]))))
+  pcor_true <- -1*stats::cov2cor(true_graph$kappa)
+  pcor_true_vec <- rep(as.numeric(c(pcor_true[upper.tri(pcor_true, diag = FALSE)])), n_rep)
+  pcor_full_mat <- matrix(c(pcor_est_vec, pcor_true_vec), ncol = 2)
   
-  # Save arguments
-  args <- fit$args
-  l_out$dgp_ind <- fit$sim_cond$dgp
-  l_out$tp_ind <- fit$sim_cond$n_tp
-  l_out$ebic <- fit$sim_cond$gamma_ebic
-  l_out$lambda <- fit$sim_cond$lambda
+  # Example calculation
   
+  # Bias
+  l_out$beta_bias<- mean(abs(beta_full_mat[,1]-beta_full_mat[,2]))
+  l_out$pcor_bias<- mean(abs(pcor_full_mat[,1]-pcor_full_mat[,2]))
   
-  ## Find corresponding true graph
-  # transposing because we use graphicalVARsim
-  true_graph <- dgp_list[[l_out$dgp_ind]]
-  beta_true_vec <- t(true_graph$beta)
-  kappa_true <- true_graph$kappa
+  # RMSE
+  beta_squared_error <- (beta_full_mat[,1]-beta_full_mat[,2])^2
+  l_out$beta_mse <- mean(beta_squared_error)
+  l_out$beta_rmse <- sqrt(l_out$beta_mse)
+  pcor_squared_error <- (pcor_full_mat[,1]-pcor_full_mat[,2])^2
+  l_out$pcor_mse <- mean(pcor_squared_error)
+  l_out$pcor_rmse <- sqrt(l_out$pcor_mse)
   
-  # Calculate PCOR 
-  pcor_true <- -1*stats::cov2cor(kappa_true)
-  
-  # Vectors for correlations
-  beta_true_vec <- c(beta_true_vec)
-  pcor_true_vec <- c(pcor_true[upper.tri(pcor_true, diag = FALSE)])
-  
-  #--- Nonselect Method ---#
-  # Point estimates
-  beta_est <- t(fit$beta[,-1])
-  pcor_est <- fit$PCC
-  
-  # Vectors for correlations
-  beta_est_vec <- c(beta_est)
-  pcor_est_vec <- c(pcor_est[upper.tri(pcor_est, diag = FALSE)])
-  
-  
-  # Compute Bias
-  l_out$bias_beta <- bias(beta_est_vec, beta_true_vec)
-  l_out$bias_pcor <- bias(pcor_est_vec, pcor_true_vec)
-  
-  # Compute rmse
-  l_out$rmse_beta <- rmse(beta_est_vec, beta_true_vec)
-  l_out$rmse_pcor <- rmse(pcor_est_vec, pcor_true_vec)
-  
-  # Correlations
-  # add conditions for very sparse matrices
-  l_out$cor_beta <- cor_zero(beta_est_vec, beta_true_vec)
-  l_out$cor_pcor <- cor_zero(pcor_est_vec, pcor_true_vec)
-  
-  # Sum of zeros
-  l_out$zeros_beta <- sum(beta_est_vec == 0)
-  l_out$zeros_pcor <- sum(pcor_est_vec == 0)
-  
-  
-  ## True/False Positive/Negative
+  # number of estimates
+  nrow_beta <- nrow(beta_full_mat)
+  nrow_pcor <- nrow(pcor_full_mat)
   # TP
-  l_out$true_pos_beta <- sum(beta_true_vec != 0 & beta_est_vec != 0)
-  l_out$true_pos_pcor <- sum(pcor_true_vec != 0 & pcor_est_vec != 0)
+  l_out$true_pos_beta <- sum(beta_full_mat[,2] != 0 & beta_full_mat[,1] != 0)/nrow_beta
+  l_out$true_pos_pcor <- sum(pcor_full_mat[,2] != 0 & pcor_full_mat[,2] != 0)/nrow_pcor
   
   # FP
-  l_out$fal_pos_beta <- sum(beta_true_vec == 0 & beta_est_vec != 0)
-  l_out$fal_pos_pcor <- sum(pcor_true_vec == 0 & pcor_est_vec != 0)  
+  l_out$fal_pos_beta <- sum(beta_full_mat[,2] == 0 & beta_full_mat[,1] != 0)/nrow_beta
+  l_out$fal_pos_pcor <- sum(pcor_full_mat[,2] == 0 & pcor_full_mat[,2] != 0)/nrow_pcor  
   
   # TN
-  l_out$true_neg_beta <- sum(beta_true_vec == 0 & beta_est_vec == 0)
-  l_out$true_neg_pcor <- sum(pcor_true_vec == 0 & pcor_est_vec == 0)
+  l_out$true_neg_beta <- sum(beta_full_mat[,2] == 0 & beta_full_mat[,1] == 0)/nrow_beta
+  l_out$true_neg_pcor <- sum(pcor_full_mat[,2] == 0 & pcor_full_mat[,2] == 0)/nrow_pcor
   
   # FN
-  l_out$fal_neg_beta <- sum(beta_true_vec != 0 & beta_est_vec == 0)
-  l_out$fal_neg_pcor <- sum(pcor_true_vec != 0 & pcor_est_vec == 0)
+  l_out$fal_neg_beta <- sum(beta_full_mat[,2] != 0 & beta_full_mat[,1] == 0)/nrow_beta
+  l_out$fal_neg_pcor <- sum(pcor_full_mat[,2] != 0 & pcor_full_mat[,2] == 0)/nrow_pcor
   
   ## Sensitivity
   l_out$sens_beta <- l_out$true_pos_beta / (l_out$true_pos_beta + l_out$fal_neg_beta)
@@ -2288,16 +2262,16 @@ l_eval <- foreach(cl, i = seq(nds)) %dopar% {
   l_out$spec_beta <- l_out$true_neg_beta / (l_out$true_neg_beta + l_out$fal_pos_beta)
   l_out$spec_pcor <- l_out$true_neg_pcor / (l_out$true_neg_pcor + l_out$fal_pos_pcor)
   
-  #--- Output ---#
   
+  ## Correlations
+  l_out$cor_beta <- cor_zero(beta_full_mat[,1], beta_full_mat[,2])
+  l_out$cor_pcor <- cor_zero(pcor_full_mat[,1], pcor_full_mat[,2])
+  
+  
+  # return(beta_full_mat)
   return(l_out)
   
-}  
-  
-  return(l_eval)
-
 }
-
 
 
 
@@ -2310,12 +2284,12 @@ l_eval <- foreach(cl, i = seq(nds)) %dopar% {
 # Effective Sample Size VAR -----------------------------------------------
 #' Compute Effective Sample Sizes for MCMC Samples of Beta and Partial Correlation Coefficients
 #'
-#' This function computes the effective sample sizes (ESS) of MCMC samples of beta and partial correlation coefficients (pcor) based on the provided MCMC fit object.
+#' This function computes the effective sample sizes (ESS) of MCMC samples of VAR and partial correlation coefficients (pcor) based on the provided MCMC fit object.
 #'
-#' @param fitobj A list containing an MCMC fit object.
+#' @param fitobj A list containing a BGGM fit object.
 #' @param burnin An integer indicating the number of burn-in iterations to discard. Default is 50.
 #'
-#' @return A list with two elements: ess_beta and ess_pcor. ess_beta contains the ESS of MCMC samples of beta, and ess_pcor contains the ESS of MCMC samples of partial correlation coefficients.
+#' @return A list with two elements: ess_beta and ess_pcor. ess_beta contains the ESS of MCMC samples of VAR, and ess_pcor contains the ESS of MCMC samples of partial correlation coefficients.
 #'
 
 #'
