@@ -1,71 +1,6 @@
 # -------------------------------------------------------------------------
 # Data Generation ---------------------------------------------------------
 # -------------------------------------------------------------------------
-# Temporary Server Imports Matrixcalc -------------------------------------
-# package matrixcalc was not installed on the server
-# so I copied source code
-is.square.matrix <- function( x )
-{
-  ###
-  ### determines if the given matrix is a square matrix
-  ###
-  ### arguments
-  ### x = a matrix object
-  ###
-  if ( !is.matrix( x ) )
-    stop( "argument x is not a matrix" )
-  return( nrow(x) == ncol(x) )
-}
-
-is.symmetric.matrix <- function( x )
-{
-  ###
-  ### this function determines if the matrix is symmetric
-  ###
-  ### argument
-  ### x = a numeric matrix object
-  ###
-  if ( !is.matrix( x ) ) {
-    stop( "argument x is not a matrix" )
-  }
-  if ( !is.numeric( x ) ) {
-    stop( "argument x is not a numeric matrix" )
-  }    
-  if ( !is.square.matrix( x ) )
-    stop( "argument x is not a square numeric matrix" )
-  return( sum( x == t(x) ) == ( nrow(x) ^ 2 ) )
-}
-
-is.positive.semi.definite <- function( x, tol=1e-8 )
-{
-  ###
-  ### this function determines if the given real symmetric matrix is positive semi definite
-  ### parameters
-  ### x = a square numeric matrix object
-  ### tol = tolerance level for zero
-  ###
-  if ( !is.square.matrix( x ) )
-    stop( "argument x is not a square matrix" )
-  if ( !is.symmetric.matrix( x ) )
-    stop( "argument x is not a symmetric matrix" )
-  if ( !is.numeric( x ) )
-    stop( "argument x is not a numeric matrix" )
-  eigenvalues <- eigen(x, only.values = TRUE)$values
-  n <- nrow( x )
-  for ( i in 1: n ) {
-    if ( abs( eigenvalues[i] ) < tol ) {
-      eigenvalues[i] <- 0
-    }
-  }    
-  if ( any( eigenvalues < 0 ) ) {
-    return( FALSE )
-  }
-  return( TRUE )
-}
-
-
-
-
 # Change Graph ------------------------------------------------------------
 # Function to change "true graph" according to specified changes of max value
 # and noise
@@ -756,7 +691,7 @@ fit_var_parallel_merged <- function(data,
 
 
 # Sim from posterior ------------------------------------------------------
-# TODO save function arguments
+# This function is no longer used in the current approach
 
 #' Simulate from Posterior Samples
 #' This function simulates a specified number of datasets from the posterior
@@ -826,31 +761,6 @@ sim_from_post_parallel <- function(fitobj,
 
 
 # Summarize posterior -----------------------------------------------------
-# summarize_post <- function(res,
-#                            cred = 0.95){
-#   
-#   # Lower and upper bound
-#   lb <- (1-cred)/2
-#   ub <- 1-lb
-#   
-#   # for beta
-#   beta_lb <- apply(res$fit$beta, c(1,2), stats::quantile, lb)
-#   beta_ub <- apply(res$fit$beta, c(1,2), stats::quantile, ub)
-#   
-#   # for pcor
-#   pcor_lb <- apply(res$fit$pcors, c(1,2), stats::quantile, lb)
-#   pcor_ub <- apply(res$fit$pcors, c(1,2), stats::quantile, ub)  
-#   
-#   # Output
-#   out <- list(beta_lb = beta_lb,
-#               beta_ub = beta_ub, 
-#               pcor_lb = pcor_lb, 
-#               pcor_ub = pcor_ub)
-# 
-#   return(out)
-# }
-
-
 summarize_post <- function(res, cred = c(0.95)) {
   
   # Check if the "cred" argument is a numeric vector
@@ -1166,10 +1076,7 @@ post_distance_within <- function(post,
                                maxdiff = {function(x, y, mod_one, mod_two) max(abs((x$fit[[mod_one]]$pcor_mu-y$fit[[mod_two]]$pcor_mu)))},
                                l1 = {function(x, y, mod_one, mod_two) sum(abs((x$fit[[mod_one]]$pcor_mu-y$fit[[mod_two]]$pcor_mu)))}
     )
-    
-    
-    
-    
+
     # Obtain number of models
     n_mod <- length(post$fit)
     
@@ -1181,7 +1088,6 @@ post_distance_within <- function(post,
     # define the distance function based on comp
     # draw from all posterior samples
     
-
     distance_fn_beta <- switch(comp,
                                frob =   {function(x, y, mod_one, mod_two) norm(x$fit$beta[,,mod_one]-y$fit$beta[,,mod_two], type = "F")},
                                maxdiff = {function(x, y, mod_one, mod_two) max(abs((x$fit$beta[,,mod_one]-y$fit$beta[,,mod_two])))},
@@ -1199,12 +1105,11 @@ post_distance_within <- function(post,
   }
   
   
-  
   ## Draw two random models
   # delete burn-in iterations (to 50)
   # n_mod <- n_mod[-c(1:50)]
   
-  # TODO: actually, "samples" would be more fitting here than "models"
+  # "samples" would be more fitting here than "models"
   # "model" is still a residue from posterior predictive approach
   # Draw models spaced apart so that we don't have autocorrelation from sampling
   mod_pairs <- array(NA, dim = c(2, draws))
@@ -1241,7 +1146,6 @@ post_distance_within <- function(post,
       else{
         beta_distance <- distance_fn_beta(post, post, mod_one, mod_two)
         pcor_distance <- distance_fn_pcor(post, post, mod_one, mod_two)
-        
       }  
     }
     
@@ -1261,9 +1165,7 @@ post_distance_within <- function(post,
       }  
     }
     
-    
-    
-    
+    # Store results
     dist_out[[i]]$comp <- comp
     dist_out[[i]]$mod_one <- mod_one
     dist_out[[i]]$mod_two <- mod_two
@@ -1400,7 +1302,8 @@ cross_compare <- function(
 # This function uses bootstrapping to generate a difference distribution
 # within the posterior
 
-# Kappa not used for now
+# TODO will be replaced by the "compare_gvar" function in the package
+
 within_compare <- function(
     fitpost_a = l_postres,
     fitpost_b = l_postres,
@@ -1435,9 +1338,7 @@ within_compare <- function(
   if(comparison == "frob"){
     normtype = "F"
   }
-    # # Parallel or not?
-    # if(isFALSE(parallel)){
-      # Distance empirical to posterior sample estimates
+
       null_a <- post_distance_within(post = fitpost_a[[mod_a]], 
                                      comp = comparison, 
                                      draws = n_draws,
@@ -1447,27 +1348,6 @@ within_compare <- function(
                                      draws = n_draws,
                                      pred = postpred)
       
-    # }
-    # 
-    # if(isTRUE(parallel)){
-    #   if(is.null(ncores)){
-    #     stop("Error: Please specify >1 Core for parallelization")
-    #   }
-    #   null_a <- post_distance_within_par(post = fitpost_a[[mod_a]], 
-    #                                      comp = comparison, 
-    #                                      draws = n_draws,
-    #                                      pred = postpred,
-    #                                      ncores = ncores)
-    #   null_b <- post_distance_within_par(post = fitpost_b[[mod_b]], 
-    #                                      comp = comparison, 
-    #                                      draws = n_draws,
-    #                                      pred = postpred,
-    #                                      ncores = ncores)
-    # }
-
-      
-    
-
 
   
   # Compute empirical distance as test statistic
@@ -1477,9 +1357,7 @@ within_compare <- function(
       
       # Compute Distance of empirical pcors between a and b
       emp_pcor <- tryCatch(norm(fitemp_a[[mod_a]]$pcor_mu - fitemp_b[[mod_b]]$pcor_mu, type = normtype), error = function(e) {NA})
-      
-      # Compute Distance of empirical kappas between a and b
-      # emp_kappa <- tryCatch(norm(fitemp_a[[mod_a]]$kappa_mu - fitemp_b[[mod_b]]$kappa_mu, type = normtype), error = function(e) {NA})
+
       
     }
     
@@ -1490,8 +1368,6 @@ within_compare <- function(
       # Compute maxdiff of empirical pcors between a and b
       emp_pcor <- tryCatch(max(abs(fitemp_a[[mod_a]]$pcor_mu - fitemp_b[[mod_b]]$pcor_mu)), error = function(e) {NA})
       
-      # Compute maxdiff of empirical kappas between a and b
-      # emp_kappa <- tryCatch(max(abs(fitemp_a[[mod_a]]$kappa_mu - fitemp_b[[mod_b]]$kappa_mu)), error = function(e) {NA})
     }
     
     if(comparison == "l1"){
@@ -1501,8 +1377,7 @@ within_compare <- function(
       # Compute l1 of empirical pcors between a and b
       emp_pcor <- tryCatch(sum(abs(fitemp_a[[mod_a]]$pcor_mu - fitemp_b[[mod_b]]$pcor_mu)), error = function(e) {NA})
       
-      # Compute l1 of empirical kappas between a and b
-      # emp_kappa <- tryCatch(sum(abs(fitemp_a[[mod_a]]$kappa_mu - fitemp_b[[mod_b]]$kappa_mu)), error = function(e) {NA})
+
     }
     
     # Save results
@@ -1519,22 +1394,18 @@ within_compare <- function(
                               emp = rep(emp_pcor, n_draws*2),
                               comp = rep(comparison, n_draws*2))
     
-    # cc_res_kappa <- data.frame(null = c(unlist(null_a[["kappa"]]), unlist(null_b[["kappa"]])),
-    #                            emp = rep(emp_kappa, n_draws*2),
-    #                            comp = rep(comparison, n_draws*2))
-    
+
     
  
   
   l_cc_res <- list()
   l_cc_res[["beta"]] <- cc_res_beta
   l_cc_res[["pcor"]] <- cc_res_pcor
-  # l_cc_res[["kappa"]] <- cc_res_kappa
-  
+
   cc_res <- dplyr::bind_rows(l_cc_res, .id = "mat")
   
   return(cc_res)
-} # end function
+}
 
 
 
@@ -1667,44 +1538,23 @@ within_compare_eval <- function(l_res,
   if(isTRUE(pcor)){
     ### Pcor
     df_res_pcor <- subset(df_res, mat == "pcor")
-    # # Obtain model indexes
-    # "mod_a" <- unique(df_res_pcor$mod)[1]
-    # "mod_b" <- unique(df_res_pcor$mod)[2]
-    
+
     # Number of posterior difference > empirical difference
     teststat_a_pcor <- sum(df_res_pcor$null[df_res_pcor$mod == "mod_a"] > df_res_pcor$emp[df_res_pcor$mod == "mod_a"], na.rm = TRUE)
     teststat_b_pcor <- sum(df_res_pcor$null[df_res_pcor$mod == "mod_b"] > df_res_pcor$emp[df_res_pcor$mod == "mod_b"], na.rm = TRUE)
     
   }
-  
-  # if(isTRUE(kappa)){
-  #   ### kappa
-  #   df_res_kappa <- subset(df_res, mat == "kappa")
-  #   # # Obtain model indexes
-  #   # "mod_a" <- unique(df_res_kappa$mod)[1]
-  #   # "mod_b" <- unique(df_res_kappa$mod)[2]
-  #   
-  #   # Number of posterior difference > empirical difference
-  #   teststat_a_kappa <- sum(df_res_kappa$null[df_res_kappa$mod == "mod_a"] > df_res_kappa$emp[df_res_kappa$mod == "mod_a"], na.rm = TRUE)
-  #   teststat_b_kappa <- sum(df_res_kappa$null[df_res_kappa$mod == "mod_b"] > df_res_kappa$emp[df_res_kappa$mod == "mod_b"], na.rm = TRUE)
-  #   
-  # }
 
-  
-  
+
 
   wcompres <- list(beta_a = teststat_a_beta,
                    beta_b = teststat_b_beta,
                    pcor_a = teststat_a_pcor,
                    pcor_b = teststat_b_pcor,
-                   # kappa_a = teststat_a_kappa, 
-                   # kappa_b = teststat_b_kappa,
                    mod_a = model_ind_a, 
                    mod_b = model_ind_b,
                    comp = df_res_beta$comp[[1]]) # get type of comparison
-                   # dgp = l_res$params$dgp,
-                   # tp = l_res$params$tp,
-                   # comp_graph = l_res$params$comp_graph)  
+
   wcompres
 }
 
@@ -2335,146 +2185,6 @@ var_ess <- function(fitobj,
 }
 
 # Compare VAR -------------------------------------------------------------
-compare_var_old <- function(fit_a, 
-                        fit_b, 
-                        cutoff = 5,           # percentage level of test
-                        dec_rule = "OR",
-                        n_draws = 1000,
-                        comp = "frob",
-                        return_all = FALSE){  # return all distributions?
-  
-  require(magrittr)
-  
-  ## Helper function for computing distance metrics
-  compute_metric <- function(a, b, metric) {
-    tryCatch({
-      if (metric == "frob") {
-        norm(a - b, type = "F")
-      } else if (metric == "maxdiff") {
-        max(abs(a - b))
-      } else if (metric == "l1") {
-        sum(abs(a - b))
-      }
-    }, error = function(e) NA)
-  }
-  
-  ## Create reference distributions for both models
-  ref_a <- post_distance_within(fit_a, comp = comp, pred = FALSE, draws = n_draws)
-  ref_b <- post_distance_within(fit_b, comp = comp, pred = FALSE, draws = n_draws)
-  
-  ## Empirical distance
-  # Compute empirical distance as test statistic
-  if(comp == "frob"){
-    normtype = "F"
-    # Compute Distance of empirical betas between a and b
-    emp_beta <- tryCatch(norm(fit_a$beta_mu - fit_b$beta_mu, type = normtype), error = function(e) {NA})
-
-    # Compute Distance of empirical pcors between a and b
-    emp_pcor <- tryCatch(norm(fit_a$pcor_mu - fit_b$pcor_mu, type = normtype), error = function(e) {NA})
-
-  }
-
-  if(comp == "maxdiff"){
-    # Compute maxdiff of empirical betas between a and b
-    emp_beta <- tryCatch(max(abs(fit_a$beta_mu - fit_b$beta_mu)), error = function(e) {NA})
-
-    # Compute maxdiff of empirical pcors between a and b
-    emp_pcor <- tryCatch(max(abs(fit_a$pcor_mu - fit_b$pcor_mu)), error = function(e) {NA})
-
-  }
-
-  if(comp == "l1"){
-    # Compute l1 of empirical betas between a and b
-    emp_beta <- tryCatch(sum(abs(fit_a$beta_mu - fit_b$beta_mu)), error = function(e) {NA})
-
-    # Compute l1 of empirical pcors between a and b
-    emp_pcor <- tryCatch(sum(abs(fit_a$pcor_mu - fit_b$pcor_mu)), error = function(e) {NA})
-
-  }
-  emp_beta <- compute_metric(fit_a$beta_mu, fit_b$beta_mu, comp)
-  emp_pcor <- compute_metric(fit_a$pcor_mu, fit_b$pcor_mu, comp)
-  
-  
-  ## Combine results
-  res_beta <- data.frame(null = c(unlist(ref_a[["beta"]]), unlist(ref_b[["beta"]])),
-                         mod = c(rep("mod_a", n_draws), rep("mod_b", n_draws)),
-                         emp = rep(emp_beta, n_draws*2),
-                         comp = rep(comp, n_draws*2))
-  
-  
-  res_pcor <- data.frame(null = c(unlist(ref_a[["pcor"]]), unlist(ref_b[["pcor"]])),
-                         mod = c(rep("mod_a", n_draws), rep("mod_b", n_draws)),
-                         emp = rep(emp_pcor, n_draws*2),
-                         comp = rep(comp, n_draws*2))
-  
-  ## Implement decision rule "OR"
-  if(dec_rule == "OR"){
-    suppressWarnings(sig_beta <- res_beta %>% 
-                       dplyr::group_by(mod) %>% 
-                       dplyr::summarize(sum_larger = sum(null > emp)) %>% 
-                       dplyr::summarize(sig = ifelse(sum_larger < cutoff * (n_draws/100), 1, 0)) %>% 
-                       dplyr::summarize(sig_decision = sum(sig)) %>% 
-                       dplyr::pull(sig_decision))
-    
-    suppressWarnings(larger_beta <- res_beta %>% 
-                       dplyr::group_by(mod) %>% 
-                       dplyr::summarize(sum_larger = sum(null > emp))) %>% 
-      dplyr::pull(sum_larger)
-    
-    suppressWarnings(sig_pcor <- res_pcor %>% 
-                       dplyr::group_by(mod) %>% 
-                       dplyr::summarize(sum_larger = sum(null > emp)) %>% 
-                       dplyr::summarize(sig = ifelse(sum_larger < cutoff * (n_draws/100), 1, 0)) %>% 
-                       dplyr::summarize(sig_decision = sum(sig)) %>% 
-                       dplyr::pull(sig_decision))
-    
-    suppressWarnings(larger_pcor<- res_pcor %>% 
-                       dplyr::group_by(mod) %>% 
-                       dplyr::summarize(sum_larger = sum(null > emp))) %>% 
-      dplyr::pull(sum_larger)
-    
-    
-  }
-  
-  # sig_beta <- as.numeric(sig_beta)
-  # larger_beta <- as.numeric(larger_beta)
-  # sig_pcor <- as.numeric(sig_pcor)
-  # larger_pcor <- as.numeric(larger_pcor)
-  
-  
-  if(!return_all){
-    l_res <- list(sig_beta = sig_beta,
-                  sig_pcor = sig_pcor,
-                  # res_beta = res_beta,
-                  # res_pcor = res_pcor,
-                  emp_beta = emp_beta,
-                  emp_pcor = emp_pcor,
-                  larger_beta = larger_beta,
-                  larger_pcor = larger_pcor)
-    
-  }
-  if(isTRUE(return_all)){
-    l_res <- list(sig_beta = sig_beta,
-                  sig_pcor = sig_pcor,
-                  res_beta = res_beta,
-                  res_pcor = res_pcor,
-                  emp_beta = emp_beta,
-                  emp_pcor = emp_pcor,
-                  larger_beta = larger_beta,
-                  larger_pcor = larger_pcor)
-    
-  }
-  
-  
-  
-  return(l_res)
-  
-  
-  
-}
-
-##### New compare_var
-
 # TODO this roxygen is still incorrect, e.g. larger_beta
 
 #' Compare Variance Components between Two Models
