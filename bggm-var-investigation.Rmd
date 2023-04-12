@@ -276,6 +276,54 @@ df_eval_bggm <- readRDS(here::here("output/df_eval_bggm_2703.RDS"))
 
 ```
 
+```{r}
+# add row iteration number
+cond_grid <- cond_grid %>% 
+  mutate(iter_bggm = dplyr::row_number())
+cond_grid_gvar <- cond_grid_gvar %>% 
+  mutate(iter_gvar = dplyr::row_number())
+
+
+
+# add dataset iteration information to each
+df_eval_bggm_ind <- df_eval_bggm %>% 
+  group_by(dgp_ind, tp_ind, rho_prior, beta_prior) %>% 
+  mutate(data_ind = dplyr::row_number())
+
+df_eval_gvar_ind <- df_eval_gvar %>% 
+  group_by(dgp_ind, tp_ind, lambda, ebic) %>% 
+  mutate(data_ind = dplyr::row_number())
+
+
+  
+# For joining, select one of the prior conditions
+df_eval_both <- df_eval_bggm_ind %>% 
+  # filter(beta_prior == 0.5 & rho_prior == 0.5) %>% 
+  left_join(df_eval_gvar_ind, by = c("dgp_ind", "tp_ind", "data_ind"),
+            suffix = c("_bggm", "_gvar")) %>% 
+  ungroup()
+  
+# TODO maybe add correlation to this as well?
+# need to add "data_ind" to the df_cors
+
+
+
+```
+
+
+
+Function to calculate rmse across all repetitions
+```{r}
+rmse_test <- eval_across_gvar(fit = tes,
+            true_graph = l_graphs[[6]]) 
+
+
+cool <- unlist(lapply(tes, function(x) as.numeric(c(t(x$beta[,-1])))))
+
+
+```
+
+
 
 
 ### Plotting results
@@ -298,6 +346,11 @@ dgp_levels <- c("Old1" = "1", "Old2" = "2", "Empirical\nSparse" = "3",
 dgp_levels <- c("Empirical\nSparse" = "3",
                  "Simulated\nChain 6N" = "4", "Simulated\nNonsparse" = "5",
                  "Simulated\nChain 8N" = "6")
+
+# Colors consistent across plots
+cond_colors <- set_names(ggokabeito::palette_okabe_ito()[1:5],
+                         c("BGGM narrow", "BGGM wide", "graphicalVAR", "SEL wide", "SEL narrow"))
+
 
 ```
 
@@ -401,7 +454,10 @@ ggsave("plot_eval_bggm_boxplot.svg", plot_eval_bggm_box, path = here::here("figu
 Plot results
 ```{r}
 plot_eval_gvar <- df_eval_gvar %>% 
-  filter(dgp > dgp_cut) %>% 
+  filter(dgp_ind > dgp_cut) %>% 
+    mutate(tp_ind = fct_recode(as_factor(as.character(tp_ind)), !!!tp_levels)) %>% 
+    # mutate dgp_ind into factor
+  mutate(dgp_ind = fct_recode(as_factor(as.character(dgp_ind)), !!!dgp_levels)) %>% 
   dplyr::mutate(lambda = as.character(lambda)) %>% 
   dplyr::mutate(lambda = tidyr::replace_na(lambda, "default")) %>% 
   dplyr::group_by(dgp_ind, tp_ind, ebic, lambda) %>% 
@@ -414,13 +470,34 @@ plot_eval_gvar <- df_eval_gvar %>%
                          sens_beta, sens_pcor)), 
                names_to = "stat", values_to = "value") %>% 
   dplyr::mutate(ebic_lambda_comb = paste0("Gamma: ", ebic, ", Lambda = ", lambda)) %>% 
+  # filter redundant condition
+  # EBIC is irrelevant when not regularizing, so this is 
+  # identical to using Gamma: 0
+  dplyr::filter(ebic_lambda_comb != "Gamma: 0.5, Lambda = 0") %>% 
+  mutate(mat = case_when(
+    stringr::str_detect(stat, "beta") ~ "Temp.",
+    stringr::str_detect(stat, "pcor") ~ "Contemp."
+  )) %>% 
+  # remove everything after first underscore
+  # remove matrix from stat column
+  mutate(stat = stringr::str_remove(stat, "_.*")) %>% 
+  mutate(stat = case_when(
+                          stringr::str_detect(stat, "sens") ~ "Sensitivity",
+                          stringr::str_detect(stat, "spec") ~ "Specificity",
+                          stringr::str_detect(stat, "bias") ~ "Bias",
+                          stringr::str_detect(stat, "cor") ~ "Correlation")) %>% 
   ungroup() %>% 
-  ggplot(aes(x = tp_ind, y = value, col = ebic_lambda_comb))+
+  ggplot(aes(x = tp_ind, y = value, col = ebic_lambda_comb, group = ebic_lambda_comb))+
   geom_line()+
-  facet_grid(dgp_ind ~ stat) + 
+  ggh4x::facet_nested(dgp_ind ~ stat + mat) + 
   ylim(0,1)+
   theme_compare()+
-  ggokabeito::scale_colour_okabe_ito()
+  ggokabeito::scale_colour_okabe_ito()+
+  labs(col = "Model Setup", 
+       x = "Timepoints",
+       y = "")
+
+plot_eval_gvar
 
 ggsave("plot_eval_gvar.svg", plot_eval_gvar, path = here::here("figures/"), device = "svg", width = 16, height = 9)  
 
@@ -429,7 +506,6 @@ ggsave("plot_eval_gvar.svg", plot_eval_gvar, path = here::here("figures/"), devi
 
 
 ## Correlate BGGM and graphicalVAR
-
 BGGM and GVAR simulations have different amount of conditions, so I need to match them on their DGP + number of time points first
 ```{r}
 cond_grid_full <- cond_grid %>% 
@@ -562,41 +638,6 @@ ggsave("plot_cor_grid_sep.svg", plot_cor_grid_sep, height = 15, width = 18, path
 
 
 ## Compare performance BGGM and graphicalVAR
-Only use one prior combination for BGGM.
-```{r}
-# add row iteration number
-cond_grid <- cond_grid %>% 
-  mutate(iter_bggm = dplyr::row_number())
-cond_grid_gvar <- cond_grid_gvar %>% 
-  mutate(iter_gvar = dplyr::row_number())
-
-
-
-# add dataset iteration information to each
-df_eval_bggm_ind <- df_eval_bggm %>% 
-  group_by(dgp_ind, tp_ind, rho_prior, beta_prior) %>% 
-  mutate(data_ind = dplyr::row_number())
-
-df_eval_gvar_ind <- df_eval_gvar %>% 
-  group_by(dgp_ind, tp_ind, lambda, ebic) %>% 
-  mutate(data_ind = dplyr::row_number())
-
-
-  
-# For joining, select one of the prior conditions
-df_eval_both <- df_eval_bggm_ind %>% 
-  # filter(beta_prior == 0.5 & rho_prior == 0.5) %>% 
-  left_join(df_eval_gvar_ind, by = c("dgp_ind", "tp_ind", "data_ind"),
-            suffix = c("_bggm", "_gvar")) %>% 
-  ungroup()
-  
-# TODO maybe add correlation to this as well?
-# need to add "data_ind" to the df_cors
-
-
-
-```
-
 ### Plot comparison of both methods
 
 ```{r}
@@ -622,7 +663,7 @@ plot_eval_both <- df_eval_both %>%
   mutate(method = case_when(
     stringr::str_detect(stat, "bggm_b0.2") ~ "BGGM narrow",
     stringr::str_detect(stat, "bggm_b1") ~ "BGGM wide",
-    stringr::str_detect(stat, "gvar") ~ "gVAR",
+    stringr::str_detect(stat, "gvar") ~ "graphicalVAR",
     stringr::str_detect(stat, "sel_b0.2") ~ "SEL narrow",
     stringr::str_detect(stat, "sel_b1") ~ "SEL wide"
   )) %>% 
@@ -647,7 +688,7 @@ plot_eval_both <- df_eval_both %>%
   geom_line(aes(linetype = lty))+
   ggh4x::facet_nested(as.factor(dgp_ind) ~ as.factor(stat) + as.factor(mat))+
   theme_bw()+
-  ggokabeito::scale_color_okabe_ito()+
+  scale_color_manual(values = cond_colors)+
   labs(caption = "GVAR default",
        x = "Timepoints",
        col = "Method",
@@ -686,15 +727,15 @@ plot_eval_both_select <- df_eval_both %>%
   mutate(method = case_when(
     stat == "zeros_beta" ~ "gVAR",
     stat == "zeros_pcor" ~ "gVAR",
-    stringr::str_detect(stat, "gvar") ~ "gVAR",
+    stringr::str_detect(stat, "gvar") ~ "graphicalVAR",
     stringr::str_detect(stat, "sel_b0.2") ~ "SEL narrow",
     stringr::str_detect(stat, "bggm_b0.2") ~ "SEL narrow",
     stringr::str_detect(stat, "sel_b1") ~ "SEL wide",
     stringr::str_detect(stat, "bggm_b1") ~ "SEL wide"
   )) %>% 
   mutate(mat = case_when(
-    stringr::str_detect(stat, "beta") ~ "Temp.",
-    stringr::str_detect(stat, "pcor") ~ "Contemp."
+    stringr::str_detect(stat, "beta") ~ "Temporal",
+    stringr::str_detect(stat, "pcor") ~ "Contemporaneous"
   )) %>% 
   mutate(stat = case_when(
     stringr::str_detect(stat, "bias") ~ "Bias",
@@ -707,25 +748,94 @@ plot_eval_both_select <- df_eval_both %>%
   # remove matrix from stat column
   mutate(stat = stringr::str_remove(stat, "_.*")) %>% 
   # add linetype
-  # mutate(lty = ifelse(grepl("SEL", method), "select", "nonselect")) %>% 
+  mutate(lty = ifelse(grepl("SEL", method), "select", "nonselect")) %>%
   # filter out non-thresholded methods
   filter(!grepl("BGGM", method)) %>% 
   # only take default values for gvar now
   filter(is.na(lambda) & ebic == 0) %>% 
-  filter(stat != "Zeros") %>% 
+  filter(stat != "Zeros") %>%
+  ggplot(aes(x = tp_ind, y = value, col = method, group = method))+
+  geom_line(aes(linetype = lty))+
+  ggh4x::facet_nested(dgp_ind ~ as.factor(stat) + as.factor(mat))+
+  theme_bw()+
+  # ggokabeito::scale_color_okabe_ito()+
+  scale_color_manual(values = cond_colors)+
+  labs(x = "Timepoints",
+       col = "Method",
+       y = "", 
+       linetype = "Selection")+
+  theme_compare()+
+  theme(strip.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2), hjust = 0.5),
+        strip.text.x.top = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.1), hjust = 0.5),
+        legend.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.1)),
+        legend.title = ggplot2::element_text(face = "bold", size = ggplot2::rel(1.1)),
+        # panel.border = element_rect(color = "#D5D8DC", fill = NA, size = 1),
+        panel.spacing.y = ggplot2::unit(1.6, "lines"),
+        panel.spacing.x = ggplot2::unit(1.6, "lines"),
+        axis.text.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.1)))
+plot_eval_both_select
+
+ggsave("plot_eval_both_select.svg", plot_eval_both_select, height = 6.5, width = 12, path = here::here("figures/"), device = "svg")
+```
+
+
+### Focus on nonselect methods
+```{r}
+plot_eval_both_nonselect <- df_eval_both %>% 
+  # delete older dgps
+  filter(dgp_ind > dgp_cut) %>%
+  dplyr::select(c(dgp_ind, tp_ind, lambda, ebic, contains("bias"), contains("rmse"), contains("prior"))) %>% 
+  dplyr::select(!contains("sel")) %>% 
+  # use non-lasso graphicalVAR
+  filter(lambda == 0 & ebic == 0) %>% 
+  # mutate tp_ind into factor
+  mutate(tp_ind = fct_recode(as_factor(as.character(tp_ind)), !!!tp_levels)) %>% 
+  # mutate dgp_ind into factor
+  mutate(dgp_ind = fct_recode(as_factor(as.character(dgp_ind)), !!!dgp_levels)) %>% 
+  mutate(prior_comb = paste0("b", beta_prior,  "_r", rho_prior)) %>% 
+  filter(prior_comb == "b1_r0.5" | prior_comb == "b0.2_r0.3") %>% 
+  dplyr::group_by(dgp_ind, tp_ind, lambda, ebic, prior_comb) %>% 
+  dplyr::summarize(across(c(contains("bias"),contains("rmse")),
+                   ~mean(., na.rm = TRUE))) %>% 
+  pivot_wider(names_from = prior_comb,
+              values_from = c(contains("bggm"))) %>%
+  pivot_longer(cols = c(contains("bias"), contains("rmse")),
+                        names_to = "stat") %>%
+
+  mutate(method = case_when(
+    stringr::str_detect(stat, "gvar") ~ "graphicalVAR",
+    stringr::str_detect(stat, "bggm_b0.2") ~ "BGGM narrow",
+    stringr::str_detect(stat, "bggm_b1") ~ "BGGM wide"
+  )) %>% 
+  mutate(mat = case_when(
+    stringr::str_detect(stat, "beta") ~ "Temp.",
+    stringr::str_detect(stat, "pcor") ~ "Contemp."
+  )) %>% 
+  mutate(stat = case_when(
+    stringr::str_detect(stat, "bias") ~ "Bias",
+    stringr::str_detect(stat, "rmse") ~ "RMSE"
+  )) %>% 
+  # remove everything after first underscore
+  # remove matrix from stat column
+  mutate(stat = stringr::str_remove(stat, "_.*")) %>% 
   ggplot(aes(x = tp_ind, y = value, col = method, group = method))+
   geom_line()+
   ggh4x::facet_nested(as.factor(dgp_ind) ~ as.factor(stat) + as.factor(mat),
                       scales = "free")+
   theme_bw()+
-  ggokabeito::scale_color_okabe_ito()+
-  labs(caption = "GVAR default. 95%-CI for BGGM methods.",
+  # ggokabeito::scale_color_okabe_ito()+
+  scale_color_manual(values = cond_colors)+
+  labs(caption = "graphicalVAR without LASSO",
        x = "Timepoints",
        col = "Method",
        y = "")+
   theme_compare()
-plot_eval_both_select
+plot_eval_both_nonselect
+
+ggsave("plot_eval_both_nonselect.svg", plot_eval_both_nonselect, height = 7, width = 15, path = here::here("figures/"), device = "svg")
+
 ```
+
 
 
 
@@ -807,6 +917,51 @@ plot_eval_credible
 ggsave("plot_eval_credible.svg", plot_eval_credible, height = 7, width = 12, path = here::here("figures/"), device = "svg")
 
 ```
+Obtain numerical results:
+```{r}
+df_eval_both %>% 
+  # delete older dgps
+  filter(dgp_ind > dgp_cut) %>%
+  # only take default values for gvar now to filter out redundant information
+  filter(is.na(lambda) & ebic == 0) %>% 
+  dplyr::select(-c(lambda,ebic)) %>% 
+  dplyr::select(c(dgp_ind, tp_ind, contains("prior"), contains("width"),contains("cover"))) %>% 
+  # mutate tp_ind into factor
+  mutate(tp_ind = fct_recode(as_factor(as.character(tp_ind)), !!!tp_levels)) %>% 
+  # mutate dgp_ind into factor
+  mutate(dgp_ind = fct_recode(as_factor(as.character(dgp_ind)), !!!dgp_levels)) %>% 
+  mutate(prior_comb = paste0("b", beta_prior,  "_r", rho_prior)) %>% 
+  filter(prior_comb == "b1_r0.5" | prior_comb == "b0.2_r0.3") %>% 
+  dplyr::group_by(dgp_ind, tp_ind, prior_comb) %>% 
+  # convert coverage into proportion
+  mutate(n_nodes = ifelse(dgp_ind == "Simulated\nChain 8N", 8, 6)) %>% 
+  mutate(across(contains("sum_cover_beta"),
+                ~ ./n_nodes^2)) %>% 
+  # divide by number of unique off-diagonal elements
+  mutate(across(contains("sum_cover_pcor"),
+                ~ ./((n_nodes/2)*(n_nodes-1)))) %>% 
+  dplyr::summarize(across(c(contains("width"), contains("cover")),
+                   ~mean(., na.rm = TRUE))) %>% 
+  pivot_longer(cols = c(contains("width"), contains("cover")),
+                        names_to = "stat") %>%
+  mutate(mat = case_when(
+    stringr::str_detect(stat, "beta") ~ "Temp.",
+    stringr::str_detect(stat, "pcor") ~ "Contemp."
+  )) %>% 
+  filter(grepl("sum_cover", stat)) %>% 
+  # extract nominal CI value
+  mutate(ci_nominal = as.numeric(str_extract(stat, "\\d+\\.\\d+$"))) %>% 
+  mutate(ci_nominal_diff = value - ci_nominal) %>% 
+  # group_by(prior_comb, tp_ind, stat, dgp_ind) %>% 
+  # dplyr::summarize(mean_diff = mean(ci_nominal_diff)) %>% 
+  ungroup() %>% 
+  dplyr::summarize(median_diff = stats::median(abs(ci_nominal_diff)))
+  
+
+```
+
+
+
 
 
 
