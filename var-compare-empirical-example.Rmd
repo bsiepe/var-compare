@@ -7,6 +7,10 @@ output: html_document
 
 We use data from Fisher et al. (2017), downloaded from https://github.com/jmbh/EmotionTimeSeries/blob/master/DataClean/Fisher2017/data_Fisher2017.RDS. 
 
+
+
+
+
 # Preparation and Data Cleaning
 ```{r}
 library(BGGM)
@@ -41,6 +45,313 @@ data %>%
 ```
 
 
+## NEW Loading of data via loop.
+Data were now downloaded from OSF.
+Functions needed:
+```{r}
+lagpad <- function(x, k) {
+     c(rep(NA, k), x)[1 : length(x)] 
+ }
+```
+
+
+Then use code adapted from Fisher et al. https://osf.io/m63ks to perform cubic spline interpolation to resample to even time intervals for observations. 
+```{r}
+file_list <- list.files(path = here::here("data/empirical_example/fisher_2017"), pattern = ".RData", full.names = TRUE)
+
+# Number of items
+n_items <- 21
+rel_items <-  c("energetic", "enthusiastic", "content", "irritable", "restless", "worried",  "guilty",  "afraid", "anhedonia", "angry", "hopeless", "down", 
+"positive", "fatigue", "tension", "concentrate", "ruminate", "avoid_act", "reassure",  "procrast", "avoid_people")
+
+l_data <- list()
+for(i in 1:length(file_list)){
+  l_data[[i]] <- list()
+  load(file_list[[i]])
+  
+  # # correct names
+  # colnames(data) <- c("start","finish","energetic","enthusiastic","content","irritable","restless","worried","guilty","afraid","anhedonia","angry","hopeless","down","positive","fatigue","tension","concentrate","accepted","threatened","ruminate","avoid_act","reassure","procrast","hours","difficult","unsatisfy","avoid_people")
+  
+  # add lags
+  data$lag=lagpad(data$start,1)
+
+  # Calculate time differences
+  data$tdif=as.numeric(difftime(strptime(data$start,"%m/%d/%Y %H:%M"),strptime(data$lag,"%m/%d/%Y %H:%M")))
+
+  # Replace NA
+  data$tdif[is.na(data$tdif)] <- 0
+  
+  # give names to columns with missing names
+  # Get the index of NA column names
+  na_cols <- which(is.na(colnames(data)))
+
+  # Replace NA column names with new names
+  colnames(data)[na_cols] <- paste0("new_name_", na_cols)
+  
+  # data <- data %>% 
+  #   dplyr::mutate(across(all_of(rel_items),  # columns to be imputed
+  #               ~imputeTS::na_kalman(.x, type = "level")))
+  # l_data[[i]]$test <- data
+
+  # Calculate cumulative sum of numeric elapsed time
+  data$cumsumT = cumsum(data$tdif)
+
+  # Subset data
+  trim=data[,c(3:18,21:24,28)]
+  dedat=data.frame(matrix(ncol = dim(trim)[2], nrow = dim(trim[1])))
+  colnames(dedat) <- colnames(trim)
+
+  ### Detrend
+  for(d in 1:n_items){
+    dedat[,d] = resid(lm(scale(trim[,d])~data$cumsumT, na.action = na.exclude))
+  }
+  ### Cubic spline interpolation
+  datcub <- data.frame(matrix(ncol=21,nrow=nrow(data)))
+  for(d in 1:n_items){
+    datcub[,d]=(spline(x = data$cumsumT, y=dedat[,d], nrow(data), method='fmm'))$y
+  }
+  colnames(datcub) <- colnames(dedat)
+  
+  # Only choose relevant data for us
+  datcub <- datcub %>% 
+    dplyr::select(c("content", "fatigue", "concentrate", "positive", "hopeless", "enthusiastic"))
+
+  # l_data[[i]]$raw_data <- data
+  # l_data[[i]]$data <- datcub
+  l_data[[i]] <- datcub
+  
+}
+# remove everything but the data list
+rm(list=setdiff(ls(), "l_data"))
+
+```
+
+
+# Fit new models
+```{r}
+rho_prior = 0.25
+beta_prior = .5
+iterations = 50000
+seed = 2022
+
+df_prior <- data.frame(
+  rho_prior = c(0.1, 0.25, 0.5),
+  beta_prior = c(0.25, 0.5, 1)
+)
+
+
+l_fits <- list()
+
+
+cl = makeCluster(3)
+registerDoParallel(cl)
+l_fits <- foreach(i = 1:nrow(df_prior), .packages = "BGGM") %dopar% {
+  r_p <- df_prior[i,"rho_prior"]
+  b_p <- df_prior[i, "beta_prior"]
+  
+  fit <- lapply(l_data, function(x){
+  tryCatch(BGGM::var_estimate(Y = x,      
+                     rho_sd = r_p,
+                     beta_sd = b_p,
+                     iter = 50000,
+                     seed = 2022), error = function(e) NA)
+
+    
+    
+})
+
+  return(fit)
+}
+
+stopCluster(cl)  
+  
+l_fits_c <- list()
+for(i in 1:3){
+  l_fits_c[[i]] <- lapply(l_fits[[i]], function(x){
+  x$fit$Sigma <- NULL
+  x$fit$fisher_z <- NULL
+  x
+})
+  
+}
+```
+
+
+
+Test across all participants and across different priors. I ran into some memory issues here, so I splitted based on priors. 
+```{r}
+l_fits <- l_fits_c
+fit_grid <- expand.grid(fit_a = 1:length(l_fits[[1]]), 
+                        fit_b = 1:length(l_fits[[1]]), 
+                        priors = seq(nrow(df_prior), 1), 
+                        comp = c("l1", "frob", "maxdiff"))
+l_comps <- list()
+
+cl = makeCluster(14)
+registerDoParallel(cl)
+clusterExport(cl, c("compare_var", "post_distance_within"))
+l_fits_1 <- l_fits[[1]]
+fit_grid_1 <- fit_grid %>% 
+  filter(priors == 1)
+l_comps_1 <- foreach(i = 1:nrow(fit_grid_1)) %dopar% {
+  
+  # Extract information
+  a <- fit_grid_1$fit_a[i]
+  b <- fit_grid_1$fit_b[i]
+  p_ind <- fit_grid_1$priors[i]
+  compa <-  as.character(fit_grid_1$comp[i])
+
+
+  
+  if(is.list(l_fits_1[[a]]) & is.list(l_fits_1[[b]])){
+
+  comp_res  <- compare_var(l_fits_1[[a]],l_fits_1[[b]], comp = compa)
+
+  return(comp_res)
+  }
+  else
+    return(NA)
+  
+}
+
+
+
+l_fits_2 <- l_fits_c[[2]]
+fit_grid_2 <- fit_grid %>% 
+  filter(priors == 2)
+l_comps_2 <- foreach(i = 1:nrow(fit_grid_2)) %dopar% {
+  
+  # Extract information
+  a <- fit_grid_2$fit_a[i]
+  b <- fit_grid_2$fit_b[i]
+  p_ind <- fit_grid_2$priors[i]
+  compa <-  as.character(fit_grid_2$comp[i])
+
+  
+  if(is.list(l_fits_2[[a]]) & is.list(l_fits_2[[b]])){
+  comp_res  <- compare_var(l_fits_2[[a]],l_fits_2[[b]], comp = compa)
+
+  return(comp_res)
+  }
+  else
+    return(NA)
+  
+  
+    
+  
+  
+}
+
+rm(l_fits_2)
+
+
+
+l_fits_3 <- l_fits_c[[3]]
+fit_grid_3 <- fit_grid %>% 
+  filter(priors == 3)
+l_comps_3 <- foreach(i = 1:nrow(fit_grid_3)) %dopar% {
+  
+  # Extract information
+  a <- fit_grid_3$fit_a[i]
+  b <- fit_grid_3$fit_b[i]
+  p_ind <- fit_grid_3$priors[i]
+  compa <-  as.character(fit_grid_3$comp[i])
+
+  
+  if(is.list(l_fits_3[[a]]) & is.list(l_fits_3[[b]])){
+
+  comp_res  <- compare_var(l_fits_3[[a]],l_fits_3[[b]], comp = compa)
+
+  return(comp_res)
+  }
+  else
+    return(NA)
+  
+}
+stopCluster(cl)
+rm(l_fits_3)
+
+df_comps2_1 <- do.call(rbind, l_comps_1)
+df_comps2_2 <- do.call(rbind, l_comps_2)
+df_comps2_3 <- do.call(rbind, l_comps_3)
+
+# Add prior information
+df_comps2_1c <- df_comps2_1 %>% 
+  cbind(fit_grid_1)
+df_comps2_2c <- df_comps2_2 %>% 
+  cbind(fit_grid_2)
+df_comps2_3c <- df_comps2_3 %>% 
+  cbind(fit_grid_3)
+
+
+
+df_compsc2 <- as.data.frame(rbind(df_comps2_1c, df_comps2_2c, df_comps2_3c))
+
+# delete unnecessary columns
+df_comps2 <- df_compsc2 %>% 
+  dplyr::select(-c(larger_beta, larger_pcor))
+
+
+
+```
+
+
+```{r}
+df_comps2 %>% 
+  filter(fit_a != fit_b) %>% 
+  group_by(priors, comp) %>% 
+  count()
+
+
+prior_names <- c(
+  "1" = "Rho: 0.1, Beta: 0.25",
+  "2" = "Rho: 0.25, Beta: 0.5",
+  "3" = "Rho: 0.5, Beta: 1"
+)
+
+# prior_names2 <- c(
+#   "1" = "Rho: 0.2, Beta: 0.6",
+#   "2" = "Rho: 0.3, Beta: 0.6",
+#   "3" = "Rho: 0.4, Beta: 0.6"
+# )
+# prior_names2 <- c(
+#   "1" = "Rho: 0.4, Beta: 0.5",
+#   "2" = "Rho: 0.4, Beta: 0.7",
+#   "3" = "Rho: 0.4, Beta: 0.9"
+# )
+
+
+emp_ex_prior_sensitivity2 <- df_comps2 %>% 
+  dplyr::filter(fit_a != fit_b) %>% 
+  dplyr::mutate(across(c(contains("beta"), contains("pcor")),
+                ~as.numeric(.))) %>% 
+  dplyr::group_by(priors, comp) %>% 
+  dplyr::summarize(sum_sig_beta = sum(ifelse(sig_beta >0, 1, 0)),
+            sum_sig_pcor = sum(ifelse(sig_pcor >0, 1, 0)),
+            mean_emp_beta = mean(emp_beta, na.rm =  TRUE)) %>% 
+  mutate(prop_sig_beta = sum_sig_beta / 1560,
+         prop_sig_pcor = sum_sig_pcor / 1560) %>% 
+  pivot_longer(cols = c("sum_sig_beta", "sum_sig_pcor"), names_to = "mat_sum", values_to = "sum") %>% 
+  pivot_longer(cols = c("prop_sig_beta", "prop_sig_pcor"), names_to = "mat_prop", values_to = "prop") %>% 
+  ggplot(aes(x = comp, y = prop, group = mat_prop, fill = mat_prop))+
+  geom_bar(position = "dodge", stat = "identity")+
+  facet_wrap(priors~., labeller = as_labeller(prior_names))+
+  theme_minimal()+
+  ggokabeito::scale_fill_okabe_ito(labels = c("Temporal", "Contemporaneous"))+
+  scale_y_continuous(limits = c(0,1),labels = function(x) paste0(x*100, "%"))+
+  labs(x = "Norm",
+       y = "Proportion Significant",
+       title = "Prior Sensitivity Empirical Example",
+       fill = "Matrix")
+emp_ex_prior_sensitivity2
+```
+
+
+
+
+
+##### OLD !!!!!!!!!!!!!!!!!!!!!!
+
 Create histograms for each individual
 ```{r}
 l_hist <- list()
@@ -54,8 +365,6 @@ for(u in unique(data$subj_id)){
 # Hmisc::hist.data.frame(data[,2:23])
 
 ```
-
-
 
 Focus on some items with relatively adequate distributions. 
 Impute missing data.
@@ -79,9 +388,9 @@ imp_data <- cut_data %>%
                 # .names = "{.col}_imp")) %>%                      # add "_imp" to new column names
   ungroup()
 
-
-short_data <- imp_data %>% 
-  split(.$subj_id)
+# THIS IS NOW DONE LATER!
+# short_data <- imp_data %>% 
+#   split(.$subj_id)
 
 ```
 
@@ -106,10 +415,6 @@ data_detrend <- lapply(short_data, function(x){
 }
 return(x)
 })
-
-
-
-
 
 ```
 
@@ -170,7 +475,7 @@ for(i in 1:3){
 }
 
 # saveRDS(l_fits_c, here::here("data/empirical_example/l_fits_empirical_ex.RDS"))
-# l_fits_c <- readRDS(here::here("data/empirical_example/l_fits_empirical_ex.RDS")
+# l_fits_c <- readRDS(here::here("data/empirical_example/l_fits_empirical_ex.RDS"))
 
 
 ```
@@ -407,7 +712,8 @@ df_comps2 <- df_compsc2 %>%
 ```{r}
 # Calculate amount of possible combinations per condition
 # 1560
-df_comps2 %>% 
+# TODO change this! we count all comparisons twice, which is useless
+df_comps %>% 
   filter(fit_a != fit_b) %>% 
   group_by(priors, comp) %>% 
   count()
@@ -431,7 +737,7 @@ prior_names <- c(
 # )
 
 
-emp_ex_prior_sensitivity2 <- df_comps2 %>% 
+emp_ex_prior_sensitivity2 <- df_comps %>% 
   filter(fit_a != fit_b) %>% 
   mutate(across(c(contains("beta"), contains("pcor")),
                 ~as.numeric(.))) %>% 
@@ -447,12 +753,13 @@ emp_ex_prior_sensitivity2 <- df_comps2 %>%
   geom_bar(position = "dodge", stat = "identity")+
   facet_wrap(priors~., labeller = as_labeller(prior_names))+
   theme_minimal()+
-  ggokabeito::scale_fill_okabe_ito(labels = c("Beta", "PCor"))+
+  ggokabeito::scale_fill_okabe_ito(labels = c("Temporal", "Contemporaneous"))+
   scale_y_continuous(limits = c(0,1),labels = function(x) paste0(x*100, "%"))+
   labs(x = "Norm",
        y = "Proportion Significant",
        title = "Prior Sensitivity Empirical Example",
        fill = "Matrix")
+emp_ex_prior_sensitivity2
 
 ggsave("emp_ex_prior_sensitivity.svg", emp_ex_prior_sensitivity2, device = "svg", path = here::here("figures/"), width = 7, height = 5)
 
@@ -704,6 +1011,54 @@ ggsave("plot_example_posterior_beta.svg", plot_example_posterior,
 
 ```
 
+
+# Random investigation: Handling Missings/Nights
+
+```{r}
+data_1 <- data %>% 
+  filter(subj_id == 1) %>% 
+  select(energetic:accepted)
+
+fit_1 <- BGGM::var_estimate(as.data.frame(data_1))
+
+fit_1$beta_mu
+
+# Now delete missing data
+data_1_nomiss <- data_1 %>% 
+  filter(!is.na(accepted)) %>% 
+  as.data.frame()
+
+fit_1_nomiss <- BGGM::var_estimate(as.data.frame(data_1_nomiss))
+
+fit_1_nomiss$beta_mu
+fit_1_nomiss$pcor_mu
+
+```
+The results are identical. 
+Now try something else: inserting missing data between rows
+```{r}
+#Number of empty rows to insert
+N = 1
+df1 <- data_1_nomiss
+rownames(df1) <- NULL
+
+#Every N rows after which empty rows should be inserted
+after_rows = 4
+
+do.call(rbind, lapply(split(df1, ceiling(1:NROW(df1)/after_rows)),
+                      function(a) rbind(a, replace(a[1:N,], TRUE, NA))))
+
+rownames(df1) <- NULL
+
+```
+
+Fit model again
+```{r}
+fit_1_insmiss <- BGGM::var_estimate(df1)
+fit_1_insmiss$beta_mu
+fit_1_insmiss$pcor_mu
+
+```
 
 
 
