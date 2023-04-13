@@ -5,13 +5,7 @@ date: "2023-01-30"
 output: html_document
 ---
 
-We use data from Fisher et al. (2017), downloaded from https://github.com/jmbh/EmotionTimeSeries/blob/master/DataClean/Fisher2017/data_Fisher2017.RDS. 
 
-
-
-
-
-# Preparation and Data Cleaning
 ```{r}
 library(BGGM)
 library(qgraph)
@@ -22,27 +16,61 @@ library(parallel)
 library(Hmisc)
 library(imputeTS)
 source("aux_funs.R")
-
-data <- readRDS("data_Fisher2017.RDS")
-
-
-# Number of observations per model
-n_obs <- data %>% 
-  count(subj_id)
+```
 
 
+# Example prior distributions
+Draw 5000 observations for temporal and contemporaneous priors. 
+```{r}
+## Temporal
+# Simply sample from normal distribution
+wide_beta <- rnorm(n = 5000, mean = 0, sd = 1)
+narrow_beta <- rnorm(n = 5000, mean = 0, sd = 0.5)
 
-# Look at proportion of missingness
-data %>% 
-  dplyr::mutate(miss = ifelse(is.na(energetic), 1, 0)) %>% 
-  dplyr::add_count(subj_id) %>% 
-  dplyr::group_by(subj_id) %>% 
-  dplyr::mutate(sum_miss = sum(miss)) %>% 
-  dplyr::summarize(prop_miss = sum_miss/n) %>% 
-  dplyr::distinct(subj_id, prop_miss) %>% 
-  dplyr::arrange(desc(prop_miss))
+## Contemporaneous
+# Wide prior
+wide_pcor <- BGGM::plot_prior(prior_sd = 0.5, iter = 5000)
+wide_pcor <- wide_pcor$plot_env$prior_samp$pcors[1,2,]
+
+# Narrow prior
+narrow_pcor <- BGGM::plot_prior(prior_sd = 0.25, iter = 5000)
+narrow_pcor <- narrow_pcor$plot_env$prior_samp$pcors[1,2,]
+
+
+df_prior <- data.frame(
+  value = c(wide_beta, narrow_beta, wide_pcor, narrow_pcor),
+  mat = c(rep("Temporal",2*5000), rep("Contemporaneous", 2*5000)),
+  prior = rep(c(rep("wide", 5000), rep("narrow", 5000)),2),
+  label = c(rep("1", 5000), rep("0.5", 5000), rep("0.5", 5000), rep("0.25", 5000))
+)
+
+
+# Create grid plot
+prior_example <- df_prior %>% 
+  mutate(mat = as.factor(mat),
+         prior = as.factor(prior)) %>% 
+  ggplot(aes(x = value))+
+  geom_histogram(fill = ggokabeito::palette_okabe_ito()[2],
+                 col = "black",
+                 bins = 50)+
+  theme_compare()+
+  ggh4x::facet_nested(prior~mat, scales = "free_x",)+
+  labs(y = "",
+       x = "")+
+  theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        strip.text = element_text(size = 20))
+
+prior_example
+ggsave("prior_example.svg", prior_example, path = here::here("figures/") ,device = "svg", width = 10, height = 7)
+
 
 ```
+
+
+
+# Empirical Example
+We use data from Fisher et al. (2017), downloaded from https://github.com/jmbh/EmotionTimeSeries/blob/master/DataClean/Fisher2017/data_Fisher2017.RDS. 
 
 
 ## NEW Loading of data via loop.
@@ -178,6 +206,47 @@ for(i in 1:3){
 
 
 
+## Convergence 
+
+```{r}
+# # Trace Plots
+# BGGM::convergence(l_fits[[1]], type = "trace",  param = "reassure--accepted")
+# 
+# # ACF
+# BGGM::convergence(l_fits[[1]], type = "acf", param = "down--enthusiastic")
+# 
+# 
+# # pdf("convergence_empirical.pdf")
+# # for(i in 1:10){
+# #   for(n in param_names){
+# # 
+# #   print(BGGM::convergence(l_fits[[1]], type = "acf", param = n))
+# #   
+# # }
+# # }
+# # dev.off()
+# 
+# # Try to calculate effective sample size
+# bet <- l_fits[[1]]$fit$beta[,,51:iterations+50]
+# 
+# # Convert to matrix where each col is a variable
+# m_bet <- t(matrix(bet, 6*6, iterations))
+# mcmc_bet <- as.mcmc(m_bet)
+# coda::effectiveSize(mcmc_bet)
+# 
+# # Same for pcor
+# pcor <- l_fits[[1]]$fit$pcors[,,51:iterations+50]
+# m_pcor <- t(matrix(pcor, 6*6, iterations))
+# mcmc_pcor <- as.mcmc(m_pcor)
+# ces <- coda::effectiveSize(mcmc_pcor)
+# 
+# 
+# # Get ESS for all samples
+# l_ess <- lapply(l_fits, var_ess)
+
+```
+
+# Test
 Test across all participants and across different priors. I ran into some memory issues here, so I splitted based on priors. 
 ```{r}
 l_fits <- l_fits_c
@@ -285,19 +354,24 @@ df_comps2_3c <- df_comps2_3 %>%
 
 
 
-df_compsc2 <- as.data.frame(rbind(df_comps2_1c, df_comps2_2c, df_comps2_3c))
+df_compsc <- as.data.frame(rbind(df_comps2_1c, df_comps2_2c, df_comps2_3c))
 
 # delete unnecessary columns
-df_comps2 <- df_compsc2 %>% 
-  dplyr::select(-c(larger_beta, larger_pcor))
+df_comps <- df_compsc %>% 
+  dplyr::select(-c(larger_beta, larger_pcor)) %>% 
+  as.data.frame()
 
-
+saveRDS(df_comps, file = here::here("data/empirical_example/df_comps_cubicspline.RDS"))
 
 ```
 
 
+## Prior Sensitivity Plot
 ```{r}
-df_comps2 %>% 
+# Calculate amount of possible combinations per condition
+# 1560
+# we count all comparisons twice, which is useless, but also does not change results
+df_comps %>% 
   filter(fit_a != fit_b) %>% 
   group_by(priors, comp) %>% 
   count()
@@ -309,19 +383,8 @@ prior_names <- c(
   "3" = "Rho: 0.5, Beta: 1"
 )
 
-# prior_names2 <- c(
-#   "1" = "Rho: 0.2, Beta: 0.6",
-#   "2" = "Rho: 0.3, Beta: 0.6",
-#   "3" = "Rho: 0.4, Beta: 0.6"
-# )
-# prior_names2 <- c(
-#   "1" = "Rho: 0.4, Beta: 0.5",
-#   "2" = "Rho: 0.4, Beta: 0.7",
-#   "3" = "Rho: 0.4, Beta: 0.9"
-# )
 
-
-emp_ex_prior_sensitivity2 <- df_comps2 %>% 
+emp_ex_prior_sensitivity <- df_comps %>% 
   dplyr::filter(fit_a != fit_b) %>% 
   dplyr::mutate(across(c(contains("beta"), contains("pcor")),
                 ~as.numeric(.))) %>% 
@@ -329,247 +392,29 @@ emp_ex_prior_sensitivity2 <- df_comps2 %>%
   dplyr::summarize(sum_sig_beta = sum(ifelse(sig_beta >0, 1, 0)),
             sum_sig_pcor = sum(ifelse(sig_pcor >0, 1, 0)),
             mean_emp_beta = mean(emp_beta, na.rm =  TRUE)) %>% 
-  mutate(prop_sig_beta = sum_sig_beta / 1560,
+  dplyr::mutate(prop_sig_beta = sum_sig_beta / 1560,
          prop_sig_pcor = sum_sig_pcor / 1560) %>% 
   pivot_longer(cols = c("sum_sig_beta", "sum_sig_pcor"), names_to = "mat_sum", values_to = "sum") %>% 
   pivot_longer(cols = c("prop_sig_beta", "prop_sig_pcor"), names_to = "mat_prop", values_to = "prop") %>% 
-  ggplot(aes(x = comp, y = prop, group = mat_prop, fill = mat_prop))+
+  ggplot(aes(y = comp, x = prop, group = mat_prop, fill = mat_prop))+
   geom_bar(position = "dodge", stat = "identity")+
+  # geom_point()+
+  # geom_segment(aes(x = prop, xend = prop, y = 0, yend = comp))+
+  coord_flip()+
   facet_wrap(priors~., labeller = as_labeller(prior_names))+
   theme_minimal()+
   ggokabeito::scale_fill_okabe_ito(labels = c("Temporal", "Contemporaneous"))+
-  scale_y_continuous(limits = c(0,1),labels = function(x) paste0(x*100, "%"))+
+  scale_x_continuous(limits = c(0,1),labels = function(x) paste0(x*100, "%"))+
   labs(x = "Norm",
        y = "Proportion Significant",
        title = "Prior Sensitivity Empirical Example",
        fill = "Matrix")
-emp_ex_prior_sensitivity2
-```
+emp_ex_prior_sensitivity
 
-
-
-
-
-##### OLD !!!!!!!!!!!!!!!!!!!!!!
-
-Create histograms for each individual
-```{r}
-l_hist <- list()
-for(u in unique(data$subj_id)){
-  tmp_dat <- subset(data, subj_id == u)
-  l_hist[[u]] <- Hmisc::hist.data.frame(tmp_dat[,2:10])
-  
-}
-
-# Create overall histograms
-# Hmisc::hist.data.frame(data[,2:23])
+ggsave("emp_ex_prior_sensitivity_cubicspline.svg", emp_ex_prior_sensitivity, device = "svg", path = here::here("figures/"), width = 7, height = 5)
 
 ```
 
-Focus on some items with relatively adequate distributions. 
-Impute missing data.
-```{r}
-# Relevant variables
-rel_vars <- c("content", "fatigue", "concentrate", "positive", "hopeless", "enthusiastic")
-
-cut_data <- data %>% 
-  # dplyr::filter(subj_id %in% rel_ids) %>% 
-  dplyr::select(c(all_of(rel_vars), subj_id)) %>% 
-  group_by(subj_id) %>% 
-  mutate(tp = row_number()) %>% 
-  ungroup()
-
-# impute with Kalman filter
-
-imp_data <- cut_data %>% 
-  group_by(subj_id) %>% 
-  mutate(across(all_of(rel_vars),  # columns to be imputed
-                ~imputeTS::na_kalman(.x, type = "level"))) %>%        
-                # .names = "{.col}_imp")) %>%                      # add "_imp" to new column names
-  ungroup()
-
-# THIS IS NOW DONE LATER!
-# short_data <- imp_data %>% 
-#   split(.$subj_id)
-
-```
-
-
-
-## Detrending
-Remove linear trend
-```{r}
-data_detrend <- lapply(short_data, function(x){
-  for (v in 1:length(rel_vars)){
-  # Regress on time
-  lm_form <- as.formula(paste0(rel_vars[v], "~ tp"))
-  lm_res <- summary(lm(lm_form, data = x))
-  # detrend with residuals
-  # [,4] accesses p-values
-  # [2] p-value of beta of tp
-  if(lm_res$coefficients[,4][2] < 0.05){
-    print(paste0("Detrending variable: ", rel_vars[v]))
-    x[!is.na(x[rel_vars[v]]),rel_vars[v]] <- residuals(lm_res)
-  }
-  
-}
-return(x)
-})
-
-```
-
-
-
-# Fitting
-Fit all models
-```{r}
-rho_prior = 0.25
-beta_prior = .5
-iterations = 50000
-seed = 2022
-
-df_prior <- data.frame(
-  rho_prior = c(0.1, 0.25, 0.5),
-  beta_prior = c(0.25, 0.5, 1)
-)
-
-
-l_fits <- list()
-
-# Delete id and tp column for fitting
-data_detrend <- lapply(data_detrend, function(x){
-  x <- subset(x, select=-c(subj_id,tp))
-  x
-})
-
-cl = makeCluster(3)
-registerDoParallel(cl)
-l_fits <- foreach(i = 1:nrow(df_prior), .packages = "BGGM") %dopar% {
-  r_p <- df_prior[i,"rho_prior"]
-  b_p <- df_prior[i, "beta_prior"]
-  
-  fit <- lapply(data_detrend, function(x){
-  tryCatch(BGGM::var_estimate(Y = x,      
-                     rho_sd = r_p,
-                     beta_sd = b_p,
-                     iter = 50000,
-                     seed = 2022), error = function(e) NA)
-
-    
-    
-})
-
-  return(fit)
-}
-
-stopCluster(cl)  
-  
-l_fits_c <- list()
-for(i in 1:3){
-  l_fits_c[[i]] <- lapply(l_fits[[i]], function(x){
-  x$fit$Sigma <- NULL
-  x$fit$fisher_z <- NULL
-  x
-})
-  
-}
-
-# saveRDS(l_fits_c, here::here("data/empirical_example/l_fits_empirical_ex.RDS"))
-# l_fits_c <- readRDS(here::here("data/empirical_example/l_fits_empirical_ex.RDS"))
-
-
-```
-
-
-
-
-## Convergence 
-
-```{r}
-# # Trace Plots
-# BGGM::convergence(l_fits[[1]], type = "trace",  param = "reassure--accepted")
-# 
-# # ACF
-# BGGM::convergence(l_fits[[1]], type = "acf", param = "down--enthusiastic")
-# 
-# 
-# # pdf("convergence_empirical.pdf")
-# # for(i in 1:10){
-# #   for(n in param_names){
-# # 
-# #   print(BGGM::convergence(l_fits[[1]], type = "acf", param = n))
-# #   
-# # }
-# # }
-# # dev.off()
-# 
-# # Try to calculate effective sample size
-# bet <- l_fits[[1]]$fit$beta[,,51:iterations+50]
-# 
-# # Convert to matrix where each col is a variable
-# m_bet <- t(matrix(bet, 6*6, iterations))
-# mcmc_bet <- as.mcmc(m_bet)
-# coda::effectiveSize(mcmc_bet)
-# 
-# # Same for pcor
-# pcor <- l_fits[[1]]$fit$pcors[,,51:iterations+50]
-# m_pcor <- t(matrix(pcor, 6*6, iterations))
-# mcmc_pcor <- as.mcmc(m_pcor)
-# ces <- coda::effectiveSize(mcmc_pcor)
-# 
-# 
-# # Get ESS for all samples
-# l_ess <- lapply(l_fits, var_ess)
-
-```
-
-## Example prior distributions
-Draw 5000 observations for temporal and contemporaneous priors. 
-```{r}
-## Temporal
-# Simply sample from normal distribution
-wide_beta <- rnorm(n = 5000, mean = 0, sd = 1)
-narrow_beta <- rnorm(n = 5000, mean = 0, sd = 0.5)
-
-## Contemporaneous
-# Wide prior
-wide_pcor <- BGGM::plot_prior(prior_sd = 0.5, iter = 5000)
-wide_pcor <- wide_pcor$plot_env$prior_samp$pcors[1,2,]
-
-# Narrow prior
-narrow_pcor <- BGGM::plot_prior(prior_sd = 0.25, iter = 5000)
-narrow_pcor <- narrow_pcor$plot_env$prior_samp$pcors[1,2,]
-
-
-df_prior <- data.frame(
-  value = c(wide_beta, narrow_beta, wide_pcor, narrow_pcor),
-  mat = c(rep("Temporal",2*5000), rep("Contemporaneous", 2*5000)),
-  prior = rep(c(rep("wide", 5000), rep("narrow", 5000)),2),
-  label = c(rep("1", 5000), rep("0.5", 5000), rep("0.5", 5000), rep("0.25", 5000))
-)
-
-
-# Create grid plot
-prior_example <- df_prior %>% 
-  mutate(mat = as.factor(mat),
-         prior = as.factor(prior)) %>% 
-  ggplot(aes(x = value))+
-  geom_histogram(fill = ggokabeito::palette_okabe_ito()[2],
-                 col = "black",
-                 bins = 50)+
-  theme_compare()+
-  ggh4x::facet_nested(prior~mat, scales = "free_x",)+
-  labs(y = "",
-       x = "")+
-  theme(axis.text.y = element_blank(),
-        axis.ticks.y = element_blank(),
-        strip.text = element_text(size = 20))
-
-prior_example
-ggsave("prior_example.svg", prior_example, path = here::here("figures/") ,device = "svg", width = 10, height = 7)
-
-
-```
 
 
 
@@ -588,182 +433,7 @@ plot_net <- function(fit_obj){
 
 
 
- 
-Test across all participants and across different priors. I ran into some memory issues here, so I splitted based on priors. 
-```{r}
-l_fits <- l_fits_c
-fit_grid <- expand.grid(fit_a = as.numeric(names(l_fits[[1]])), 
-                        fit_b = as.numeric(names(l_fits[[1]])), 
-                        priors = seq(nrow(df_prior), 1), 
-                        comp = c("l1", "frob", "maxdiff"))
-l_comps <- list()
 
-cl = makeCluster(14)
-registerDoParallel(cl)
-clusterExport(cl, c("compare_var", "post_distance_within"))
-l_fits_1 <- l_fits[[1]]
-fit_grid_1 <- fit_grid %>% 
-  filter(priors == 1)
-l_comps_1 <- foreach(i = 1:nrow(fit_grid_1)) %dopar% {
-  
-  # Extract information
-  a <- fit_grid_1$fit_a[i]
-  b <- fit_grid_1$fit_b[i]
-  p_ind <- fit_grid_1$priors[i]
-  compa <-  as.character(fit_grid_1$comp[i])
-
-
-  
-  if(is.list(l_fits_1[[a]]) & is.list(l_fits_1[[b]])){
-
-  comp_res  <- compare_var(l_fits_1[[a]],l_fits_1[[b]], comp = compa)
-
-  return(comp_res)
-  }
-  else
-    return(NA)
-  
-}
-
-
-
-l_fits_2 <- l_fits_c[[2]]
-fit_grid_2 <- fit_grid %>% 
-  filter(priors == 2)
-l_comps_2 <- foreach(i = 1:nrow(fit_grid_2)) %dopar% {
-  
-  # Extract information
-  a <- fit_grid_2$fit_a[i]
-  b <- fit_grid_2$fit_b[i]
-  p_ind <- fit_grid_2$priors[i]
-  compa <-  as.character(fit_grid_2$comp[i])
-
-  
-  if(is.list(l_fits_2[[a]]) & is.list(l_fits_2[[b]])){
-  comp_res  <- compare_var(l_fits_2[[a]],l_fits_2[[b]], comp = compa)
-
-  return(comp_res)
-  }
-  else
-    return(NA)
-  
-  
-    
-  
-  
-}
-
-rm(l_fits_2)
-
-
-
-l_fits_3 <- l_fits_c[[3]]
-fit_grid_3 <- fit_grid %>% 
-  filter(priors == 3)
-l_comps_3 <- foreach(i = 1:nrow(fit_grid_3)) %dopar% {
-  
-  # Extract information
-  a <- fit_grid_3$fit_a[i]
-  b <- fit_grid_3$fit_b[i]
-  p_ind <- fit_grid_3$priors[i]
-  compa <-  as.character(fit_grid_3$comp[i])
-
-  
-  if(is.list(l_fits_3[[a]]) & is.list(l_fits_3[[b]])){
-
-  comp_res  <- compare_var(l_fits_3[[a]],l_fits_3[[b]], comp = compa)
-
-  return(comp_res)
-  }
-  else
-    return(NA)
-  
-}
-stopCluster(cl)
-rm(l_fits_3)
-
-df_comps2_1 <- do.call(rbind, l_comps_1)
-df_comps2_2 <- do.call(rbind, l_comps_2)
-df_comps2_3 <- do.call(rbind, l_comps_3)
-
-# Add prior information
-df_comps2_1c <- df_comps2_1 %>% 
-  cbind(fit_grid_1)
-df_comps2_2c <- df_comps2_2 %>% 
-  cbind(fit_grid_2)
-df_comps2_3c <- df_comps2_3 %>% 
-  cbind(fit_grid_3)
-
-
-
-df_compsc2 <- as.data.frame(rbind(df_comps2_1c, df_comps2_2c, df_comps2_3c))
-
-# delete unnecessary columns
-df_comps2 <- df_compsc2 %>% 
-  dplyr::select(-c(larger_beta, larger_pcor))
-
-
-
-# saveRDS(df_comps2, here::here("output/empirical-example/df_comps.RDS"))
-# df_comps <- readRDS(here::here("output/empirical-example/df_comps.RDS"))
-```
-
-### Prior Sensitivity Plot
-```{r}
-# Calculate amount of possible combinations per condition
-# 1560
-# TODO change this! we count all comparisons twice, which is useless
-df_comps %>% 
-  filter(fit_a != fit_b) %>% 
-  group_by(priors, comp) %>% 
-  count()
-
-
-prior_names <- c(
-  "1" = "Rho: 0.1, Beta: 0.25",
-  "2" = "Rho: 0.25, Beta: 0.5",
-  "3" = "Rho: 0.5, Beta: 1"
-)
-
-# prior_names2 <- c(
-#   "1" = "Rho: 0.2, Beta: 0.6",
-#   "2" = "Rho: 0.3, Beta: 0.6",
-#   "3" = "Rho: 0.4, Beta: 0.6"
-# )
-# prior_names2 <- c(
-#   "1" = "Rho: 0.4, Beta: 0.5",
-#   "2" = "Rho: 0.4, Beta: 0.7",
-#   "3" = "Rho: 0.4, Beta: 0.9"
-# )
-
-
-emp_ex_prior_sensitivity2 <- df_comps %>% 
-  filter(fit_a != fit_b) %>% 
-  mutate(across(c(contains("beta"), contains("pcor")),
-                ~as.numeric(.))) %>% 
-  group_by(priors, comp) %>% 
-  summarize(sum_sig_beta = sum(ifelse(sig_beta >0, 1, 0)),
-            sum_sig_pcor = sum(ifelse(sig_pcor >0, 1, 0)),
-            mean_emp_beta = mean(emp_beta, na.rm =  TRUE)) %>% 
-  mutate(prop_sig_beta = sum_sig_beta / 1560,
-         prop_sig_pcor = sum_sig_pcor / 1560) %>% 
-  pivot_longer(cols = c("sum_sig_beta", "sum_sig_pcor"), names_to = "mat_sum", values_to = "sum") %>% 
-  pivot_longer(cols = c("prop_sig_beta", "prop_sig_pcor"), names_to = "mat_prop", values_to = "prop") %>% 
-  ggplot(aes(x = comp, y = prop, group = mat_prop, fill = mat_prop))+
-  geom_bar(position = "dodge", stat = "identity")+
-  facet_wrap(priors~., labeller = as_labeller(prior_names))+
-  theme_minimal()+
-  ggokabeito::scale_fill_okabe_ito(labels = c("Temporal", "Contemporaneous"))+
-  scale_y_continuous(limits = c(0,1),labels = function(x) paste0(x*100, "%"))+
-  labs(x = "Norm",
-       y = "Proportion Significant",
-       title = "Prior Sensitivity Empirical Example",
-       fill = "Matrix")
-emp_ex_prior_sensitivity2
-
-ggsave("emp_ex_prior_sensitivity.svg", emp_ex_prior_sensitivity2, device = "svg", path = here::here("figures/"), width = 7, height = 5)
-
-```
 
 
 
@@ -833,11 +503,6 @@ df_comps %>%
 
 ```
 
-Summary of significant tests.
-
-
-
-
 
 
 Visualize distributions of empirical differences
@@ -851,155 +516,194 @@ df_comps %>%
 
 
 
-
-# Example A: Evidence for differences
-27 and 3
-```{r}
-compare_var(l_fits[[8]], l_fits[[27]])
-plot_net(l_fits[[8]])
-plot_net(l_fits[[27]])
-
-
-# Visualize differences
-it_diff <- which(df_comps$fit_a == 8 & df_comps$fit_b == 27)
-plot.compare_var(l_comps[[it_diff]])
-
-```
-
-
-
-
-
-
-# Example B: No evidence for differences
+# Example: No evidence for differences
 8 and 29
 ```{r}
-compare_var(l_fits[[8]], l_fits[[29]])
+# Look for examples with no evidence for diffs
+df_comps %>% 
+  filter(priors == 2) %>% 
+  filter(fit_a != fit_b) %>% 
+  filter(comp == "frob") %>% 
+  mutate(across(c(contains("sig"), contains("emp")),
+                ~as.numeric(.))) %>% 
+  filter(sig_beta == 0 & sig_pcor == 0) %>% View()
 
-plot_net(l_fits[[8]])
-plot_net(l_fits[[29]])
+# find number of observations
+n_obs <- do.call(rbind, lapply(l_data, function(x) nrow(x)))
 
+# Choose pair with similar n 
+# 18 and 12
+fit_12 <- l_fits[[2]][[12]]
+fit_18 <- l_fits[[2]][[18]]
 
-# Visualize Differences
-# Find iteration number
-it_nodiff <- which(df_comps$fit_a == 8 & df_comps$fit_b == 29)
-
-plot.compare_var(l_comps[[it_nodiff]])
-
-
-```
-
-
-
-
-# Plot Distances visualized as Network
-
-Extract distances: 
-```{r}
-df_emp <- data.frame(emp_beta = rep(NA, 1600),
-                     emp_pcor = rep(NA, 1600))
-for(n in 1:length(l_comps)){
-  df_emp[n,1] <- l_comps[[n]]$emp_beta
-  df_emp[n,2] <- l_comps[[n]]$emp_pcor
-}
-# Combine with model information
-df_emp <- cbind(df_emp, fit_grid)
-
-# Filter irrelevant comparisons
-df_emp <- df_emp %>% 
-  filter(fit_a != fit_b)
+# Compare
+res_emp_comp <- compare_var(fit_12, fit_18, return_all = TRUE)
 
 
-# Correct data structure: 40 by 40 matrix
-dist_beta_emp <- df_emp %>% 
-  dplyr::select(emp_beta, fit_a, fit_b) %>% 
-  reshape2::acast(., fit_a ~ fit_b, value.var = "emp_beta")
-
-
-dist_pcor_emp <- df_emp %>% 
-  dplyr::select(emp_pcor, fit_a, fit_b) %>% 
-  reshape2::acast(., fit_a ~ fit_b, value.var = "emp_pcor")
+# Plot automatically
+plot.compare_var(res_emp_comp, name_a = "ID 12", name_b = "ID 18")
 
 
 ```
 
-
-Now visualize with qgraph
+Create network plots below each other, then plot the comparison.
+Do this manually to have more control beyond the functions.
 ```{r}
-# The shorter the distance, the larger the connection should be!
-# Convert distance to similarity matrix
-simil_beta_emp <- 1/mat_beta_emp
-simil_pcor_emp <- 1/mat_pcor_emp
+# First, all the networks
 
-svg("emp_example_similarity_net.svg", width = 15, height = 12)
-par(mfrow = c(1,2))
-qgraph(simil_beta_emp, layout = "spring", title = "Beta")
-qgraph(simil_pcor_emp, layout = "spring", title = "PCOR")
+svg(filename = "figures/empirical_temp_networks.svg")
+par(mfrow=c(1,2))
+p12_temp <- qgraph::qgraph(fit_12$beta_mu, theme = "colorblind", layout = "circle",
+                           color = ggokabeito::palette_okabe_ito()[1])
+
+p18_temp <- qgraph::qgraph(fit_18$beta_mu, theme = "colorblind", layout = "circle",
+                           color = ggokabeito::palette_okabe_ito()[2])
+
+dev.off()
+
+svg(filename = "figures/empirical_cont_networks.svg")
+par(mfrow=c(1,2))
+
+p12_cont <- qgraph::qgraph(fit_12$pcor_mu, theme = "colorblind", layout = "circle",
+                           color = ggokabeito::palette_okabe_ito()[1])
+p18_cont <- qgraph::qgraph(fit_18$pcor_mu, theme = "colorblind", layout = "circle",
+                           color = ggokabeito::palette_okabe_ito()[2])
 dev.off()
 
 
+# Plot individually
+svg(filename = "figures/empirical_network_12t.svg")
+
+p12_temp <- qgraph::qgraph(fit_12$beta_mu, theme = "colorblind", layout = "circle",
+                           color = ggokabeito::palette_okabe_ito()[1])
+dev.off()
+
+svg(filename = "figures/empirical_network_18t.svg")
+p18_temp <- qgraph::qgraph(fit_18$beta_mu, theme = "colorblind", layout = "circle",
+                           color = ggokabeito::palette_okabe_ito()[2])
+dev.off()
+
+svg(filename = "figures/empirical_network_12c.svg")
+p12_cont <- qgraph::qgraph(fit_12$pcor_mu, theme = "colorblind", layout = "circle",
+                           color = ggokabeito::palette_okabe_ito()[1])
+dev.off()
+
+svg(filename = "figures/empirical_network_18c.svg")
+
+p18_cont <- qgraph::qgraph(fit_18$pcor_mu, theme = "colorblind", layout = "circle",
+                           color = ggokabeito::palette_okabe_ito()[2])
+dev.off()
+
+
+
+# Then, comparison for temporal and contemporaneous
+plt_beta <- 
+  res_emp_comp$res_beta %>%
+    mutate(mod = case_match(mod,
+                            "mod_a" ~ "ID 12",
+                            "mod_b" ~ "ID 18")) %>% 
+    ggplot(aes(x = null, fill = mod))+
+    geom_density(alpha = .7)+
+    theme_classic()+
+    ggokabeito::scale_fill_okabe_ito()+
+    geom_vline(aes(xintercept = res_emp_comp$emp_beta), 
+               col = "black", lty = 1, linewidth = .75)+
+    scale_y_continuous(expand = c(0,0))+
+    theme_compare()+
+    labs(y = "",
+         x = "Norm Value",
+         fill = "",
+         title = "Test")+
+    theme(axis.ticks.y = element_blank(),
+          axis.text.y = element_blank(),
+          legend.position = "right",
+          legend.key.height= unit(0.5, 'cm'),
+          legend.key.width= unit(1, 'cm'),
+          plot.title = element_text(face = "plain", family = "news", size = 9, hjust = 0))
+plt_beta
+
+plt_pcor <- 
+  res_emp_comp$res_pcor %>%
+    mutate(mod = case_match(mod,
+                            "mod_a" ~ "ID 12",
+                            "mod_b" ~ "ID 18")) %>% 
+    ggplot(aes(x = null, fill = mod))+
+    geom_density(alpha = .7)+
+    theme_classic()+
+    ggokabeito::scale_fill_okabe_ito()+
+    geom_vline(aes(xintercept = res_emp_comp$emp_pcor), 
+               col = "black", lty = 1, linewidth = .75)+
+    scale_y_continuous(expand = c(0,0))+
+    labs(y = "",
+         x = "Norm Value")+
+    theme_compare()+
+    theme(axis.ticks.y = element_blank(),
+          axis.text.y = element_blank(),
+          legend.position = "right")
+
+leg <- get_legend(plt_beta)
+  
+# Plot
+plt_tmp <- cowplot::plot_grid(plt_beta + theme(legend.position = "none"),
+                              plt_pcor + theme(legend.position = "none"))
+
+# Add legend
+# plt <- plot_grid(plt_tmp, leg, rel_widths = c(3, .4))
+plt <- plt_tmp 
+plt
+
+plt_pcor
+
+# Figure had to be created manually because qgraph cannot be used by cowplot...
+svg_12t <- magick::image_read_svg(here::here("figures/empirical_network_12t.svg"))
+svg_12c <- magick::image_read_svg(here::here("figures/empirical_network_12c.svg"))
+svg_18t <- magick::image_read_svg(here::here("figures/empirical_network_18t.svg"))
+svg_18c <- magick::image_read_svg(here::here("figures/empirical_network_18c.svg"))
+
+
+plt_12t <- ggdraw() + 
+  draw_image(svg_12t, scale = 1) +
+  draw_label("ID 12", x = 0.1, y = 0.85, fontfamily = "news", size = 9)
+plt_12t
+plt_12c <- ggdraw() + 
+  draw_image(svg_12c, scale = 1)
+plt_18t <- ggdraw() + 
+  draw_image(svg_18t, scale = 1) + 
+  draw_label("ID 18", x = 0.1, y = 0.85, fontfamily = "news", size = 9)
+plt_18c <- ggdraw() + draw_image(svg_18c, scale = 1)
+
+row_12 <- plot_grid(plt_12t, plt_12c, 
+                    labels = c("Temporal", "Contemporaneous"),
+                    label_size = 14,
+                    label_fontfamily = "news",
+                    label_x = c(-0.1, -0.2))
+row_18 <- plot_grid(plt_18t, plt_18c)
+
+
+full_plot <- plot_grid(
+  row_12,
+  row_18,
+  plt,
+  nrow = 3,
+  rel_heights = c(1,1,0.7)
+)
+
+ggsave("full_plot_empirical_example.svg", full_plot, device = "svg", height = 8.5, width = 6, 
+       path = here::here("figures/"))
+
 ```
 
 
-Also visualize with heatmap
-```{r}
-# Levels
-id_lvls <- as.character(1:40)
-
-# Get min and max similarities
-min(simil_beta_emp, na.rm = TRUE)
-min(simil_pcor_emp, na.rm = TRUE)
-max(simil_beta_emp, na.rm = TRUE)
-max(simil_pcor_emp, na.rm = TRUE)
 
 
 
-p1 <- simil_beta_emp %>% 
-  as.data.frame() %>% 
-  rownames_to_column("id") %>% 
-  pivot_longer(-c(id), names_to = "id2", values_to = "sim") %>% 
-  mutate(id = fct_relevel(id, id_lvls),
-         id2 = fct_relevel(id2, id_lvls)) %>% 
-  ggplot(aes(x = id, y = id2, fill = sim))+
-  geom_raster()+
-  scale_fill_viridis_c(limits = c(0.1, 0.6))+
-  labs(x = "ID",
-       y = "ID",
-       title = "Similarity Matrix Beta Weights",
-       caption = "Frobenius Norm",
-       fill = "Similarity")
-
-
-p2 <- simil_pcor_emp %>% 
-  as.data.frame() %>% 
-  rownames_to_column("id") %>% 
-  pivot_longer(-c(id), names_to = "id2", values_to = "sim") %>% 
-  mutate(id = fct_relevel(id, id_lvls),
-         id2 = fct_relevel(id2, id_lvls)) %>% 
-  ggplot(aes(x = id, y = id2, fill = sim))+
-  geom_raster()+
-  scale_fill_viridis_c(limits = c(0.1, 0.6))+
-  labs(x = "ID",
-       y = "ID",
-       title = "Similarity Matrix pcor Weights",
-       caption = "Frobenius Norm",
-       fill = "Similarity")
-
-p <- cowplot::plot_grid(p1, p2)
-ggsave("similarity_matrix_empirical_example.svg", p, device = "svg", path = here("figures/"), width = 15)
 
 
 
-```
-
-
-
-## New Plot Idea: Posterior matrix
+## Posterior matrix
 Idea: Plot posterior distributions, color based on if the parameter is positive or not. 
 ```{r}
 fit <- l_fits_c[[1]][[1]]
-
-
 
 plot_example_posterior <- posterior_plot(fit, mat = beta)
 
