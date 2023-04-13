@@ -2229,6 +2229,9 @@ compare_var <- function(fit_a,
   
   require(magrittr)
   
+  # Store arguments
+  args <- list(match.call)
+  
   ## Helper function for computing distance metrics
   compute_metric <- function(a, b, metric) {
     tryCatch({
@@ -2294,7 +2297,8 @@ compare_var <- function(fit_a,
                   emp_beta = emp_beta,
                   emp_pcor = emp_pcor,
                   larger_beta = larger_beta,
-                  larger_pcor = larger_pcor)
+                  larger_pcor = larger_pcor,
+                  args = args)
     
   }
   if(isTRUE(return_all)){
@@ -2305,7 +2309,8 @@ compare_var <- function(fit_a,
                   emp_beta = emp_beta,
                   emp_pcor = emp_pcor,
                   larger_beta = larger_beta,
-                  larger_pcor = larger_pcor)
+                  larger_pcor = larger_pcor,
+                  args = args)
     
   }
   
@@ -2327,11 +2332,28 @@ compare_var <- function(fit_a,
 # Plotting method
 # THIS IS ONLY TEMPORARY!
 plot.compare_var <- function(compres,
+                             name_a = NULL,   # set name for a manually
+                             name_b = NULL,   # set name for b manually
                              ...){
   require(ggplot2)
   require(cowplot)
   # create df
   # dat <- rbind(compres$res_beta, compres$res_pcor)
+  sysfonts::font_add_google("News Cycle", "news")
+  # use showtext
+  showtext::showtext_auto()
+  
+  # Exchange names
+  if(!is.null(name_a)){
+    name_a <- as.character(name_a)
+    compres$res_beta$mod <- gsub("mod_a", name_a, compres$res_beta$mod)
+    compres$res_pcor$mod <- gsub("mod_a", name_a, compres$res_pcor$mod)
+  }
+  if(!is.null(name_b)){
+    name_b <- as.character(name_b)
+    compres$res_beta$mod <- gsub("mod_b", name_b, compres$res_beta$mod)
+    compres$res_pcor$mod <- gsub("mod_b", name_b, compres$res_pcor$mod)
+  }
   
   
   
@@ -2343,7 +2365,15 @@ plot.compare_var <- function(compres,
     ggokabeito::scale_fill_okabe_ito()+
     geom_vline(aes(xintercept = compres$emp_beta), 
                col = "red", lty = 1, linewidth = .75)+
-    labs(title = "Temporal")
+    scale_y_continuous(expand = c(0,0))+
+    labs(title = "Temporal",
+         y = "",
+         x = "Norm Value")+
+    theme_compare()+
+    theme(axis.ticks.y = element_blank(),
+          axis.text.y = element_blank(),
+          legend.position = "right")
+    
   
   plt_pcor <- ggplot(compres$res_pcor, 
                      aes(x = null, fill = mod))+
@@ -2352,7 +2382,14 @@ plot.compare_var <- function(compres,
     ggokabeito::scale_fill_okabe_ito()+
     geom_vline(aes(xintercept = compres$emp_pcor), 
                col = "red", lty = 1, linewidth = .75)+
-    labs(title = "Contemporaneous")
+    scale_y_continuous(expand = c(0,0))+
+    labs(title = "Contemporaneous",
+         y = "",
+         x = "Norm Value")+
+    theme_compare()+
+    theme(axis.ticks.y = element_blank(),
+          axis.text.y = element_blank(),
+          legend.position = "right")
   
   leg <- get_legend(plt_beta)
   
