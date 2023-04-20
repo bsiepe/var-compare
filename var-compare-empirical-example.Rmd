@@ -59,7 +59,9 @@ prior_example <- df_prior %>%
        x = "")+
   theme(axis.text.y = element_blank(),
         axis.ticks.y = element_blank(),
-        strip.text = element_text(size = 20))
+        strip.text = element_text(size = 20), 
+        axis.text=element_text(size=rel(1.2)),
+        panel.spacing.x = ggplot2::unit(2.5, "lines"))
 
 prior_example
 ggsave("prior_example.svg", prior_example, path = here::here("figures/") ,device = "svg", width = 10, height = 7)
@@ -155,6 +157,21 @@ rm(list=setdiff(ls(), "l_data"))
 ```
 
 
+Description of missing data
+```{r}
+data <- bind_rows(l_data, .id = "id")
+data %>% 
+  group_by(id) %>% 
+  count() %>% 
+  ungroup() %>% 
+  dplyr::summarize(mean_obs = mean(n))
+
+
+```
+
+
+
+
 # Fit new models
 ```{r}
 rho_prior = 0.25
@@ -202,47 +219,35 @@ for(i in 1:3){
 })
   
 }
+# saveRDS(l_fits_c, here::here("output/empirical-example/l_fits.RDS"))
+l_fits_c <- readRDS(here::here("output/empirical-example/l_fits.RDS"))
 ```
 
 
 
 ## Convergence 
-
+Show this for prior 2 only
 ```{r}
 # # Trace Plots
-# BGGM::convergence(l_fits[[1]], type = "trace",  param = "reassure--accepted")
+BGGM::convergence(l_fits_c[[1]][[1]], type = "trace",  param = "concentrate--positive")
 # 
 # # ACF
-# BGGM::convergence(l_fits[[1]], type = "acf", param = "down--enthusiastic")
+BGGM::convergence(l_fits[[1]][[1]], type = "acf", param = "concentrate--positive")
 # 
 # 
-# # pdf("convergence_empirical.pdf")
-# # for(i in 1:10){
-# #   for(n in param_names){
-# # 
-# #   print(BGGM::convergence(l_fits[[1]], type = "acf", param = n))
-# #   
-# # }
-# # }
-# # dev.off()
+# pdf("convergence_empirical.pdf")
+# for(i in 1:10){
+#   for(n in param_names){
 # 
-# # Try to calculate effective sample size
-# bet <- l_fits[[1]]$fit$beta[,,51:iterations+50]
+#   print(BGGM::convergence(l_fits[[1]], type = "acf", param = n))
 # 
-# # Convert to matrix where each col is a variable
-# m_bet <- t(matrix(bet, 6*6, iterations))
-# mcmc_bet <- as.mcmc(m_bet)
-# coda::effectiveSize(mcmc_bet)
-# 
-# # Same for pcor
-# pcor <- l_fits[[1]]$fit$pcors[,,51:iterations+50]
-# m_pcor <- t(matrix(pcor, 6*6, iterations))
-# mcmc_pcor <- as.mcmc(m_pcor)
-# ces <- coda::effectiveSize(mcmc_pcor)
-# 
+# }
+# }
+# dev.off()
+
 # 
 # # Get ESS for all samples
-# l_ess <- lapply(l_fits, var_ess)
+l_ess <- lapply(l_fits[[2]], var_ess)
 
 ```
 
@@ -361,8 +366,9 @@ df_comps <- df_compsc %>%
   dplyr::select(-c(larger_beta, larger_pcor)) %>% 
   as.data.frame()
 
-saveRDS(df_comps, file = here::here("data/empirical_example/df_comps_cubicspline.RDS"))
+# saveRDS(df_comps, file = here::here("data/empirical_example/df_comps_cubicspline.RDS"))
 
+df_comps <- readRDS(here::here("data/empirical_example/df_comps_cubicspline.RDS"))
 ```
 
 
@@ -384,7 +390,8 @@ prior_names <- c(
 )
 
 
-emp_ex_prior_sensitivity <- df_comps %>% 
+# Summarize information
+df_comps_summary <- df_comps %>% 
   dplyr::filter(fit_a != fit_b) %>% 
   dplyr::mutate(across(c(contains("beta"), contains("pcor")),
                 ~as.numeric(.))) %>% 
@@ -395,16 +402,19 @@ emp_ex_prior_sensitivity <- df_comps %>%
   dplyr::mutate(prop_sig_beta = sum_sig_beta / 1560,
          prop_sig_pcor = sum_sig_pcor / 1560) %>% 
   pivot_longer(cols = c("sum_sig_beta", "sum_sig_pcor"), names_to = "mat_sum", values_to = "sum") %>% 
-  pivot_longer(cols = c("prop_sig_beta", "prop_sig_pcor"), names_to = "mat_prop", values_to = "prop") %>% 
-  ggplot(aes(y = comp, x = prop, group = mat_prop, fill = mat_prop))+
+  pivot_longer(cols = c("prop_sig_beta", "prop_sig_pcor"), names_to = "mat_prop", values_to = "prop")
+
+
+emp_ex_prior_sensitivity <- df_comps_summary %>% 
+  ggplot(aes(x = comp, y = prop, group = mat_prop, fill = mat_prop))+
   geom_bar(position = "dodge", stat = "identity")+
   # geom_point()+
   # geom_segment(aes(x = prop, xend = prop, y = 0, yend = comp))+
-  coord_flip()+
+  # coord_flip()+
   facet_wrap(priors~., labeller = as_labeller(prior_names))+
   theme_minimal()+
   ggokabeito::scale_fill_okabe_ito(labels = c("Temporal", "Contemporaneous"))+
-  scale_x_continuous(limits = c(0,1),labels = function(x) paste0(x*100, "%"))+
+  scale_y_continuous(limits = c(0,1),labels = function(x) paste0(x*100, "%"))+
   labs(x = "Norm",
        y = "Proportion Significant",
        title = "Prior Sensitivity Empirical Example",
@@ -419,7 +429,7 @@ ggsave("emp_ex_prior_sensitivity_cubicspline.svg", emp_ex_prior_sensitivity, dev
 
 
 
-## Plot all networks
+## Plot networks
 
 ```{r}
 plot_net <- function(fit_obj){
@@ -435,88 +445,7 @@ plot_net <- function(fit_obj){
 
 
 
-
-
-
-### Find significant and nonsignificant
-Extract interesting cases
-```{r}
-# Find interesting cases with similar amount of observations
-# nonsignificant 
-# L1
-# for rho 0.5, beta 1: 304
-df_comps %>% 
-  filter(sig_beta == 0 & sig_pcor  == 0) %>% 
-  filter(fit_a != fit_b) %>% 
-  left_join(n_obs, by = join_by(fit_a == subj_id)) %>% 
-  left_join(n_obs, by = join_by(fit_b == subj_id), suffix = c("_a", "_b")) %>% 
-  mutate(diff_n = abs(n_a - n_b)) %>% 
-  arrange(diff_n)
-
-
-# Both fully significant (both 2)
-# L1
-# for rho 0.5, beta 1: 100
-df_comps2 %>% 
-  filter(sig_beta > 1 & sig_pcor  > 1) %>% 
-  filter(fit_a != fit_b) %>% 
-  left_join(n_obs, by = join_by(fit_a == subj_id)) %>% 
-  left_join(n_obs, by = join_by(fit_b == subj_id), suffix = c("_a", "_b")) %>% 
-  mutate(diff_n = abs(n_a - n_b)) %>% 
-  arrange(diff_n) 
-
-# Both significant according to or rule
-# L1
-# for rho 0.5, beta 1: 442
-df_comps %>% 
-  filter(sig_beta > 0 & sig_pcor  > 0) %>% 
-  filter(fit_a != fit_b) %>% 
-  left_join(n_obs, by = join_by(fit_a == subj_id)) %>% 
-  left_join(n_obs, by = join_by(fit_b == subj_id), suffix = c("_a", "_b")) %>% 
-  mutate(diff_n = abs(n_a - n_b)) %>% 
-  arrange(diff_n) 
-
-
-
-# Only beta significant
-# L1
-# for rho 0.5, beta 1: 248
-df_comps %>% 
-  filter(sig_beta > 0 & sig_pcor == 0) %>% 
-  filter(fit_a != fit_b) %>% 
-  left_join(n_obs, by = join_by(fit_a == subj_id)) %>% 
-  left_join(n_obs, by = join_by(fit_b == subj_id), suffix = c("_a", "_b")) %>% 
-  mutate(diff_n = abs(n_a - n_b)) %>% 
-  arrange(diff_n)
-
-# Only pcor significant
-# L1
-# for rho 0.5, beta 1: 566
-df_comps %>% 
-  filter(sig_beta == 0 & sig_pcor > 0) %>% 
-  filter(fit_a != fit_b) %>% 
-  left_join(n_obs, by = join_by(fit_a == subj_id)) %>% 
-  left_join(n_obs, by = join_by(fit_b == subj_id), suffix = c("_a", "_b")) %>% 
-  mutate(diff_n = abs(n_a - n_b)) %>% 
-  arrange(diff_n)
-
-
-```
-
-
-
-Visualize distributions of empirical differences
-```{r}
-df_comps %>% 
-  filter(fit_a != fit_b) %>% 
-  pivot_longer(cols = c("emp_beta", "emp_pcor"), names_to = "mat") %>% 
-  ggplot(aes(x = value, fill = as.factor(mat))) +
-  geom_density()
-```
-
-
-
-# Example: No evidence for differences
+## Example: No evidence for differences
 8 and 29
 ```{r}
 # Look for examples with no evidence for diffs
@@ -539,6 +468,13 @@ fit_18 <- l_fits[[2]][[18]]
 # Compare
 res_emp_comp <- compare_var(fit_12, fit_18, return_all = TRUE)
 
+# calculate median edge difference
+mean(abs(fit_12$beta_mu-fit_18$beta_mu))
+mean(abs(fit_12$pcor_mu[upper.tri(fit_12$pcor_mu, diag = FALSE)]-fit_18$pcor_mu[upper.tri(fit_18$pcor_mu, diag = FALSE)]))
+
+# calcute number of sign differences
+sum(sign(fit_12$beta_mu) != sign(fit_18$beta_mu))
+sum(sign(fit_12$pcor_mu[upper.tri(fit_12$pcor_mu, diag = FALSE)]) != sign(fit_18$pcor_mu[upper.tri(fit_18$pcor_mu, diag = FALSE)]))
 
 # Plot automatically
 plot.compare_var(res_emp_comp, name_a = "ID 12", name_b = "ID 18")
@@ -548,9 +484,9 @@ plot.compare_var(res_emp_comp, name_a = "ID 12", name_b = "ID 18")
 
 Create network plots below each other, then plot the comparison.
 Do this manually to have more control beyond the functions.
+Note that the study ID used for the plot is unequal to iteration ID used here. 
 ```{r}
 # First, all the networks
-
 svg(filename = "figures/empirical_temp_networks.svg")
 par(mfrow=c(1,2))
 p12_temp <- qgraph::qgraph(fit_12$beta_mu, theme = "colorblind", layout = "circle",
@@ -571,27 +507,32 @@ p18_cont <- qgraph::qgraph(fit_18$pcor_mu, theme = "colorblind", layout = "circl
 dev.off()
 
 
+
+## Find edge for scaling
+max_sc<- max(c(max(abs(fit_12$beta_mu)), max(abs(fit_12$pcor_mu)), max(abs(fit_18$beta_mu)), max(abs(fit_18$pcor_mu))))
+
+
 # Plot individually
 svg(filename = "figures/empirical_network_12t.svg")
 
 p12_temp <- qgraph::qgraph(fit_12$beta_mu, theme = "colorblind", layout = "circle",
-                           color = ggokabeito::palette_okabe_ito()[1])
+                           color = ggokabeito::palette_okabe_ito()[1], maximum = max_sc)
 dev.off()
 
 svg(filename = "figures/empirical_network_18t.svg")
 p18_temp <- qgraph::qgraph(fit_18$beta_mu, theme = "colorblind", layout = "circle",
-                           color = ggokabeito::palette_okabe_ito()[2])
+                           color = ggokabeito::palette_okabe_ito()[2], maximum = max_sc)
 dev.off()
 
 svg(filename = "figures/empirical_network_12c.svg")
 p12_cont <- qgraph::qgraph(fit_12$pcor_mu, theme = "colorblind", layout = "circle",
-                           color = ggokabeito::palette_okabe_ito()[1])
+                           color = ggokabeito::palette_okabe_ito()[1], maximum = max_sc)
 dev.off()
 
 svg(filename = "figures/empirical_network_18c.svg")
 
 p18_cont <- qgraph::qgraph(fit_18$pcor_mu, theme = "colorblind", layout = "circle",
-                           color = ggokabeito::palette_okabe_ito()[2])
+                           color = ggokabeito::palette_okabe_ito()[2], maximum = max_sc)
 dev.off()
 
 
@@ -600,15 +541,15 @@ dev.off()
 plt_beta <- 
   res_emp_comp$res_beta %>%
     mutate(mod = case_match(mod,
-                            "mod_a" ~ "ID 12",
-                            "mod_b" ~ "ID 18")) %>% 
+                            "mod_a" ~ "ID 19",
+                            "mod_b" ~ "ID 40")) %>% 
     ggplot(aes(x = null, fill = mod))+
     geom_density(alpha = .7)+
     theme_classic()+
     ggokabeito::scale_fill_okabe_ito()+
     geom_vline(aes(xintercept = res_emp_comp$emp_beta), 
                col = "black", lty = 1, linewidth = .75)+
-    scale_y_continuous(expand = c(0,0))+
+    scale_y_continuous(expand = c(0,0.05))+
     theme_compare()+
     labs(y = "",
          x = "Norm Value",
@@ -625,21 +566,23 @@ plt_beta
 plt_pcor <- 
   res_emp_comp$res_pcor %>%
     mutate(mod = case_match(mod,
-                            "mod_a" ~ "ID 12",
-                            "mod_b" ~ "ID 18")) %>% 
+                            "mod_a" ~ "ID 19",
+                            "mod_b" ~ "ID 40")) %>% 
     ggplot(aes(x = null, fill = mod))+
     geom_density(alpha = .7)+
     theme_classic()+
     ggokabeito::scale_fill_okabe_ito()+
     geom_vline(aes(xintercept = res_emp_comp$emp_pcor), 
                col = "black", lty = 1, linewidth = .75)+
-    scale_y_continuous(expand = c(0,0))+
+    scale_y_continuous(expand = c(0,0.05))+
     labs(y = "",
-         x = "Norm Value")+
+         x = "Norm Value",
+         title = "")+
     theme_compare()+
     theme(axis.ticks.y = element_blank(),
           axis.text.y = element_blank(),
-          legend.position = "right")
+          legend.position = "right", 
+          plot.title = element_text(face = "plain", family = "news", size = 9, hjust = 0))
 
 leg <- get_legend(plt_beta)
   
@@ -714,6 +657,12 @@ ggsave("plot_example_posterior_beta.svg", plot_example_posterior,
        units = "cm")
 
 ```
+
+
+
+
+
+
 
 
 # Random investigation: Handling Missings/Nights
