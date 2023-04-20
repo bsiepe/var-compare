@@ -139,19 +139,37 @@ l_changed_graphs$graph5$noise0.2 <- l_change5$noise0.2
 
 ```
 
-New idea: create change matrices manually. 
+Get change matrices for supplement
 ```{r}
-# l_noise <- list()
-# l_noise$noise1 <- round(matrix(runif(6*6, min = -.1, max = .1), nrow = 6, ncol = 6),3)
-# l_noise$noise2 <- round(matrix(runif(6*6, min = -.2, max = .2), nrow = 6, ncol = 6),3)
-# l_noise$noise3 <- round(matrix(runif(6*6, min = -.3, max = .3), nrow = 6, ncol = 6),3)
-# 
-# lapply(l_noise, function(x) mean(abs(x)))
 
+l_diff_mat <- list()
+
+# loop over dgps 
+for(i in 1:5){
+  l_diff_mat[[i]] <- list()
+  # loop over noise structures
+  ct <- 0
+  for(ch in 4:6){
+    ct <- ct+1
+    l_diff_mat[[i]][[ct]] <- list()
+    l_diff_mat[[i]][[ct]]$beta <- round (l_changed_graphs[[i]][[ch]]$beta-l_changed_graphs[[i]]$truegraph$beta,3)
+    l_diff_mat[[i]][[ct]]$kappa <- round( l_changed_graphs[[i]][[ch]]$kappa-l_changed_graphs[[i]]$truegraph$kappa, 3)
+  }
+    
+  
+}
+
+# function from https://www.r-bloggers.com/2020/08/matrix-to-latex/
+array_to_latex <- function(arr){
+rows <- apply(arr, MARGIN=1, paste, collapse = " & ")
+matrix_string <- paste(rows, collapse = " \\\\ ")
+return(paste("\\begin{bmatrix}", matrix_string, "\\end{bmatrix}"))
+}
+
+array_to_latex(l_diff_mat[[3]][[2]]$beta)
 
 
 ```
-
 
 
 
@@ -355,34 +373,6 @@ stopCluster(cl)
 after_fitraw <- Sys.time()-before_fitraw
 
 
-```
-
-
-OLD: 
-```{r}
-for(t in seq_along(n_tp)){
-    lapply(l_raw$graph1[[t]], function(x){fit_var_parallel_merged(
-    data = x, n = n_ind, nds = n_postds, rho_prior = rho_sd, beta_prior = beta_sd, seed = seed, iterations = n_iter, get_kappa = FALSE, summarize_post = FALSE,
-    pruneresults = FALSE, dgp_name = "graph1", save_files = TRUE
-  )})
-    lapply(l_raw$graph2[[t]], function(x){fit_var_parallel_merged(
-    data = x, n = n_ind, nds = n_postds, rho_prior = rho_sd, beta_prior = beta_sd, seed = seed, iterations = n_iter, get_kappa = FALSE, summarize_post = FALSE,
-    pruneresults = FALSE, dgp_name = "graph2", save_files = TRUE
-  )})
-    lapply(l_raw$graph3[[t]], function(x){fit_var_parallel_merged(
-    data = x, n = n_ind, nds = n_postds, rho_prior = rho_sd, beta_prior = beta_sd, seed = seed, iterations = n_iter, get_kappa = FALSE, summarize_post = FALSE,
-    pruneresults = FALSE, dgp_name = "graph3", save_files = TRUE
-  )})
-    lapply(l_raw$graph4[[t]], function(x){fit_var_parallel_merged(
-    data = x, n = n_ind, nds = n_postds, rho_prior = rho_sd, beta_prior = beta_sd, seed = seed, iterations = n_iter, get_kappa = FALSE, summarize_post = FALSE,
-    pruneresults = FALSE, dgp_name = "graph4", save_files = TRUE
-  )})
-    lapply(l_raw$graph5[[t]], function(x){fit_var_parallel_merged(
-  data = x, n = n_ind, nds = n_postds, rho_prior = rho_sd, beta_prior = beta_sd, seed = seed, iterations = n_iter, get_kappa = FALSE, summarize_post = FALSE,
-  pruneresults = FALSE, dgp_name = "graph5", save_files = TRUE
-  )})
-
-}
 ```
 
 
@@ -824,7 +814,8 @@ for(g in v_graphs){
                  change = as.factor(change),
                  res = as.factor(res)) %>% 
           dplyr::group_by(comp, tp, change, res) %>%
-          dplyr::summarize(pct_larger = value/10) %>%
+          # we have 1000 draws, so divide by 10
+          dplyr::summarize(pct_larger = value/1000) %>%
           dplyr::summarize(pct_larger = mean(pct_larger)) %>% 
           ggplot(aes(x = as.numeric(tp), y = pct_larger, col = comp)) + 
           # geom_text(aes(label = round(pct_larger,1)), size = 4)+
@@ -841,10 +832,87 @@ for(g in v_graphs){
   print(p)
 }
 
+```
 
+
+Do this in one plot:
+```{r}
+plot_test_distribution <- df_comp_res %>% 
+          dplyr::filter(dgp %in% c("graph3", "graph4", "graph5")) %>% 
+          dplyr::filter(change != "change1.2") %>% 
+          # mutate tp_ind into factor
+          mutate(tp = as.factor(tp)) %>% 
+          mutate(tp = forcats::fct_relevel(tp, "50", "100", "200", "400", "1000")) %>% 
+          mutate(dgp = case_match(dgp,
+                                  "graph3" ~ "Empirical Sparse",
+                                  "graph4" ~ "Simulated Chain",
+                                  "graph5" ~ "Simulated Nonsparse")) %>% 
+          pivot_longer(cols = c("beta_a", "beta_b", "pcor_a", "pcor_b"), 
+                       names_to = "res", values_to = "value") %>% 
+          group_by(comp, tp, change, dgp, res) %>% 
+          # we have 1000 draws, so divide by 1000
+          dplyr::summarize(pct_larger = value/1000) %>%  
+          dplyr::summarize(pct_larger = mean(pct_larger)) %>% 
+          ggplot(aes(x = tp, y = pct_larger, col = comp)) + 
+          # geom_text(aes(label = round(pct_larger,1)), size = 4)+
+          geom_line()+
+          ggh4x::facet_nested(change ~ dgp + res)+
+          theme_compare()+
+          ggokabeito::scale_color_okabe_ito()+ 
+          labs(
+               x = "Timepeoints",
+               y = "% larger than empirical")
+
+plot_test_distribution
 
 
 ```
+
+Distribution of values under the null for the frobenius norm only.
+```{r}
+plot_test_null_dist <- df_comp_res %>% 
+          dplyr::filter(dgp %in% c("graph3", "graph4", "graph5")) %>% 
+          dplyr::filter(change == "truegraph") %>% 
+          dplyr::filter(comp == "frob") %>% 
+          # mutate tp into factor
+          mutate(tp = as.factor(tp)) %>% 
+          mutate(tp = forcats::fct_relevel(tp, "50", "100", "200", "400", "1000")) %>% 
+          mutate(dgp = case_match(dgp,
+                                  "graph3" ~ "Empirical Sparse",
+                                  "graph4" ~ "Simulated Chain",
+                                  "graph5" ~ "Simulated Nonsparse")) %>% 
+          pivot_longer(cols = c("beta_a", "beta_b", "pcor_a", "pcor_b"), 
+                       names_to = "res", values_to = "value") %>% 
+          group_by(comp, tp, change, dgp, res) %>% 
+          # we have 1000 draws, so divide by 1000 for proportion
+          dplyr::summarize(pct_larger = value/1000) %>%  
+          # ignore model a and b because they are almost identical in distribution
+          mutate(res = gsub("_.", "", res)) %>% 
+          dplyr::mutate(res = case_match(res,
+                                         "beta" ~ "Temporal",
+                                         "pcor" ~ "Contemporaneous")) %>%
+          ggplot(aes(x = pct_larger)) + 
+          # geom_text(aes(label = round(pct_larger,1)), size = 4)+
+          geom_histogram(bins = 100, fill = ggokabeito::palette_okabe_ito()[2])+
+          ggh4x::facet_nested(tp ~ dgp + res)+
+          theme_compare()+
+          ggokabeito::scale_color_okabe_ito()+ 
+          labs(caption = "Frobenius norm only",
+               x = "p-value",
+               y = "")+
+          scale_y_continuous(labels = NULL)
+
+plot_test_null_dist
+ggsave(filename = "plot_test_null_dist.svg",plot_test_null_dist, device = "svg",
+         path = here::here("figures/"), width = 14, height = 10)
+
+  
+```
+
+
+
+
+
 
 
 
@@ -927,8 +995,8 @@ plot_dec_rule <- df_comp_res %>%
                                 NULL,
                                 NULL,
                                 element_rect(colour = "grey")
-                              )))+
-          theme_compare()+
+                             )))+
+
           # leave this out and delete scales argument above to switch to old plot
           ggh4x::facetted_pos_scales(y = list(
             scale_y_continuous(breaks = c(0,0.25, 0.5, 0.75, 1)),
@@ -939,16 +1007,84 @@ plot_dec_rule <- df_comp_res %>%
             scale_y_continuous(breaks = c(0,0.25, 0.5, 0.75, 1)),
             scale_y_continuous(limits = c(0,0.1), guide = guide_axis(title = "rescaled"))
           ))+
+          theme_compare()+
           ggokabeito::scale_colour_okabe_ito()+
           labs(caption = paste0("Power of decision rule \"OR\" at 5% level"),
                x = "Timepoints",
                y = "Power",
-               col = "Norm")
+               col = "Norm")+
+            theme(strip.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3), 
+                                           hjust = 0.5),
+          strip.text.x.top = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3),
+                                                 hjust = 0.5),
+        legend.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2)),
+        legend.title = ggplot2::element_text(face = "bold", size = ggplot2::rel(1.2)),
+        # panel.border = element_rect(color = "#D5D8DC", fill = NA, size = 1),
+        panel.spacing.y = ggplot2::unit(1.6, "lines"),
+        panel.spacing.x = ggplot2::unit(1.6, "lines"),
+        axis.text.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2)),
+        axis.title.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.4)))
 
 plot_dec_rule
-ggsave(filename = paste0("plot_dec_rule_new.svg"),plot_dec_rule, device = "svg",
+ggsave(filename = "plot_dec_rule_new.svg",plot_dec_rule, device = "svg",
          path = here::here("figures/"), width = 13, height = 10)
 
+```
+
+
+New decision rule plot without truegraph
+```{r}
+plot_dec_rule <- df_comp_res %>% 
+          dplyr::filter(dgp %in% c("graph3", "graph4", "graph5")) %>% 
+          dplyr::filter(change != "change1.2") %>% 
+          dplyr::filter(change != "truegraph") %>% 
+          # mutate tp_ind into factor
+          mutate(tp = as.factor(tp)) %>% 
+          mutate(tp = forcats::fct_relevel(tp, "50", "100", "200", "400", "1000")) %>% 
+          mutate(dgp = case_match(dgp,
+                                  "graph3" ~ "Empirical Sparse",
+                                  "graph4" ~ "Simulated Chain",
+                                  "graph5" ~ "Simulated Nonsparse")) %>% 
+          # setup decision rule
+          dplyr::mutate(sig_beta05 = ifelse(beta_a < 50 | beta_b < 50, 1, 0),
+                 sig_pcor05 = ifelse(pcor_a < 50 | pcor_b < 50, 1, 0)) %>% 
+          dplyr::group_by(dgp, comp, tp, change) %>% 
+          dplyr::mutate(n_comp = n()) %>% 
+          dplyr::summarize(power_beta05 = sum(sig_beta05)/n_comp,
+                    power_pcor05 = sum(sig_pcor05)/n_comp) %>% 
+          # somehow does not cut everything if I don't do this
+          # TODO
+          dplyr::summarize(power_beta05 = mean(power_beta05),
+                    power_pcor05 = mean(power_pcor05)) %>% 
+          tidyr::pivot_longer(cols = c("power_beta05", "power_pcor05"), names_to = "res") %>%
+          dplyr::mutate(res = case_match(res,
+                                         "power_beta05" ~ "Temporal",
+                                         "power_pcor05" ~ "Contemp.")) %>% 
+          ggplot(aes(x = tp, y = value, col = comp, group = comp)) + 
+          geom_line()+
+          theme_compare()+
+          ggh4x::facet_nested(change ~ dgp + res)+
+          ggokabeito::scale_colour_okabe_ito()+
+          labs(x = "Timepoints",
+               y = "Power",
+               col = "Norm")+
+            theme(
+                  strip.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2),
+                  hjust = 0.5),
+                  strip.text.x.top = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2),
+                  hjust = 0.5),
+                  legend.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2)),
+                  legend.title = ggplot2::element_text(face = "bold", size = ggplot2::rel(1.2)),
+                  # panel.border = element_rect(color = "#D5D8DC", fill = NA, size = 1),
+                  panel.spacing.y = ggplot2::unit(1.6, "lines"),
+                  panel.spacing.x = ggplot2::unit(1.6, "lines"),
+                  axis.text.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.05)),
+                  axis.title.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3)),
+                  axis.title.y = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3)))
+
+plot_dec_rule
+ggsave(filename = "plot_dec_rule.svg",plot_dec_rule, device = "svg",
+         path = here::here("figures/"), width = 12, height = 12)
 ```
 
 
@@ -995,6 +1131,7 @@ for(g in v_graphs){
           ggokabeito::scale_color_okabe_ito()+
           labs(caption = paste0("False Positives for ", g),
                x = "Timepoints")
+    
   
   ggsave(filename = paste0("plot_fp05_", g, ".svg"),p, device = "svg",
          path = here("figures/"))
@@ -1037,10 +1174,22 @@ plot_false_positive <- df_comp_res %>%
           ggokabeito::scale_color_okabe_ito()+
           theme_compare()+
           geom_hline(yintercept = 0.05, col = "#D5D8DC")+ 
-          labs(caption = paste0("False Positives at 5% level"),
-               x = "Timepoints", 
+          labs(caption = paste0(x = "Timepoints", 
                col = "Norm",
-               y = "Proportion of false positives")
+               y = "Proportion of false positives"))+
+              theme(
+                  strip.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2),
+                  hjust = 0.5),
+                  strip.text.x.top = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2),
+                  hjust = 0.5),
+                  legend.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2)),
+                  legend.title = ggplot2::element_text(face = "bold", size = ggplot2::rel(1.2)),
+                  # panel.border = element_rect(color = "#D5D8DC", fill = NA, size = 1),
+                  panel.spacing.y = ggplot2::unit(1.6, "lines"),
+                  panel.spacing.x = ggplot2::unit(1.6, "lines"),
+                  axis.text.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.05)),
+                  axis.title.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3)),
+                  axis.title.y = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3)))
 
 plot_false_positive
 ggsave(filename = paste0("plot_false_positive.svg"),plot_false_positive, device = "svg",
