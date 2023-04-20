@@ -20,6 +20,7 @@ library(lm.beta)
 library(RColorBrewer)
 library(Matrix)
 library(matrixcalc)
+library(here)
 
 here::i_am("var-compare.Rproj")
 seed = 2022
@@ -28,6 +29,7 @@ set.seed(seed)
 
 
 # Own simulated graph (graph1)
+NO LONGER USED
 ```{r}
 # Ground truth model is still generated with graphicalVAR 
 # could also use empirical data with varying sparsity
@@ -88,8 +90,7 @@ coolt_res$beta[,-1]-graph$beta
 ```
 
 # Non-sparse graph (graph2)
-Obtain a graph without weights set to 0, as this would be the input for actual empirical applications. Set many of the effects close to zero. 
-Another idea would be to create data from a sparse graph and fit a BGGM var_estimate model to it, as that will also not set coefficients to zero. 
+NO LONGER USED 
 ```{r}
 # Obtain random GVARmodel
 full_graph <- randomGVARmodel(6, probKappaEdge = .3, probBetaEdge = .3)
@@ -133,14 +134,13 @@ write_rds(full_graph_est_bggm, "full_graph.RDS")
 
 
 
-
 # Fried 2020
 
 Here, I use code by Mansueto et al. (2022) to obtain the mlVAR network and extract coefficients to simulate from. 
 It's based on https://osf.io/7fpw5, data can be obtained from https://osf.io/5a2ub.
 ```{r preparation}
 set.seed(2022)
-load(here("data/clean_network.RData"))
+load(here::here("data/clean_network.RData"))
 Data5b <- Data2
 
 # Alpha to detrend:
@@ -306,14 +306,12 @@ Get relevant statistics:
 ```{r extract-coefs}
 
 # beta 
-# TODO KEEP IN MIND THE TRANSPOSING
 beta_dataset2_9n <- res3$results$Beta$mean[,,1] * t(temp6 != 0)
 
 # partial correlations
 omega_dataset2_9n <- res3$results$Theta$pcor$mean * (cont6 != 0)
 
 # precision matrix
-# TODO DOUBLE CHECK - WHY THETA, NOT KAPPA?
 theta_dataset2_9n <- res3$results$Theta$prec$mean * (cont6 != 0 | diag(ncol(cont6)) == 1)
 
 # Compute PDC as well
@@ -450,8 +448,7 @@ sum(graph_fried$pcor[1:6, 1:6] != 0)
 
 # Plot data-generating processes
 
-
-Graph Fried:
+Graph Fried/Sparse Empirical:
 ```{r}
 graph_fried <- readRDS(here("data/graph_fried.Rds"))
 graph_fried$beta <- graph_fried$beta[1:6, 1:6]
@@ -469,6 +466,10 @@ qgraph(graph_fried$pcor, layout = "circle", theme = "colorblind",
        edge.labels = TRUE, edge.label.cex = 1.25)
 dev.off()
 
+# Find median absolute non-zero effect
+mean(abs(graph_fried$beta[graph_fried$beta !=0]))
+mean(abs(graph_fried$pcor[graph_fried$pcor !=0]))
+
 ```
 
 
@@ -478,10 +479,13 @@ Six Nodes:
 hoekstra_synth_6node<- readRDS("data/hoekstra_synth_6node.RDS")
 hoekstra_synth_6node$pcor <- -stats::cov2cor(hoekstra_synth_6node$kappa)
 
+
 hoekstra_synth_6node<- lapply(hoekstra_synth_6node, function(x){
   dimnames(x) <- NULL
   return(x)
 })
+
+diag(hoekstra_synth_6node$pcor) <- rep(0, 6)
 
 svg(here::here("figures/dgp_chain6node.svg"), width = 14)
 par(mfrow = c(1,2))
@@ -491,10 +495,16 @@ qgraph(hoekstra_synth_6node$pcor, layout = "circle", theme = "colorblind",
        edge.labels = TRUE, edge.label.cex = 1.25)
 dev.off()
 
+hoekstra_synth_6node$beta
+
+mean(abs(hoekstra_synth_6node$beta[hoekstra_synth_6node$beta !=0]))
+mean(abs(hoekstra_synth_6node$pcor[hoekstra_synth_6node$pcor !=0]))
+
 ```
 
 
 Nine Nodes:
+(accidentally called 9node, but it is actually 8node)
 ```{r}
 hoekstra_synth<- readRDS("data/hoekstra_synth_9node.RDS")
 hoekstra_synth$pcor <- -stats::cov2cor(hoekstra_synth$kappa)
@@ -503,6 +513,7 @@ hoekstra_synth <- lapply(hoekstra_synth, function(x){
   dimnames(x) <- NULL
   return(x)
 })
+diag(hoekstra_synth$pcor) <- rep(0, 8)
 
 svg(here::here("figures/dgp_chain9node.svg"), width = 14)
 par(mfrow = c(1,2))
@@ -511,6 +522,9 @@ qgraph(hoekstra_synth$beta, layout = "circle", theme = "colorblind",
 qgraph(hoekstra_synth$pcor, layout = "circle", theme = "colorblind", 
        edge.labels = TRUE, edge.label.cex = 1.25)
 dev.off()
+mean(abs(hoekstra_synth$beta[hoekstra_synth$beta !=0]))
+mean(abs(hoekstra_synth$pcor[hoekstra_synth$pcor !=0]))
+
 
 ```
 
@@ -523,7 +537,7 @@ non_sparse <- lapply(non_sparse, function(x){
   return(x)
 })
 
-svg(here::here("figures/dgp_chain_nonsparse.svg"), width = 14)
+svg(here::here("figures/dgp_fried_nonsparse.svg"), width = 14)
 par(mfrow = c(1,2))
 qgraph(non_sparse$beta, layout = "circle", theme = "colorblind", 
        edge.labels = TRUE, edge.label.cex = 1.25)
@@ -531,54 +545,16 @@ qgraph(non_sparse$pcor, layout = "circle", theme = "colorblind",
        edge.labels = TRUE, edge.label.cex = 1.25)
 dev.off()
 
-
-
-```
-
-
-
-
-
-
-
-# No longer used
-
-
-## Epskamp 2018
-```{r dgp-epskamp2018}
-
-# take Kappa and Beta from Epskamp et al.(2018), having reproduced the analysis in their supplement 2
-# 7 Node graph ,especially beta is VERY sparse
-# Maybe this is TOO sparse and I should use the graphs from Mansueto et al. 
-beta_eps <- as.matrix(read.table(header = FALSE, colClasses = "numeric", text = "
-0        0            0                  0   0.000000       0.0000000             0.00000000
-0        0            0                  0   0.000000       0.0000000             0.00000000
-0        0            0                  0   0.000000       0.0000000             0.24128652
-0        0            0                  0   0.000000       0.0000000             0.00000000
-0        0            0                  0   0.243744       0.0000000             0.00000000
-0        0            0                  0   0.000000       0.2293295             0.07956604
-0        0            0                  0   0.000000       0.1099387             0.00000000"))
-# Correct small rounding differences (6th digit) in Kappa
-# correct by using lower diagonal, not rounded values
-kappa_eps <- as.matrix(read.table(header = FALSE, colClasses = "numeric", text = "
- 1.167983844  0.134688900 0.009096612   -0.128603055  0.133407195  0.000000000        0.225946298
- 0.134688940  1.130350300 0.000000000    0.000000000 -0.337813000  0.000000000       -0.064444800
- 0.009096612  0.000000000 1.468400008    0.000000000  0.000000000  0.000000000        0.000000000
--0.128603055  0.000000000 0.000000000    1.106057060  0.000000000  0.000000000        0.071637710
- 0.133407195 -0.337813000 0.000000000    0.000000000  1.286898100  0.000000000        0.000000000
- 0.000000000  0.000000000 0.000000000    0.000000000  0.000000000  1.256290950       -0.086044850
- 0.225946298 -0.064444800 0.000000000    0.071637710  0.000000000 -0.086044850        1.159429540"))
-graph_eps <- list()
-graph_eps$beta <- beta_eps
-kappa_eps<- as.matrix(Matrix::forceSymmetric(kappa_eps, uplo = "L"))
-graph_eps$kappa <- kappa_eps
-pcc_eps <- -cov2cor(kappa_eps)
-graph_eps$PCC <- pcc_eps
-diag(graph_eps$PCC) <- rep(0,7)
-dimnames(graph_eps$beta) <- NULL
-dimnames(graph_eps$kappa) <- NULL
+mean(abs(non_sparse$beta[non_sparse$beta !=0]))
+mean(abs(non_sparse$pcor[non_sparse$pcor !=0]))
 
 ```
+
+
+
+
+
+
 
 
 
