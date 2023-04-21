@@ -225,30 +225,106 @@ l_fits_c <- readRDS(here::here("output/empirical-example/l_fits.RDS"))
 
 
 
-## Convergence 
-Show this for prior 2 only
+## Diagnostic plots 
+Create diagnostic plots for the second prior combination here. 
 ```{r}
-# # Trace Plots
-BGGM::convergence(l_fits_c[[1]][[1]], type = "trace",  param = "concentrate--positive")
-# 
-# # ACF
-BGGM::convergence(l_fits[[1]][[1]], type = "acf", param = "concentrate--positive")
-# 
-# 
-# pdf("convergence_empirical.pdf")
-# for(i in 1:10){
-#   for(n in param_names){
-# 
-#   print(BGGM::convergence(l_fits[[1]], type = "acf", param = n))
-# 
-# }
-# }
-# dev.off()
+# Obtain parameter names
+# nodes
+p <- 6
+# identity matrix
+I_p <- diag(p)
+# column names
+cn_pcor <- colnames(l_fits_c[[2]][[1]]$pcor_mu)
+cn_beta <- colnames(l_fits_c[[2]][[1]]$beta_mu)
+rn_beta <- rownames(l_fits_c[[2]][[1]]$beta_mu)
 
-# 
-# # Get ESS for all samples
-l_ess <- lapply(l_fits[[2]], var_ess)
+names_pcor <- sapply(cn_pcor, function(x) paste(cn_pcor, x, sep = "--"))[upper.tri(I_p)]
+names_beta <- sapply(rn_beta, function(x) paste(cn_beta, x, sep = "_"))
+all_names <- c(names_pcor, names_beta)
 
+
+
+# ACF plots 
+pdf("figures/acf_plots_empirical.pdf")
+for(i in 1:40){
+  for(n in all_names){
+  plt <- BGGM::convergence(l_fits_c[[2]][[i]], type = "acf", param = n)
+  print(plt[[1]] + theme_compare() + labs(title = paste0("ID ", i)))
+  }
+}
+dev.off()
+
+# One example combination
+acf_pcor <- BGGM::convergence(l_fits_c[[2]][[12]], type = "acf", param = "content--concentrate")
+acf_beta <- BGGM::convergence(l_fits_c[[2]][[12]], type = "acf", param = "content_concentrate.l1")
+
+plot_pcor <- acf_pcor[[1]]+
+  theme_compare()+
+  labs(title = "Contemporaneous")
+
+plot_beta <- acf_beta[[1]]+
+  theme_compare()+
+  labs(title = "Temporal")
+
+plot_acf_example <- cowplot::plot_grid(plot_pcor, plot_beta)
+ggsave("plot_acf_example.svg", plot_acf_example, device = "svg", path = here::here("figures/"), width = 12, height = 6)
+
+
+
+# Trace plots
+pdf("figures/trace_plots_empirical.pdf")
+for(i in 1:40){
+  for(n in all_names){
+  plt <- BGGM::convergence(l_fits_c[[2]][[i]], type = "trace", param = n)
+  print(plt[[1]] + theme_compare() + labs(title = paste0("ID ", i)))
+  }
+}
+dev.off()
+BGGM::convergence(l_fits_c[[2]][[12]], type = "trace", param = "concentrate--hopeless")
+
+# One example combination
+trace_pcor <- BGGM::convergence(l_fits_c[[2]][[12]], type = "trace", param = "content--concentrate")
+trace_beta <- BGGM::convergence(l_fits_c[[2]][[12]], type = "trace", param = "content_concentrate.l1")
+
+plot_pcor <- trace_pcor[[1]]+
+  theme_compare()+
+  labs(title = "Contemporaneous")
+
+plot_beta <- trace_beta[[1]]+
+  theme_compare()+
+  labs(title = "Temporal")
+
+plot_trace_example <- cowplot::plot_grid(plot_pcor, plot_beta)
+ggsave("plot_trace_example.svg", plot_trace_example, device = "svg", path = here::here("figures/"), width = 12, height = 6)
+
+
+
+# Get ESS for all samples
+l_ess <- lapply(l_fits_c[[2]], var_ess)
+
+# Obtain statistics about ESS 
+ess_beta <- list()
+ess_pcor <- list()
+for(i in 1:40){
+  ess_beta[[i]] <- l_ess[[i]]$ess_beta
+  arr_beta <- do.call(rbind, lapply(ess_beta, as.numeric))
+  
+  ess_pcor[[i]] <- l_ess[[i]]$ess_pcor
+  arr_pcor <- do.call(rbind, lapply(ess_pcor, as.numeric))
+}
+# Calculate means
+mean(colMeans(arr_beta))
+mean(colMeans(arr_pcor)[colMeans(arr_pcor)!=0])
+
+
+# calculate mean ess per individual
+ind_ess_beta <- sapply(l_ess, function(x) mean(x$ess_beta))
+min(ind_ess_beta)
+max(ind_ess_beta)
+
+ind_ess_pcor <- sapply(l_ess, function(x) mean(x$ess_pcor[x$ess_pcor!=0]))
+min(ind_ess_pcor)
+max(ind_ess_pcor)
 ```
 
 # Test
