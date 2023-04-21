@@ -153,7 +153,8 @@ for(i in 1:5){
     ct <- ct+1
     l_diff_mat[[i]][[ct]] <- list()
     l_diff_mat[[i]][[ct]]$beta <- round (l_changed_graphs[[i]][[ch]]$beta-l_changed_graphs[[i]]$truegraph$beta,3)
-    l_diff_mat[[i]][[ct]]$kappa <- round( l_changed_graphs[[i]][[ch]]$kappa-l_changed_graphs[[i]]$truegraph$kappa, 3)
+    l_diff_mat[[i]][[ct]]$pcor <- round((-1*stats::cov2cor(l_changed_graphs[[i]][[ch]]$kappa))-(-1*stats::cov2cor(l_changed_graphs[[i]]$truegraph$kappa)),3)
+    # l_diff_mat[[i]][[ct]]$pcor <- round(-1*stats::cov2cor(l_diff_mat[[i]][[ct]]$kappa),3)
   }
     
   
@@ -163,11 +164,27 @@ for(i in 1:5){
 array_to_latex <- function(arr){
 rows <- apply(arr, MARGIN=1, paste, collapse = " & ")
 matrix_string <- paste(rows, collapse = " \\\\ ")
-return(paste("\\begin{bmatrix}", matrix_string, "\\end{bmatrix}"))
+return(paste("\\begin{bsmallmatrix}", matrix_string, "\\end{bsmallmatrix}"))
 }
 
-array_to_latex(l_diff_mat[[3]][[2]]$beta)
+# For beta, identical across dgps
+array_to_latex(l_diff_mat[[1]][[1]]$beta)
+array_to_latex(l_diff_mat[[1]][[2]]$beta)
+array_to_latex(l_diff_mat[[1]][[3]]$beta)
 
+lapply(l_diff_mat, function(x){
+  lapply(x, function(y) mean(abs(y$beta)))
+})
+
+
+lapply(l_diff_mat, function(x){
+  lapply(x, function(y) mean(abs(y$pcor[y$pcor != 0])))
+})
+
+# For kappa, slightly different
+array_to_latex(l_diff_mat[[3]][[1]]$pcor)
+array_to_latex(l_diff_mat[[3]][[2]]$pcor)
+array_to_latex(l_diff_mat[[3]][[3]]$pcor)
 
 ```
 
@@ -193,8 +210,9 @@ cl = makeCluster(ncores)
 registerDoParallel(cl)
 l_raw <- list()
 for(t in seq_along(n_tp)){
+      l_raw[[t]] <- list()
   for(g in 1:5){
-      l_raw[[paste0("graph",g)]][[t]] <- lapply(l_changed_graphs[[paste0("graph",g)]],
+      l_raw[[t]][[g]] <- lapply(l_changed_graphs[[g]],
                                         function(x) sim_raw_parallel(dgp = x, 
                                                                      n = n_postds, 
                                                                      tp = n_tp[t], 
@@ -220,45 +238,16 @@ l_raw <- readRDS(here::here("data/l_raw_new_1703.RDS"))
 As a new change condition, just change variable indexes in the data before fitting. 
 ```{r}
 for(t in seq_along(n_tp)){
-  l_raw$graph1[[t]]
-  l_raw$graph1[[t]]$permute <- lapply(l_raw$graph1[[t]]$truegraph,
+  for(g in 1:5){
+    l_raw[[g]][[t]]$permute <- lapply(l_raw[[g]][[t]]$truegraph,
                                   function(x) {
                                     x$data <- x$data[,c(1,3,4,2,5,6)]
                                     x$args$dgp <- "permute134256" 
                                     x
                                   })
-
-  l_raw$graph2[[t]]$permute <- lapply(l_raw$graph2[[t]]$truegraph,
-                                  function(x) {
-                                    x$data <- x$data[,c(1,3,4,2,5,6)]
-                                    x$args$dgp <- "permute134256" 
-                                    x
-                                  })
-
-  l_raw$graph3[[t]]$permute <- lapply(l_raw$graph3[[t]]$truegraph,
-                                  function(x) {
-                                    x$data <- x$data[,c(1,3,4,2,5,6)]
-                                    x$args$dgp <- "permute134256" 
-                                    x
-                                  })
-  l_raw$graph4[[t]]$permute <- lapply(l_raw$graph4[[t]]$truegraph,
-                                  function(x) {
-                                    x$data <- x$data[,c(1,3,4,2,5,6)]
-                                    x$args$dgp <- "permute134256" 
-                                    x
-                                  })
-  l_raw$graph5[[t]]$permute <- lapply(l_raw$graph4[[t]]$truegraph,
-                                  function(x) {
-                                    x$data <- x$data[,c(1,3,4,2,5,6)]
-                                    x$args$dgp <- "permute134256" 
-                                    x
-                                  })
-  
+    
+  }
 }
-
-
-
-
 ```
 
 
