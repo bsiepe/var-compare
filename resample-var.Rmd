@@ -185,74 +185,24 @@ n_postds <- 120 # number of posterior datasets
 seed <- 2022
 
 
-
-
-# Think  if I actually need to standardize here
-# because everything will be standardized by var_estimate anyway
-
-
 # Changed: instead of n_ind, we create n_postds datasets 
 # because some models don't converge
 before_simraw <- Sys.time()
 ncores = 40
 cl = makeCluster(ncores)
 registerDoParallel(cl)
-# l_raw <- list()
-# l_raw$graph5 <- l_raw$graph4 <- l_raw$graph3 <- l_raw$graph2 <- l_raw$graph1 <-  list()
+l_raw <- list()
 for(t in seq_along(n_tp)){
-  # l_raw$graph1[[t]] <- list()
-  # l_raw$graph1[[t]] <- lapply(l_changed_graphs$graph1,
-  #                                 function(x) {sim_raw_parallel(
-  #                                   dgp = x,
-  #                                   n = n_postds,
-  #                                   tp = n_tp[t],
-  #                                   seed = seed,
-  #                                   means = 0,
-  #                                   standardize = TRUE)})
-  # 
-  # l_raw$graph2[[t]] <- list()
-  # l_raw$graph2[[t]] <- lapply(l_changed_graphs$graph1,
-  #                                 function(x) {sim_raw_parallel(
-  #                                   dgp = x,
-  #                                   n = n_postds,
-  #                                   tp = n_tp[t],
-  #                                   seed = seed,
-  #                                   means = 0,
-  #                                   standardize = TRUE)})
-  # l_raw$graph3[[t]] <- list()
-  # l_raw$graph3[[t]] <- lapply(l_changed_graphs$graph3, 
-  #                                 function(x) {sim_raw_parallel(
-  #                                   dgp = x, 
-  #                                   n = n_postds, 
-  #                                   tp = n_tp[t], 
-  #                                   seed = seed,
-  #                                   means = 0,
-  #                                   standardize = TRUE)})
-  # l_raw$graph4[[t]] <- list()
-  # l_raw$graph4[[t]] <- lapply(l_changed_graphs$graph4, 
-  #                                 function(x) {sim_raw_parallel(
-  #                                   dgp = x, 
-  #                                   n = n_postds, 
-  #                                   tp = n_tp[t], 
-  #                                   seed = seed,
-  #                                   means = 0,
-  #                                   standardize = TRUE)})
-  # l_raw$graph5[[t]] <- lapply(l_changed_graphs$graph5, 
-  #                                 function(x) {sim_raw_parallel(
-  #                                   dgp = x, 
-  #                                   n = n_postds, 
-  #                                   tp = n_tp[t], 
-  #                                   seed = seed,
-  #                                   means = 0,
-  #                                   standardize = TRUE)})
-  l_raw$graph5[[t]]$noise0.2 <- sim_raw_parallel(dgp = l_changed_graphs$graph5$noise0.2,
-                                                 n = n_postds, 
-                                                 tp = n_tp[t],
-                                                 seed = seed,
-                                                 means = 0, 
-                                                 standardize = TRUE)
-  
-  
+  for(g in 1:5){
+      l_raw[[paste0("graph",g)]][[t]] <- lapply(l_changed_graphs[[paste0("graph",g)]],
+                                        function(x) sim_raw_parallel(dgp = x, 
+                                                                     n = n_postds, 
+                                                                     tp = n_tp[t], 
+                                                                     seed = seed, 
+                                                                     means = 0, 
+                                                                     standardize = TRUE))
+    
+  }
 }
 
 stopCluster(cl)
