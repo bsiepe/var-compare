@@ -5,6 +5,9 @@
 *.Ruserdata
 *.Rds
 *.RDS
+*.svg
+*.pdf
+*.pptx
 *.csv
 *.xlsx
 *.Rproj.user
