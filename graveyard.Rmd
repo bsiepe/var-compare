@@ -812,6 +812,12 @@ f_post_frob <- function(sample, seed = 2022,
 
 
 
+```{r}
+graphical
+```
+
+
+
 
 
 
@@ -1230,4 +1236,452 @@ plot_error_dist <- function(dat, errorcol = mse){
 # # write_rds(l_comp_within, "l_comp_within.RDS")
 
 ```
+
+
+
+
+
+
+Visualize reference distributions and empirical value
+```{r}
+pdf(file = "figures/distributions/reference_dists_xlim10.pdf")
+for(i in 1:4){
+  for(j in 1:7){
+    for(c in 1:3){
+          b <- plot_test(l_comp_within[[1]][[i]][[j]][[5]][[c]], modmat = beta)
+          plot(b)
+          p <- plot_test(l_comp_within[[1]][[i]][[j]][[5]][[c]], modmat = pcor)
+          plot(p)      
+      }
+  }
+}
+dev.off()
+
+
+```
+
+Then, try approximating the norm distribution with known densities. This did not really lead anywhere.
+```{r}
+ref_dist <- l_comp_within[[1]][[3]][[6]][[5]][[1]]$res %>% 
+  as.data.frame() %>% 
+  filter(mat == "beta") %>% 
+  filter(model_ind == 1) %>% 
+  pull(null)
+
+hist(ref_dist, breaks = 40)
+
+
+cs_res<- MASS::fitdistr(ref_dist, densfun = "chi-squared", start = list(df = 1))
+no_res <- MASS::fitdistr(ref_dist, densfun = "normal")
+
+```
+
+
+
+
+# Old functions
+```{r}
+compare_var_old <- function(fit_a, 
+                        fit_b, 
+                        cutoff = 5,           # percentage level of test
+                        dec_rule = "OR",
+                        n_draws = 1000,
+                        comp = "frob",
+                        return_all = FALSE){  # return all distributions?
+  
+  require(magrittr)
+  
+  ## Helper function for computing distance metrics
+  compute_metric <- function(a, b, metric) {
+    tryCatch({
+      if (metric == "frob") {
+        norm(a - b, type = "F")
+      } else if (metric == "maxdiff") {
+        max(abs(a - b))
+      } else if (metric == "l1") {
+        sum(abs(a - b))
+      }
+    }, error = function(e) NA)
+  }
+  
+  ## Create reference distributions for both models
+  ref_a <- post_distance_within(fit_a, comp = comp, pred = FALSE, draws = n_draws)
+  ref_b <- post_distance_within(fit_b, comp = comp, pred = FALSE, draws = n_draws)
+  
+  ## Empirical distance
+  # Compute empirical distance as test statistic
+  if(comp == "frob"){
+    normtype = "F"
+    # Compute Distance of empirical betas between a and b
+    emp_beta <- tryCatch(norm(fit_a$beta_mu - fit_b$beta_mu, type = normtype), error = function(e) {NA})
+
+    # Compute Distance of empirical pcors between a and b
+    emp_pcor <- tryCatch(norm(fit_a$pcor_mu - fit_b$pcor_mu, type = normtype), error = function(e) {NA})
+
+  }
+
+  if(comp == "maxdiff"){
+    # Compute maxdiff of empirical betas between a and b
+    emp_beta <- tryCatch(max(abs(fit_a$beta_mu - fit_b$beta_mu)), error = function(e) {NA})
+
+    # Compute maxdiff of empirical pcors between a and b
+    emp_pcor <- tryCatch(max(abs(fit_a$pcor_mu - fit_b$pcor_mu)), error = function(e) {NA})
+
+  }
+
+  if(comp == "l1"){
+    # Compute l1 of empirical betas between a and b
+    emp_beta <- tryCatch(sum(abs(fit_a$beta_mu - fit_b$beta_mu)), error = function(e) {NA})
+
+    # Compute l1 of empirical pcors between a and b
+    emp_pcor <- tryCatch(sum(abs(fit_a$pcor_mu - fit_b$pcor_mu)), error = function(e) {NA})
+
+  }
+  emp_beta <- compute_metric(fit_a$beta_mu, fit_b$beta_mu, comp)
+  emp_pcor <- compute_metric(fit_a$pcor_mu, fit_b$pcor_mu, comp)
+  
+  
+  ## Combine results
+  res_beta <- data.frame(null = c(unlist(ref_a[["beta"]]), unlist(ref_b[["beta"]])),
+                         mod = c(rep("mod_a", n_draws), rep("mod_b", n_draws)),
+                         emp = rep(emp_beta, n_draws*2),
+                         comp = rep(comp, n_draws*2))
+  
+  
+  res_pcor <- data.frame(null = c(unlist(ref_a[["pcor"]]), unlist(ref_b[["pcor"]])),
+                         mod = c(rep("mod_a", n_draws), rep("mod_b", n_draws)),
+                         emp = rep(emp_pcor, n_draws*2),
+                         comp = rep(comp, n_draws*2))
+  
+  ## Implement decision rule "OR"
+  if(dec_rule == "OR"){
+    suppressWarnings(sig_beta <- res_beta %>% 
+                       dplyr::group_by(mod) %>% 
+                       dplyr::summarize(sum_larger = sum(null > emp)) %>% 
+                       dplyr::summarize(sig = ifelse(sum_larger < cutoff * (n_draws/100), 1, 0)) %>% 
+                       dplyr::summarize(sig_decision = sum(sig)) %>% 
+                       dplyr::pull(sig_decision))
+    
+    suppressWarnings(larger_beta <- res_beta %>% 
+                       dplyr::group_by(mod) %>% 
+                       dplyr::summarize(sum_larger = sum(null > emp))) %>% 
+      dplyr::pull(sum_larger)
+    
+    suppressWarnings(sig_pcor <- res_pcor %>% 
+                       dplyr::group_by(mod) %>% 
+                       dplyr::summarize(sum_larger = sum(null > emp)) %>% 
+                       dplyr::summarize(sig = ifelse(sum_larger < cutoff * (n_draws/100), 1, 0)) %>% 
+                       dplyr::summarize(sig_decision = sum(sig)) %>% 
+                       dplyr::pull(sig_decision))
+    
+    suppressWarnings(larger_pcor<- res_pcor %>% 
+                       dplyr::group_by(mod) %>% 
+                       dplyr::summarize(sum_larger = sum(null > emp))) %>% 
+      dplyr::pull(sum_larger)
+    
+    
+  }
+  
+  # sig_beta <- as.numeric(sig_beta)
+  # larger_beta <- as.numeric(larger_beta)
+  # sig_pcor <- as.numeric(sig_pcor)
+  # larger_pcor <- as.numeric(larger_pcor)
+  
+  
+  if(!return_all){
+    l_res <- list(sig_beta = sig_beta,
+                  sig_pcor = sig_pcor,
+                  # res_beta = res_beta,
+                  # res_pcor = res_pcor,
+                  emp_beta = emp_beta,
+                  emp_pcor = emp_pcor,
+                  larger_beta = larger_beta,
+                  larger_pcor = larger_pcor)
+    
+  }
+  if(isTRUE(return_all)){
+    l_res <- list(sig_beta = sig_beta,
+                  sig_pcor = sig_pcor,
+                  res_beta = res_beta,
+                  res_pcor = res_pcor,
+                  emp_beta = emp_beta,
+                  emp_pcor = emp_pcor,
+                  larger_beta = larger_beta,
+                  larger_pcor = larger_pcor)
+    
+  }
+  
+  
+  
+  return(l_res)
+  
+  
+  
+}
+```
+
+
+
+# Old empirical example
+
+
+
+##### OLD !!!!!!!!!!!!!!!!!!!!!!
+
+# Preparation and Data Cleaning
+```{r}
+# data <- readRDS("data_Fisher2017.RDS")
+# 
+# 
+# # Number of observations per model
+# n_obs <- data %>% 
+#   count(subj_id)
+# 
+# 
+# 
+# # Look at proportion of missingness
+# data %>% 
+#   dplyr::mutate(miss = ifelse(is.na(energetic), 1, 0)) %>% 
+#   dplyr::add_count(subj_id) %>% 
+#   dplyr::group_by(subj_id) %>% 
+#   dplyr::mutate(sum_miss = sum(miss)) %>% 
+#   dplyr::summarize(prop_miss = sum_miss/n) %>% 
+#   dplyr::distinct(subj_id, prop_miss) %>% 
+#   dplyr::arrange(desc(prop_miss))
+
+```
+
+
+Create histograms for each individual
+```{r}
+l_hist <- list()
+for(u in unique(data$subj_id)){
+  tmp_dat <- subset(data, subj_id == u)
+  l_hist[[u]] <- Hmisc::hist.data.frame(tmp_dat[,2:10])
+  
+}
+
+# Create overall histograms
+# Hmisc::hist.data.frame(data[,2:23])
+
+```
+
+Focus on some items with relatively adequate distributions. 
+Impute missing data.
+```{r}
+# Relevant variables
+rel_vars <- c("content", "fatigue", "concentrate", "positive", "hopeless", "enthusiastic")
+
+cut_data <- data %>% 
+  # dplyr::filter(subj_id %in% rel_ids) %>% 
+  dplyr::select(c(all_of(rel_vars), subj_id)) %>% 
+  group_by(subj_id) %>% 
+  mutate(tp = row_number()) %>% 
+  ungroup()
+
+# impute with Kalman filter
+
+imp_data <- cut_data %>% 
+  group_by(subj_id) %>% 
+  mutate(across(all_of(rel_vars),  # columns to be imputed
+                ~imputeTS::na_kalman(.x, type = "level"))) %>%        
+                # .names = "{.col}_imp")) %>%                      # add "_imp" to new column names
+  ungroup()
+
+# THIS IS NOW DONE LATER!
+# short_data <- imp_data %>% 
+#   split(.$subj_id)
+
+```
+
+
+
+## Detrending
+Remove linear trend
+```{r}
+data_detrend <- lapply(short_data, function(x){
+  for (v in 1:length(rel_vars)){
+  # Regress on time
+  lm_form <- as.formula(paste0(rel_vars[v], "~ tp"))
+  lm_res <- summary(lm(lm_form, data = x))
+  # detrend with residuals
+  # [,4] accesses p-values
+  # [2] p-value of beta of tp
+  if(lm_res$coefficients[,4][2] < 0.05){
+    print(paste0("Detrending variable: ", rel_vars[v]))
+    x[!is.na(x[rel_vars[v]]),rel_vars[v]] <- residuals(lm_res)
+  }
+  
+}
+return(x)
+})
+
+```
+
+
+
+# Fitting
+Fit all models
+```{r}
+rho_prior = 0.25
+beta_prior = .5
+iterations = 50000
+seed = 2022
+
+df_prior <- data.frame(
+  rho_prior = c(0.1, 0.25, 0.5),
+  beta_prior = c(0.25, 0.5, 1)
+)
+
+
+l_fits <- list()
+
+# Delete id and tp column for fitting
+data_detrend <- lapply(data_detrend, function(x){
+  x <- subset(x, select=-c(subj_id,tp))
+  x
+})
+
+cl = makeCluster(3)
+registerDoParallel(cl)
+l_fits <- foreach(i = 1:nrow(df_prior), .packages = "BGGM") %dopar% {
+  r_p <- df_prior[i,"rho_prior"]
+  b_p <- df_prior[i, "beta_prior"]
+  
+  fit <- lapply(data_detrend, function(x){
+  tryCatch(BGGM::var_estimate(Y = x,      
+                     rho_sd = r_p,
+                     beta_sd = b_p,
+                     iter = 50000,
+                     seed = 2022), error = function(e) NA)
+
+    
+    
+})
+
+  return(fit)
+}
+
+stopCluster(cl)  
+  
+l_fits_c <- list()
+for(i in 1:3){
+  l_fits_c[[i]] <- lapply(l_fits[[i]], function(x){
+  x$fit$Sigma <- NULL
+  x$fit$fisher_z <- NULL
+  x
+})
+  
+}
+
+# saveRDS(l_fits_c, here::here("data/empirical_example/l_fits_empirical_ex.RDS"))
+# l_fits_c <- readRDS(here::here("data/empirical_example/l_fits_empirical_ex.RDS"))
+
+
+```
+
+
+
+
+
+# Plot Distances visualized as Network
+
+Extract distances: 
+```{r}
+df_emp <- data.frame(emp_beta = rep(NA, 1600),
+                     emp_pcor = rep(NA, 1600))
+for(n in 1:length(l_comps)){
+  df_emp[n,1] <- l_comps[[n]]$emp_beta
+  df_emp[n,2] <- l_comps[[n]]$emp_pcor
+}
+# Combine with model information
+df_emp <- cbind(df_emp, fit_grid)
+
+# Filter irrelevant comparisons
+df_emp <- df_emp %>% 
+  filter(fit_a != fit_b)
+
+
+# Correct data structure: 40 by 40 matrix
+dist_beta_emp <- df_emp %>% 
+  dplyr::select(emp_beta, fit_a, fit_b) %>% 
+  reshape2::acast(., fit_a ~ fit_b, value.var = "emp_beta")
+
+
+dist_pcor_emp <- df_emp %>% 
+  dplyr::select(emp_pcor, fit_a, fit_b) %>% 
+  reshape2::acast(., fit_a ~ fit_b, value.var = "emp_pcor")
+
+
+```
+
+
+Now visualize with qgraph
+```{r}
+# The shorter the distance, the larger the connection should be!
+# Convert distance to similarity matrix
+simil_beta_emp <- 1/mat_beta_emp
+simil_pcor_emp <- 1/mat_pcor_emp
+
+svg("emp_example_similarity_net.svg", width = 15, height = 12)
+par(mfrow = c(1,2))
+qgraph(simil_beta_emp, layout = "spring", title = "Beta")
+qgraph(simil_pcor_emp, layout = "spring", title = "PCOR")
+dev.off()
+
+
+```
+
+
+Also visualize with heatmap
+```{r}
+# Levels
+id_lvls <- as.character(1:40)
+
+# Get min and max similarities
+min(simil_beta_emp, na.rm = TRUE)
+min(simil_pcor_emp, na.rm = TRUE)
+max(simil_beta_emp, na.rm = TRUE)
+max(simil_pcor_emp, na.rm = TRUE)
+
+
+
+p1 <- simil_beta_emp %>% 
+  as.data.frame() %>% 
+  rownames_to_column("id") %>% 
+  pivot_longer(-c(id), names_to = "id2", values_to = "sim") %>% 
+  mutate(id = fct_relevel(id, id_lvls),
+         id2 = fct_relevel(id2, id_lvls)) %>% 
+  ggplot(aes(x = id, y = id2, fill = sim))+
+  geom_raster()+
+  scale_fill_viridis_c(limits = c(0.1, 0.6))+
+  labs(x = "ID",
+       y = "ID",
+       title = "Similarity Matrix Beta Weights",
+       caption = "Frobenius Norm",
+       fill = "Similarity")
+
+
+p2 <- simil_pcor_emp %>% 
+  as.data.frame() %>% 
+  rownames_to_column("id") %>% 
+  pivot_longer(-c(id), names_to = "id2", values_to = "sim") %>% 
+  mutate(id = fct_relevel(id, id_lvls),
+         id2 = fct_relevel(id2, id_lvls)) %>% 
+  ggplot(aes(x = id, y = id2, fill = sim))+
+  geom_raster()+
+  scale_fill_viridis_c(limits = c(0.1, 0.6))+
+  labs(x = "ID",
+       y = "ID",
+       title = "Similarity Matrix pcor Weights",
+       caption = "Frobenius Norm",
+       fill = "Similarity")
+
+p <- cowplot::plot_grid(p1, p2)
+ggsave("similarity_matrix_empirical_example.svg", p, device = "svg", path = here("figures/"), width = 15)
+
+
+
+```
+
 
