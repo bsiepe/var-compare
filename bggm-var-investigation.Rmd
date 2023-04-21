@@ -27,10 +27,7 @@ set.seed(seed)
 
 # Simulation study
 
-## Data Generation
-
-
-Simulate data anew.
+Simulation conditions
 ```{r}
 # Simulation conditions
 n_ind <- 1000 # number of individuals(so models to create) 
@@ -39,15 +36,37 @@ n_postds <- 1000 # number of datasets per condition
 seed <- 2022
 dgp_names <- c("graph1", "graph2", "graph3", "graph4", "graph5", "graph6")
 
+# Priors
+dgp <- c(1,2,3,4,5,6)
+rho_sd <- c(0.1, 0.3, 0.5)
+beta_sd <- c(0.2, 0.5, 1)
+n_tp <- c(50, 100, 200, 400, 1000) 
+tp_cond <- c(1,2,3,4,5)   # different tp conditions
+n_iter <- 50000
+
+cond_grid <- expand.grid(dgp = dgp,
+                         n_tp = tp_cond,
+                         rho_prior = rho_sd, 
+                         beta_prior = beta_sd)
+# Conditions of varying sparsity for graphicalVAR
+gamma_ebic <- c(0, 0.5)      # EBIC hyperparameter
+lambda <- c(NA, 0)
+
+
+cond_grid_gvar <- expand.grid(dgp = dgp,
+                         n_tp = tp_cond,
+                         gamma_ebic = gamma_ebic,
+                         lambda = lambda)
+
+```
 
 
 
 
+## Data Generation
 
-# Think about if I actually need to standardize here
-# because everything will be standardized by var_estimate anyway
-l_raw <- readRDS(l_raw, file = here::here("data/l_raw1000.RDS"))
-
+```{r}
+# l_raw <- readRDS(l_raw, file = here::here("data/l_raw1000.RDS"))
 
 set.seed(seed)
 before_simraw <- Sys.time()
@@ -82,29 +101,11 @@ stopCluster(cl)
 
 
 
-
 ## Estimation
 Estimate both graphicalVAR in default settings as well as BGGM with varying priors.
 
 Next steps here: load results, then figure out which files haven't been done yet
 ```{r}
-# Priors
-dgp <- c(1,2,3,4,5,6)
-rho_sd <- c(0.1, 0.3, 0.5)
-beta_sd <- c(0.2, 0.5, 1)
-n_tp <- c(50, 100, 200, 400, 1000) 
-tp_cond <- c(1,2,3,4,5)   # different tp conditions
-
-cond_grid <- expand.grid(dgp = dgp,
-                         n_tp = tp_cond,
-                         rho_prior = rho_sd, 
-                         beta_prior = beta_sd)
-n_iter <- 50000
-seed <- 2022
-set.seed(seed)
-
-
-
 # Estimating for each model 
 # store BGGM results under "nonselect"
 ncores = 50
@@ -156,15 +157,6 @@ saveRDS(l_res_bggm, here::here("output/bggm-var-sim-res_2403.Rds"))
 ```
 ### Fit graphicalVAR
 ```{r}
-# Conditions of varying sparsity
-gamma_ebic <- c(0, 0.5)      # EBIC hyperparameter
-lambda <- c(NA, 0)
-
-
-cond_grid_gvar <- expand.grid(dgp = dgp,
-                         n_tp = tp_cond,
-                         gamma_ebic = gamma_ebic,
-                         lambda = lambda)
 
 
 ncores = 50
@@ -234,7 +226,7 @@ Evaluate both with and without graph selection.
 ```{r}
 l_res_bggm <- readRDS(here::here("output/bggm-var-sim-res_2403.Rds"))
 l_res_gvar <- readRDS(here::here("output/graphicalvar-sim-res_2403.Rds"))
-l_graphs <- readRDS(here::here("data/l_graphs.RDS"))
+wl_graphs <- readRDS(here::here("data/l_graphs.RDS"))
 
 
 ## BGGM
@@ -276,13 +268,13 @@ df_eval_bggm <- readRDS(here::here("output/df_eval_bggm_2703.RDS"))
 
 ```
 
+Combine evaluations.
 ```{r}
 # add row iteration number
 cond_grid <- cond_grid %>% 
   mutate(iter_bggm = dplyr::row_number())
 cond_grid_gvar <- cond_grid_gvar %>% 
   mutate(iter_gvar = dplyr::row_number())
-
 
 
 # add dataset iteration information to each
@@ -639,7 +631,6 @@ ggsave("plot_cor_grid_sep.svg", plot_cor_grid_sep, height = 15, width = 18, path
 
 ## Compare performance BGGM and graphicalVAR
 ### Plot comparison of both methods
-
 ```{r}
 plot_eval_both <- df_eval_both %>% 
   # delete older dgps
@@ -668,8 +659,8 @@ plot_eval_both <- df_eval_both %>%
     stringr::str_detect(stat, "sel_b1") ~ "SEL wide"
   )) %>% 
   mutate(mat = case_when(
-    stringr::str_detect(stat, "beta") ~ "Temp.",
-    stringr::str_detect(stat, "pcor") ~ "Contemp."
+    stringr::str_detect(stat, "beta") ~ "Temporal",
+    stringr::str_detect(stat, "pcor") ~ "Contemporaneous"
   )) %>% 
   mutate(stat = case_when(
     stringr::str_detect(stat, "bias") ~ "Bias",
@@ -689,14 +680,26 @@ plot_eval_both <- df_eval_both %>%
   ggh4x::facet_nested(as.factor(dgp_ind) ~ as.factor(stat) + as.factor(mat))+
   theme_bw()+
   scale_color_manual(values = cond_colors)+
-  labs(caption = "GVAR default",
-       x = "Timepoints",
+  labs(x = "Timepoints",
        col = "Method",
-       y = "")+
-  theme_compare()
+       y = "",
+       linetype = "Select")+
+  theme_compare()+
+  theme(strip.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3), 
+                                           hjust = 0.5),
+        strip.text.x.top = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3),
+                                                 hjust = 0.5),
+        legend.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2)),
+        legend.title = ggplot2::element_text(face = "bold", size = ggplot2::rel(1.2)),
+        # panel.border = element_rect(color = "#D5D8DC", fill = NA, size = 1),
+        panel.spacing.y = ggplot2::unit(1.6, "lines"),
+        panel.spacing.x = ggplot2::unit(1.6, "lines"),
+        axis.text.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2)),
+        axis.title.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.4)))
+
 plot_eval_both
 
-ggsave("plot_eval_both_cor.svg", plot_eval_both, height = 7, width = 15, path = here::here("figures/"), device = "svg")
+ggsave("plot_eval_both_cor.svg", plot_eval_both, height = 9, width = 12, path = here::here("figures/"), device = "svg")
 
 ```
 
@@ -758,24 +761,29 @@ plot_eval_both_select <- df_eval_both %>%
   geom_line(aes(linetype = lty))+
   ggh4x::facet_nested(dgp_ind ~ as.factor(stat) + as.factor(mat))+
   theme_bw()+
-  # ggokabeito::scale_color_okabe_ito()+
   scale_color_manual(values = cond_colors)+
   labs(x = "Timepoints",
        col = "Method",
        y = "", 
        linetype = "Selection")+
   theme_compare()+
-  theme(strip.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2), hjust = 0.5),
-        strip.text.x.top = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.1), hjust = 0.5),
-        legend.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.1)),
-        legend.title = ggplot2::element_text(face = "bold", size = ggplot2::rel(1.1)),
+  theme(strip.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3), 
+                                           hjust = 0.5),
+        strip.text.x.top = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3),
+                                                 hjust = 0.5),
+        legend.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2)),
+        legend.title = ggplot2::element_text(face = "bold", size = ggplot2::rel(1.2)),
         # panel.border = element_rect(color = "#D5D8DC", fill = NA, size = 1),
         panel.spacing.y = ggplot2::unit(1.6, "lines"),
         panel.spacing.x = ggplot2::unit(1.6, "lines"),
-        axis.text.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.1)))
+        axis.text.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2)),
+        axis.title.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.4))) + 
+  # reorder legend
+  guides(linetype = guide_legend(order = 1),
+         col = guide_legend(order = 0))
 plot_eval_both_select
 
-ggsave("plot_eval_both_select.svg", plot_eval_both_select, height = 6.5, width = 12, path = here::here("figures/"), device = "svg")
+ggsave("plot_eval_both_select.svg", plot_eval_both_select, height = 9, width = 12, path = here::here("figures/"), device = "svg")
 ```
 
 
