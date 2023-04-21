@@ -2638,8 +2638,8 @@ theme_compare <- function(){
       # Title and Axis Texts
       plot.title = ggplot2::element_text(face = "bold", size = ggplot2::rel(1.2), hjust = 0.5),
       plot.subtitle = ggplot2::element_text(size = ggplot2::rel(1.1), hjust = 0.5),
-      axis.title = ggplot2::element_text(size = ggplot2::rel(1.1)),
-      axis.text = ggplot2::element_text(size = ggplot2::rel(1)),
+      axis.title = ggplot2::element_text(size = ggplot2::rel(1.15)),
+      axis.text = ggplot2::element_text(size = ggplot2::rel(1.1)),
       axis.text.x = ggplot2::element_text(margin = ggplot2::margin(5, b = 10)),
       
       # Faceting
