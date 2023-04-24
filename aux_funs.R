@@ -131,12 +131,21 @@ change_graphs <- function(truegraph = NULL,
     ## Beta
     for(n in seq_along(noise)){
       l_out_noise[[n]] <- list()
-      noise_beta <- matrix(runif(n = b_i*b_j, min = -noise[n], max = noise[n]), 
-                           nrow = b_i, ncol = b_j)
-      tmp_beta <- m_beta + noise_beta
+      # Add eigenvalue check, similar to gVARsimulator function in graphicalVAR
+      eigen_cond <- FALSE
+      eigen_iter <- 0
+      while(isFALSE(eigen_cond) & eigen_iter < 100){
+        eigen_count <- eigen_iter + 1
+        noise_beta <- matrix(runif(n = b_i*b_j, min = -noise[n], max = noise[n]), 
+                             nrow = b_i, ncol = b_j)
+        tmp_beta <- m_beta + noise_beta
+        eigen_beta <- eigen(tmp_beta)$values
+        eigen_cond <- all(Re(eigen_beta)^2 + Im(eigen_beta)^2 <1)
+      }
+      l_out_noise[[n]]$eigen_iter <- eigen_iter
       l_out_noise[[n]]$beta <- tmp_beta
       l_out_noise[[n]]$noisebeta <- noise_beta
-    }
+          }
     
     ## Kappa
     noise_mat <- list()
@@ -158,8 +167,9 @@ change_graphs <- function(truegraph = NULL,
       while(psd_check == FALSE & check_count_noise <= 100){
         check_count_noise <- check_count_noise + 1
         tmp_kappa <- m_kappa + noise_mat
+        eigen_kappa <- eigen(tmp_kappa)$values
         # tmp_kappa <- as.matrix(Matrix::forceSymmetric(tmp_kappa))
-        psd <- matrixcalc::is.positive.semi.definite(tmp_kappa)  
+        psd <- matrixcalc::is.positive.semi.definite(tmp_kappa) & all(eigen_kappa > 0)  
         if(psd){
           psd_check <- TRUE
         } else{
@@ -192,14 +202,26 @@ change_graphs <- function(truegraph = NULL,
     l_out_const <- list()
     ## Beta
     for(n in seq_along(const)){
-      l_out_const[[n]] <- list()
-      const_beta <- matrix(sample(size = b_i*b_j, 
-                                  x = c(-const[n], max = const[n]),
-                                  replace = TRUE),
-                                  nrow = b_i, ncol = b_j)
-      tmp_beta <- m_beta + const_beta
+      
+      # add Eigenvalue check
+      eigen_cond <- FALSE
+      eigen_iter <- 0
+      while(isFALSE(eigen_cond) & eigen_iter < 100){
+        eigen_count <- eigen_count + 1
+        l_out_const[[n]] <- list()
+        const_beta <- matrix(sample(size = b_i*b_j, 
+                                    x = c(-const[n], max = const[n]),
+                                    replace = TRUE),
+                                    nrow = b_i, ncol = b_j)
+        tmp_beta <- m_beta + const_beta
+        eigen_beta <- eigen(tmp_beta)$values
+        eigen_cond <- all(Re(eigen_beta)^2 + Im(eigen_beta)^2 <1)
+    
+      } 
       l_out_const[[n]]$beta <- tmp_beta
       l_out_const[[n]]$constbeta <- const_beta
+      l_out_const[[n]]$eigen_iter <- eigen_count
+      
     }
     
     ## Kappa
@@ -224,8 +246,9 @@ change_graphs <- function(truegraph = NULL,
       while(psd_check == FALSE & check_count_const <= 100){
         check_count_const <- check_count_const + 1
         tmp_kappa <- m_kappa + const_mat
-        # tmp_kappa <- as.matrix(Matrix::forceSymmetric(tmp_kappa))
-        psd <- matrixcalc::is.positive.semi.definite(tmp_kappa)  
+        eigen_kappa <- eigen(tmp_kappa)$values
+        
+        psd <- matrixcalc::is.positive.semi.definite(tmp_kappa) & all(eigen_kappa > 0)
         if(psd){
           psd_check <- TRUE
         } else{
