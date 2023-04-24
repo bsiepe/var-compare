@@ -20,6 +20,7 @@
 change_graphs <- function(truegraph = NULL, 
                           changemax = NULL,
                           noise,
+                          const,
                           permute_index = NULL,
                           permute_active = FALSE, # if matrix should be permuted
                           seed = 2022){
@@ -185,6 +186,76 @@ change_graphs <- function(truegraph = NULL,
     }
   } # end noise
   
+  ### Add constant
+  if(!is.null(const)){
+    ## Beta
+    l_out_const <- list()
+    ## Beta
+    for(n in seq_along(const)){
+      l_out_const[[n]] <- list()
+      const_beta <- matrix(sample(size = b_i*b_j, 
+                                  x = c(-const[n], max = const[n]),
+                                  replace = TRUE),
+                                  nrow = b_i, ncol = b_j)
+      tmp_beta <- m_beta + const_beta
+      l_out_const[[n]]$beta <- tmp_beta
+      l_out_const[[n]]$constbeta <- const_beta
+    }
+    
+    ## Kappa
+    noise_mat <- list()
+    for(n in seq(const)){
+      # create change matrix for kappa, which is then scaled w.r.t. the sqrt of  diagonal elements
+      const_mat <- matrix(sample(size = b_i*b_j, 
+                                 x = c(-const[n], max = const[n]),
+                                 replace = TRUE),
+                          nrow = b_i, ncol = b_j)
+      # scaling loop
+      for(i in seq(k_i)){      # loop over rows
+        for(j in seq(k_j)){    # loop over cols
+          const_mat[i,j] <- const_mat[i,j]*sqrt(m_kappa[i,i]*m_kappa[j,j])
+        }     
+      }
+      const_mat <- as.matrix(Matrix::forceSymmetric(const_mat))
+      
+      
+      psd_check <- FALSE
+      check_count_const <- 0
+      while(psd_check == FALSE & check_count_const <= 100){
+        check_count_const <- check_count_const + 1
+        tmp_kappa <- m_kappa + const_mat
+        # tmp_kappa <- as.matrix(Matrix::forceSymmetric(tmp_kappa))
+        psd <- matrixcalc::is.positive.semi.definite(tmp_kappa)  
+        if(psd){
+          psd_check <- TRUE
+        } else{
+          print(paste0("Adding const to Kappa leads to matrix that is not positive semi-definite for ", const[n], " attempt ", check_count_const))
+          # Redraw matrix
+          const_mat <- matrix(sample(size = b_i*b_j, 
+                                     x = c(-const[n], max = const[n]),
+                                     replace = TRUE),
+                              nrow = b_i, ncol = b_j)
+          # scaling loop
+          for(i in seq(k_i)){      # loop over rows
+            for(j in seq(k_j)){    # loop over cols
+              const_mat[i,j] <- const_mat[i,j]*sqrt(m_kappa[i,i]*m_kappa[j,j])
+            }     
+          }
+          const_mat <- as.matrix(Matrix::forceSymmetric(const_mat))
+          
+        } # end else
+      } # end while
+      
+      
+      l_out_const[[n]]$kappa <- tmp_kappa
+      l_out_const[[n]]$args <- paste0("const", const[n])
+      l_out_const[[n]]$constkappa <- const_mat
+      names(l_out_const)[[n]] <- paste0("const", const[n])
+    }
+    
+  } # end constant
+  
+  
   
   ### Permute matrix
   if(isTRUE(permute_active)){
@@ -194,7 +265,7 @@ change_graphs <- function(truegraph = NULL,
     l_out_perm[[1]]$kappa <- permute_mat_col(m_kappa, permute_index)  
     l_out_perm[[1]]$args <- "perm"
     names(l_out_perm) <- "perm"
-    l_out <- c(l_out, l_out_change, l_out_noise, l_out_perm)
+    l_out <- c(l_out, l_out_change, l_out_noise, l_out_const, l_out_perm)
     
   }
 
@@ -202,7 +273,7 @@ change_graphs <- function(truegraph = NULL,
   
   ### Output
   # Combine truegraph, maxchange, and added noise
-  l_out <- c(l_out, l_out_change, l_out_noise)
+  l_out <- c(l_out, l_out_change, l_out_noise, l_out_const)
   return(l_out)
   
 }
