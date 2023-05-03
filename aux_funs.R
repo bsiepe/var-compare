@@ -2054,6 +2054,229 @@ eval_bggm <- function(fit,
 
 
 
+
+# Evaluate BGGM across ----------------------------------------------------
+eval_across_bggm <- function(fit,
+                      cred_int = c(0.9, 0.95, 0.99),    # different credible intervals
+                      n_rep = 1000,         # number of repetitions per simulation condition
+                      dgp_list = l_graphs){
+  
+  
+  # Prepare output
+  l_out <- list()
+  
+  
+  # Save arguments
+  args <- fit[[1]]$args
+  l_out$dgp_ind <- fit[[1]]$sim_cond$dgp
+  l_out$tp_ind <- fit[[1]]$sim_cond$n_tp
+  l_out$rho_prior <- fit[[1]]$sim_cond$rho_prior
+  l_out$beta_prior <- fit[[1]]$sim_cond$beta_prior
+  
+  
+  ## Find corresponding true graph
+  # transposing bc we use graphicalVARsim
+  true_graph <- dgp_list[[l_out$dgp_ind]]
+  beta_true_vec <- t(true_graph$beta)
+  kappa_true <- true_graph$kappa
+  
+  # Calculate PCOR 
+  pcor_true_vec <- -1*stats::cov2cor(kappa_true)
+  
+  
+  # Vectors for correlations
+  beta_true_vec <- c(beta_true_vec)
+  pcor_true_vec <- c(pcor_true_vec[upper.tri(pcor_true_vec, diag = FALSE)])
+  
+  
+  # convert fitted values to matrices
+  # number of coefficients
+  p_beta <- length(as.numeric(c(fit[[1]]$beta_mu)))
+  p_pcor <- length(c(fit[[1]]$pcor_mu[upper.tri(fit[[1]]$pcor_mu, diag = FALSE)]))
+
+  #--- Nonselect Method ---#
+  # Convert data into matrices
+  beta_est_vec <- unlist(lapply(fit, function(x) as.numeric(c(x$beta_mu))))
+  beta_true_vec <- rep(as.numeric(c(t(true_graph$beta))), n_rep)
+  beta_full_mat <- matrix(c(beta_est_vec, beta_true_vec), ncol = 2)
+  beta_full_mat <- cbind(beta_full_mat, rep(1:p_beta, n_rep))
+  colnames(beta_full_mat) <- c("est", "true", "par")
+  df_beta_full <- as.data.frame(beta_full_mat)
+  df_beta_full$mat <- rep("beta", nrow(df_beta_full))
+
+  pcor_est_vec <- unlist(lapply(fit, function(x) as.numeric(c(x$pcor_mu[upper.tri(x$pcor_mu, diag = FALSE)]))))
+  pcor_true <- -1*stats::cov2cor(true_graph$kappa)
+  pcor_true_vec <- rep(as.numeric(c(pcor_true[upper.tri(pcor_true, diag = FALSE)])), n_rep)
+  pcor_full_mat <- matrix(c(pcor_est_vec, pcor_true_vec), ncol = 2)
+  pcor_full_mat <- cbind(pcor_full_mat, rep(1:p_pcor, n_rep))
+  colnames(pcor_full_mat) <- c("est", "true", "par")
+  df_pcor_full <- as.data.frame(pcor_full_mat)
+  df_pcor_full$mat <- rep("pcor", nrow(df_pcor_full))
+
+  df_full_nonsel <- rbind(df_beta_full, df_pcor_full)
+
+  # # Calculate results
+  df_res_nonsel <- df_full_nonsel %>%
+    dplyr::group_by(mat) %>%
+    # dplyr::mutate(cor = cor_zero(true, est)) %>%
+    dplyr::group_by(mat, par) %>%
+    dplyr::summarize(bias = mean(abs(est-true)),
+                     bias_mcse = sqrt((1/(n_rep*(n_rep-1)))*sum((est-true)^2)), # no longer correct when averaging over all params
+                     mse = mean((est-true)^2),
+                     mse_se = sqrt(sum(((est-true)^2-mse)^2)/((n_rep*(n_rep-1)))),
+                     # tp = sum(est != 0 & true != 0)/n_rep,
+                     # fp = sum(est != 0 & true == 0)/n_rep,
+                     # tn = sum(est == 0 & true == 0)/n_rep,
+                     # fn = sum(est == 0 & true != 0)/n_rep,
+                     # sens = tp/(tp + fn),
+                     # spec = tn/(tn + fp),
+                     # cor = mean(cor)
+                     ) %>%
+    # cor_mcse = (1-cor^2)/sqrt(n_rep-3)) %>%
+    dplyr::ungroup()
+
+  l_out$df_nonsel <- df_res_nonsel
+
+
+  #--- Select Method ---#
+  # # Obtain different credible intervals
+  # cred_interval <- fit$cred_interval
+
+  # # Obtain estimates with selection
+  # beta_est_sel_vec <- fit$beta_weighted_adj
+  # pcor_est_sel_vec <- fit$pcor_weighted_adj
+  #
+  # # Vectors for correlations
+  # beta_est_sel_vec <- c(beta_est_sel_vec)
+  # pcor_est_sel_vec <- c(pcor_est_sel_vec[upper.tri(pcor_est_sel_vec, diag = FALSE)])
+
+  # Convert data into matrices
+  beta_est_vec <- unlist(lapply(fit, function(x) as.numeric(c(x$beta_weighted_adj))))
+  beta_true_vec <- rep(as.numeric(c(t(true_graph$beta))), n_rep)
+  beta_full_mat <- matrix(c(beta_est_vec, beta_true_vec), ncol = 2)
+  beta_full_mat <- cbind(beta_full_mat, rep(1:p_beta, n_rep))
+  colnames(beta_full_mat) <- c("est", "true", "par")
+  df_beta_full <- as.data.frame(beta_full_mat)
+  df_beta_full$mat <- rep("beta", nrow(df_beta_full))
+
+  pcor_est_vec <- unlist(lapply(fit, function(x) as.numeric(c(x$pcor_weighted_adj[upper.tri(x$pcor_weighted_adj, diag = FALSE)]))))
+  pcor_true <- -1*stats::cov2cor(true_graph$kappa)
+  pcor_true_vec <- rep(as.numeric(c(pcor_true[upper.tri(pcor_true, diag = FALSE)])), n_rep)
+  pcor_full_mat <- matrix(c(pcor_est_vec, pcor_true_vec), ncol = 2)
+  pcor_full_mat <- cbind(pcor_full_mat, rep(1:p_pcor, n_rep))
+  colnames(pcor_full_mat) <- c("est", "true", "par")
+  df_pcor_full <- as.data.frame(pcor_full_mat)
+  df_pcor_full$mat <- rep("pcor", nrow(df_pcor_full))
+
+  df_full_sel <- rbind(df_beta_full, df_pcor_full)
+
+  # # Calcuate results
+  df_res_sel <- df_full_sel %>%
+    dplyr::group_by(mat) %>%
+    # dplyr::mutate(cor = cor_zero(true, est)) %>%
+    dplyr::group_by(mat, par) %>%
+    dplyr::summarize(bias = mean(abs(est-true)),
+                     bias_mcse = sqrt((1/(n_rep*(n_rep-1)))*sum((est-true)^2)), # no longer correct when averaging over all params
+                     mse = mean((est-true)^2),
+                     mse_se = sqrt(sum(((est-true)^2-mse)^2)/((n_rep*(n_rep-1)))),
+                     tp = sum(est != 0 & true != 0)/n_rep,
+                     fp = sum(est != 0 & true == 0)/n_rep,
+                     tn = sum(est == 0 & true == 0)/n_rep,
+                     fn = sum(est == 0 & true != 0)/n_rep,
+                     sens = tp/(tp + fn),
+                     sens_se = sqrt((sens * (1-sens))/n_rep),
+                     spec = tn/(tn + fp),
+                     spec_se = sqrt((spec * (1-spec))/n_rep),
+                     zeros = sum(est == 0)
+                     # cor = mean(cor)
+                     ) %>%
+    # cor_mcse = (1-cor^2)/sqrt(n_rep-3)) %>%
+    dplyr::ungroup()
+
+
+  l_out$df_sel <- df_res_sel
+
+ 
+  
+  ## Coverage
+  # # Obtain different credible intervals
+  # number of different cis
+  n_ci <- length(fit[[1]]$cred_interval$beta_lb)
+  
+  # loop over repetitions
+  l_ci <- lapply(fit, function(x){
+    ci <- x$cred_interval
+    
+    l_store <- list()
+    # loop over different intervals
+    for(i in 1:n_ci){
+      l_store[[i]] <- list()
+      # Coverage
+      lb_beta <- c(ci$beta_lb[[i]])
+      ub_beta <- c(ci$beta_ub[[i]])
+      lb_pcor <- ci$pcor_lb[[i]]
+      lb_pcor <- c(lb_pcor[upper.tri(lb_pcor)])
+      ub_pcor <- ci$pcor_ub[[i]]
+      ub_pcor <- c(ub_pcor[upper.tri(ub_pcor)])
+      
+      l_store[[i]]$cover_beta <- beta_true_vec >= lb_beta & beta_true_vec <= ub_beta
+      l_store[[i]]$cover_pcor <- pcor_true_vec >= lb_pcor & pcor_true_vec <= ub_pcor
+      
+      # Width
+      l_store[[i]]$width_beta <- c(ub_beta-lb_beta)
+      l_store[[i]]$width_pcor <- c(ub_pcor-lb_pcor)
+    }
+    l_store
+  }
+    )
+
+    
+    
+    # Summarize across repetitions
+    # add SE for coverage
+    cover_beta <- lapply(l_ci, function(x){
+      cb1 <- x[[1]]$cover_beta
+      cb2 <- x[[2]]$cover_beta
+      cb3 <- x[[3]]$cover_beta
+      cb <- data.frame(cover = c(cb1, cb2, cb3),
+                       ci = rep(c("cb1", "cb2", "cb3"), each = length(cb1)),
+                       mat = rep("beta", length(cb1)*3))
+      # cb <- cbind(cb, rep("c_beta", nrow(cb)))
+      cb
+    })
+    cover_beta <- do.call(rbind, cover_beta)
+    
+    cover_pcor <- lapply(l_ci, function(x){
+      cp1 <- x[[1]]$cover_pcor
+      cp2 <- x[[2]]$cover_pcor
+      cp3 <- x[[3]]$cover_pcor
+      cp <- data.frame(cover = c(cp1, cp2, cp3),
+                       ci = rep(c("cp1", "cp2", "cp3"), each = length(cp1)),
+                       mat = rep("beta", length(cp1)*3))
+      cp
+    })
+    cover_pcor <- do.call(rbind, cover_pcor)
+    df_cover <- rbind(cover_beta, cover_pcor)
+    
+    df_cover <- df_cover %>% 
+      dplyr::group_by(ci, mat) %>% 
+      dplyr::summarize(coverage_mean = mean(cover), 
+                       coverage_se = sqrt((coverage_mean * (1-coverage_mean))/n_rep)) %>% 
+      dplyr::ungroup()
+    
+  l_out$df_cover <- df_cover
+    
+
+  #--- Output ---#
+
+  return(l_out)
+}
+
+
+
+
+
+
 # Evaluate GVAR Simulation ------------------------------------------------
 eval_gvar <- function(fit,
                       nds = 1000,         # number of datasets per simulation condition
@@ -2148,72 +2371,77 @@ eval_gvar <- function(fit,
 
 
 
-# TODO add args
+
 eval_across_gvar <- function(fit, 
-                             true_graph,
+                             dgp_list = l_graphs,
+                             # summarize_params = TRUE, # summarize across all parameters within a coef matrix
                              n_rep = 1000){
   # output
   l_out <- list()
+  # Save arguments
+  args <- fit$args
+  l_out$dgp_ind <- fit[[1]]$sim_cond$dgp
+  l_out$tp_ind <- fit[[1]]$sim_cond$n_tp
+  l_out$ebic <- fit[[1]]$sim_cond$gamma_ebic
+  l_out$lambda <- fit[[1]]$sim_cond$lambda
+  
+  # Get true graph
+  true_graph <- dgp_list[[l_out$dgp_ind]]
+  
+  # number of coefficients
+  p_beta <- length(as.numeric(c(t(fit[[1]]$beta[,-1]))))
+  p_pcor <- length(c(fit[[1]]$PCC[upper.tri(fit[[1]]$PCC, diag = FALSE)]))
   
   # Convert data into matrices
   beta_est_vec <- unlist(lapply(fit, function(x) as.numeric(c(t(x$beta[,-1])))))
   beta_true_vec <- rep(as.numeric(c(t(true_graph$beta))), n_rep)
   beta_full_mat <- matrix(c(beta_est_vec, beta_true_vec), ncol = 2)
+  beta_full_mat <- cbind(beta_full_mat, rep(1:p_beta, n_rep))
+  colnames(beta_full_mat) <- c("est", "true", "par")
+  df_beta_full <- as.data.frame(beta_full_mat)
+  df_beta_full$mat <- rep("beta", nrow(df_beta_full))
   
   pcor_est_vec <- unlist(lapply(fit, function(x) as.numeric(c(x$PCC[upper.tri(x$PCC, diag = FALSE)]))))
   pcor_true <- -1*stats::cov2cor(true_graph$kappa)
   pcor_true_vec <- rep(as.numeric(c(pcor_true[upper.tri(pcor_true, diag = FALSE)])), n_rep)
   pcor_full_mat <- matrix(c(pcor_est_vec, pcor_true_vec), ncol = 2)
+  pcor_full_mat <- cbind(pcor_full_mat, rep(1:p_pcor, n_rep))
+  colnames(pcor_full_mat) <- c("est", "true", "par")
+  df_pcor_full <- as.data.frame(pcor_full_mat)
+  df_pcor_full$mat <- rep("pcor", nrow(df_pcor_full))
   
-  # Example calculation
+  df_full <- rbind(df_beta_full, df_pcor_full)
   
-  # Bias
-  l_out$beta_bias<- mean(abs(beta_full_mat[,1]-beta_full_mat[,2]))
-  l_out$pcor_bias<- mean(abs(pcor_full_mat[,1]-pcor_full_mat[,2]))
+  # # Calcuate results
+  df_res <- df_full %>% 
+    dplyr::group_by(mat) %>% 
+    dplyr::mutate(cor = cor_zero(true, est)) %>% 
+    dplyr::group_by(mat, par) %>% 
+    dplyr::summarize(bias = mean(abs(est-true)),
+                     bias_mcse = sqrt((1/(n_rep*(n_rep-1)))*sum((est-true)^2)), # no longer correct when averaging over all params
+                     tp = sum(est != 0 & true != 0)/n_rep, 
+                     fp = sum(est != 0 & true == 0)/n_rep, 
+                     tn = sum(est == 0 & true == 0)/n_rep, 
+                     fn = sum(est == 0 & true != 0)/n_rep, 
+                     sens = tp/(tp + fn),
+                     sens_se = sqrt((sens * (1-sens))/n_rep),
+                     spec = tn/(tn + fp),
+                     spec_se = sqrt((sens * (1-sens))/n_rep),
+                     cor = mean(cor)) %>% 
+                     # cor_mcse = (1-cor^2)/sqrt(n_rep-3)) %>% 
+    dplyr::ungroup()
   
-  # RMSE
-  beta_squared_error <- (beta_full_mat[,1]-beta_full_mat[,2])^2
-  l_out$beta_mse <- mean(beta_squared_error)
-  l_out$beta_rmse <- sqrt(l_out$beta_mse)
-  pcor_squared_error <- (pcor_full_mat[,1]-pcor_full_mat[,2])^2
-  l_out$pcor_mse <- mean(pcor_squared_error)
-  l_out$pcor_rmse <- sqrt(l_out$pcor_mse)
-  
-  # number of estimates
-  nrow_beta <- nrow(beta_full_mat)
-  nrow_pcor <- nrow(pcor_full_mat)
-  # TP
-  l_out$true_pos_beta <- sum(beta_full_mat[,2] != 0 & beta_full_mat[,1] != 0)/nrow_beta
-  l_out$true_pos_pcor <- sum(pcor_full_mat[,2] != 0 & pcor_full_mat[,2] != 0)/nrow_pcor
-  
-  # FP
-  l_out$fal_pos_beta <- sum(beta_full_mat[,2] == 0 & beta_full_mat[,1] != 0)/nrow_beta
-  l_out$fal_pos_pcor <- sum(pcor_full_mat[,2] == 0 & pcor_full_mat[,2] != 0)/nrow_pcor  
-  
-  # TN
-  l_out$true_neg_beta <- sum(beta_full_mat[,2] == 0 & beta_full_mat[,1] == 0)/nrow_beta
-  l_out$true_neg_pcor <- sum(pcor_full_mat[,2] == 0 & pcor_full_mat[,2] == 0)/nrow_pcor
-  
-  # FN
-  l_out$fal_neg_beta <- sum(beta_full_mat[,2] != 0 & beta_full_mat[,1] == 0)/nrow_beta
-  l_out$fal_neg_pcor <- sum(pcor_full_mat[,2] != 0 & pcor_full_mat[,2] == 0)/nrow_pcor
-  
-  ## Sensitivity
-  l_out$sens_beta <- l_out$true_pos_beta / (l_out$true_pos_beta + l_out$fal_neg_beta)
-  l_out$sens_pcor <- l_out$true_pos_pcor / (l_out$true_pos_pcor + l_out$fal_neg_pcor)
-  
-  ## Specificity
-  l_out$spec_beta <- l_out$true_neg_beta / (l_out$true_neg_beta + l_out$fal_pos_beta)
-  l_out$spec_pcor <- l_out$true_neg_pcor / (l_out$true_neg_pcor + l_out$fal_pos_pcor)
+  # if(isTRUE(summarize_params)){
+  #   df_res <- df_res %>% 
+  #     dplyr::select(!par) %>% 
+  #     dplyr::group_by(mat) %>% 
+  #     dplyr::summarize(across(everything(), 
+  #                      ~mean(., na.rm = TRUE)))
+  # }
+  # 
+  return(df_res)
   
   
-  ## Correlations
-  l_out$cor_beta <- cor_zero(beta_full_mat[,1], beta_full_mat[,2])
-  l_out$cor_pcor <- cor_zero(pcor_full_mat[,1], pcor_full_mat[,2])
-  
-  
-  # return(beta_full_mat)
-  return(l_out)
   
 }
 
@@ -2425,7 +2653,7 @@ compare_var <- function(fit_a,
 
 # Plotting method
 # THIS IS ONLY TEMPORARY!
-plot.compare_var <- function(compres,
+plot.compare_gvar <- function(compres,
                              name_a = NULL,   # set name for a manually
                              name_b = NULL,   # set name for b manually
                              ...){
