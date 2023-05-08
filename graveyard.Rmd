@@ -1685,3 +1685,77 @@ ggsave("similarity_matrix_empirical_example.svg", p, device = "svg", path = here
 ```
 
 
+
+
+# Old Plots for plotting resample VAR
+Decision rule figure in loop 
+```{r}
+v_graphs <- c("graph1", "graph2", "graph3", "graph4", "graph5")
+
+for(g in v_graphs){
+  
+  p <- df_comp_res %>% 
+          filter(dgp == g) %>% 
+          # setup decision rule
+          mutate(sig_beta05 = ifelse(beta_a < 50 | beta_b < 50, 1, 0),
+                 sig_pcor05 = ifelse(pcor_a < 50 | pcor_b < 50, 1, 0)) %>% 
+          group_by(dgp, comp, tp, change) %>% 
+          mutate(n_comp = n()) %>% 
+          summarize(power_beta05 = sum(sig_beta05)/n_comp,
+                    power_pcor05 = sum(sig_pcor05)/n_comp) %>% 
+          # somehow does not cut everything if I don't do this
+          # TODO
+          summarize(power_beta05 = mean(power_beta05),
+                    power_pcor05 = mean(power_pcor05)) %>% 
+          pivot_longer(cols = c("power_beta05", "power_pcor05"), names_to = "res") %>% 
+          ggplot(aes(x = as.numeric(tp), y = value, col = comp)) + 
+          geom_line()+
+          facet_grid(change ~ res)+
+          theme_minimal()+
+          theme_compare+
+          labs(caption = paste0("Power of decision rule \"OR\" for ", g))
+  
+  ggsave(filename = paste0("plot_dec_rule_", g, ".svg"),p, device = "svg",
+         path = here("figures/"))
+  print(p)
+}
+
+
+```
+
+#### Posterior Diff > Empirical
+Instead of power, we can plot the median number of bootstrapped differences larger than empirical.
+
+```{r}
+v_graphs <- c("graph1", "graph2", "graph3", "graph4", "graph5")
+
+for(g in v_graphs){
+  
+  p <- df_comp_res %>% 
+          pivot_longer(cols = c("beta_a", "beta_b", "pcor_a", "pcor_b"), names_to = "res") %>% 
+          filter(dgp == g) %>% 
+          mutate(comp = as.factor(comp),
+                 tp = as.numeric(tp),
+                 change = as.factor(change),
+                 res = as.factor(res)) %>% 
+          dplyr::group_by(comp, tp, change, res) %>%
+          # we have 1000 draws, so divide by 10
+          dplyr::summarize(pct_larger = value/1000) %>%
+          dplyr::summarize(pct_larger = mean(pct_larger)) %>% 
+          ggplot(aes(x = as.numeric(tp), y = pct_larger, col = comp)) + 
+          # geom_text(aes(label = round(pct_larger,1)), size = 4)+
+          geom_line()+
+          facet_grid(change ~ res)+
+          theme_minimal()+
+          scale_color_okabe_ito()+ 
+          labs(caption = g,
+               x = "Timepeoints",
+               y = "% larger than empirical")
+  
+  ggsave(filename = paste0("plot_count_difference_", g, ".svg"),p, device = "svg",
+         path = here("figures/"), height = 10, width = 7)
+  print(p)
+}
+
+```
+
