@@ -142,7 +142,7 @@ for(m in 1:nrow(cond_grid)){
 }
 
 saveRDS(l_res_bggm, here::here("output/bggm-var-sim-res_2403.Rds"))
-# l_res_bggm <- readRDS(here::here("output/bggm-var-sim-res_1703.Rds"))
+# l_res_bggm <- readRDS(here::here("output/bggm-var-sim-res_2403.Rds"))
 
 
 
@@ -212,11 +212,10 @@ for(m in 1:nrow(cond_grid_gvar)){
 ## Evaluation
 
 Evaluate both with and without graph selection.
-
 ```{r}
 l_res_bggm <- readRDS(here::here("output/bggm-var-sim-res_2403.Rds"))
 l_res_gvar <- readRDS(here::here("output/graphicalvar-sim-res_2403.Rds"))
-wl_graphs <- readRDS(here::here("data/l_graphs.RDS"))
+l_graphs <- readRDS(here::here("data/l_graphs.RDS"))
 
 
 ## BGGM
@@ -251,55 +250,112 @@ df_eval_gvar <- dplyr::bind_rows(df_eval_gvar)
 rm(l_eval_gvar)
 
 # save evaluations
-# saveRDS(df_eval_gvar, here::here("output/df_eval_gvar_2703.RDS"))
-# saveRDS(df_eval_bggm, here::here("output/df_eval_bggm_2703.RDS"))
-df_eval_gvar <- readRDS(here::here("output/df_eval_gvar_2703.RDS"))
-df_eval_bggm <- readRDS(here::here("output/df_eval_bggm_2703.RDS"))
+# saveRDS(df_eval_gvar, here::here("output/df_eval_gvar_0705.RDS"))
+# saveRDS(df_eval_bggm, here::here("output/df_eval_bggm_0705.RDS"))
+df_eval_gvar <- readRDS(here::here("output/df_eval_gvar_0705.RDS"))
+df_eval_bggm <- readRDS(here::here("output/df_eval_bggm_0705.RDS"))
 
 ```
 
-Combine evaluations.
 
+New evaluation with standard errors. 
 ```{r}
-# add row iteration number
-cond_grid <- cond_grid %>% 
-  mutate(iter_bggm = dplyr::row_number())
-cond_grid_gvar <- cond_grid_gvar %>% 
-  mutate(iter_gvar = dplyr::row_number())
+n_rep = 1000
+
+## For GVAR
+df_eval_gvar_mcse <- df_eval_gvar %>% 
+   # pivot_longer, split beta and pcor
+    pivot_longer(cols = -c(dgp_ind, tp_ind, lambda, ebic), 
+               names_to = c(".value", "mat"), 
+               names_pattern = "(.*)_([^_]+)$") %>% 
+  dplyr::group_by(dgp_ind, tp_ind, lambda, ebic, mat) %>% 
+  dplyr::summarize(
+    bias = mean(bias), 
+    bias_mcse = sqrt((1/(n_rep*(n_rep-1)))*sum(bias_sq)),  # double check the square here
+    cor = mean(cor), 
+    cor_mcse = sqrt(1-cor^2)/sqrt(n_rep-2),
+    sens = mean(sens), 
+    sens_mcse = sqrt((sens * (1-sens))/n_rep),
+    spec = mean(spec),
+    spec_mcse = sqrt((spec * (1-spec))/n_rep)) %>% 
+  ungroup()
 
 
-# add dataset iteration information to each
-df_eval_bggm_ind <- df_eval_bggm %>% 
-  group_by(dgp_ind, tp_ind, rho_prior, beta_prior) %>% 
-  mutate(data_ind = dplyr::row_number())
+## For BGGM
+df_eval_bggm_mcse <- df_eval_bggm %>% 
+  # pivot_longer, split beta and pcor
+  tidyr::pivot_longer(cols = -c(dgp_ind, tp_ind, rho_prior, beta_prior,
+                           contains("cover"), contains("width")), 
+               names_to = c(".value", "mat"), 
+               names_pattern = "(.*)_([^_]+)$") %>% 
+  # seperate SEL and non-select
+  # tidyr::pivot_longer(cols = c(contains("bias"), cor, cor_sel, contains("rmse"))) %>% 
+  # mutate(method = ifelse(grepl("_sel", name), "sel", "bggm")) %>% 
+  # mutate(name = stringr::str_remove(name, "_sel")) %>% 
+  rename(bias_bggm = bias, 
+         rmse_bggm = rmse, 
+         cor_bggm = cor) %>% 
+    pivot_longer(
+    cols = c(bias_bggm, rmse_bggm, cor_bggm, bias_sel, rmse_sel, cor_sel),  # Specify the columns to pivot
+    names_to = c(".value", "method"),  # Specify the new column names
+    names_pattern = "(.*)_(.*)"  # Pattern to match the column names
+  ) %>% 
+  dplyr::group_by(dgp_ind, tp_ind, rho_prior, beta_prior, mat, method) %>% 
+  dplyr::summarize(
+    bias = mean(bias), 
+    bias_mcse = sqrt((1/(n_rep*(n_rep-1)))*sum(bias_sq)),  # double check the square here
+    cor = mean(cor), 
+    cor_mcse = sqrt(1-cor^2)/sqrt(n_rep-2),
+    sens = mean(sens), 
+    sens_mcse = sqrt((sens * (1-sens))/n_rep),
+    spec = mean(spec),
+    spec_mcse = sqrt((spec * (1-spec))/n_rep)) %>% 
+  ungroup()
 
-df_eval_gvar_ind <- df_eval_gvar %>% 
-  group_by(dgp_ind, tp_ind, lambda, ebic) %>% 
-  mutate(data_ind = dplyr::row_number())
+
+
+```
+
+
+
+
+
+Combine evaluations.
+```{r}
+# No longer relevant for new evaluation
+# # add row iteration number
+# cond_grid <- cond_grid %>% 
+#   mutate(iter_bggm = dplyr::row_number())
+# cond_grid_gvar <- cond_grid_gvar %>% 
+#   mutate(iter_gvar = dplyr::row_number())
+# 
+# 
+# # add dataset iteration information to each
+# df_eval_bggm_ind <- df_eval_bggm %>% 
+#   group_by(dgp_ind, tp_ind, rho_prior, beta_prior) %>% 
+#   mutate(data_ind = dplyr::row_number())
+# 
+# df_eval_gvar_ind <- df_eval_gvar %>% 
+#   group_by(dgp_ind, tp_ind, lambda, ebic) %>% 
+#   mutate(data_ind = dplyr::row_number())
 
 
   
 # For joining, select one of the prior conditions
-df_eval_both <- df_eval_bggm_ind %>% 
+df_eval_both <- df_eval_bggm_mcse %>% 
   # filter(beta_prior == 0.5 & rho_prior == 0.5) %>% 
-  left_join(df_eval_gvar_ind, by = c("dgp_ind", "tp_ind", "data_ind"),
+  left_join(df_eval_gvar_mcse, by = c("dgp_ind", "tp_ind", "mat"),
             suffix = c("_bggm", "_gvar")) %>% 
-  ungroup()
+  ungroup() %>% 
+  # selection vs. nonselection pivot wider
+  pivot_wider(
+    names_from = method, 
+    values_from = c(contains("bggm")),
+    names_sep = "_"
+  ) %>% 
+    rename_with(~ gsub("_bggm_", "_", .), contains("_bggm_"))
   
-# TODO maybe add correlation to this as well?
-# need to add "data_ind" to the df_cors
-
-
-
-```
-
-Function to calculate rmse across all repetitions
-
-```{r}
-rmse_test <- eval_across_gvar(fit = tes,
-            true_graph = l_graphs[[6]]) 
-
-
+  
 
 
 
@@ -307,7 +363,7 @@ rmse_test <- eval_across_gvar(fit = tes,
 
 ### Plotting results
 
-Prepare plotting
+Prepare plotting. 
 
 ```{r}
 # Timepoint values with all levels
@@ -334,6 +390,192 @@ cond_colors <- set_names(ggokabeito::palette_okabe_ito()[1:5],
 
 ```
 
+
+## NEW PLOTS WITH UNCERTAINTY
+Prepare data: Pivot longer and mutate columns. 
+```{r}
+# Pivot longer and mutate columns
+df_eval_both_long <- df_eval_both %>% 
+  ungroup() %>% 
+  # Filter irrelevant condition
+  dplyr::filter(!(!is.na(lambda) & ebic == 0.5)) %>% 
+  tidyr::pivot_longer(cols = c(contains("bias"), contains("cor"), contains("mcse"), contains("spec"), contains("sens"))) %>%
+  mutate(val_type = case_when(
+    stringr::str_detect(name, "mcse") ~ "mcse",
+    TRUE ~ "value"
+  )) %>%   
+  mutate(method = case_when(
+    stringr::str_detect(name, "bggm") ~ "BGGM",
+    stringr::str_detect(name, "sel") ~ "SEL",
+    stringr::str_detect(name, "gvar") ~ "graphicalVAR"
+  )) %>% 
+  mutate(name = stringr::str_remove(name, "_.*")) %>% 
+  rename(stat = name) %>% 
+  pivot_wider(names_from = val_type, 
+              values_from = value) %>% 
+  mutate(mat = case_when(
+    stringr::str_detect(mat, "beta") ~ "Temporal",
+    stringr::str_detect(mat, "pcor") ~ "Contemporaneous"
+  )) %>% 
+ mutate(stat = case_when(
+                          stringr::str_detect(stat, "sens") ~ "Sensitivity",
+                          stringr::str_detect(stat, "spec") ~ "Specificity",
+                          stringr::str_detect(stat, "bias") ~ "Bias",
+                          stringr::str_detect(stat, "cor") ~ "Correlation"))
+  
+  
+
+```
+
+
+
+
+### Plot BGGM
+This is not done yet; I need to think about what to include.
+```{r}
+df_eval_bggm %>% 
+  filter(dgp_ind > dgp_cut) %>% 
+  mutate(tp_ind = fct_recode(as_factor(as.character(tp_ind)), !!!tp_levels)) %>% 
+  mutate(dgp_ind = fct_recode(as_factor(as.character(dgp_ind)), !!!dgp_levels)) %>% 
+  
+
+```
+
+
+
+### Plot both
+```{r}
+plot_eval_both <- df_eval_both_long %>% 
+  # delete older dgps
+  filter(dgp_ind > dgp_cut) %>%
+  # mutate tp_ind into factor
+  mutate(tp_ind = fct_recode(as_factor(as.character(tp_ind)), !!!tp_levels)) %>% 
+  # mutate dgp_ind into factor
+  mutate(dgp_ind = fct_recode(as_factor(as.character(dgp_ind)), !!!dgp_levels)) %>% 
+  mutate(prior_comb = paste0("b", beta_prior,  "_r", rho_prior)) %>% 
+  filter(prior_comb == "b1_r0.5" | prior_comb == "b0.2_r0.3") %>% 
+  dplyr::group_by(dgp_ind, tp_ind, lambda, ebic, prior_comb) %>% 
+  mutate(method = paste0(method, "_", prior_comb)) %>% 
+  mutate(method = case_when(
+    stringr::str_detect(method, "BGGM_b0.2") ~ "BGGM narrow",
+    stringr::str_detect(method, "BGGM_b1") ~ "BGGM wide",
+    stringr::str_detect(method, "graphicalVAR") ~ "graphicalVAR",
+    stringr::str_detect(method, "SEL_b0.2") ~ "SEL narrow",
+    stringr::str_detect(method, "SEL_b1") ~ "SEL wide"
+  )) %>% 
+  # add linetype
+  mutate(lty = ifelse(grepl("SEL", method), "select", "nonselect")) %>% 
+  # only take default values for now
+  filter(is.na(lambda) & ebic == 0) %>% 
+  # not look at spec/sens here
+  filter(!stat %in% c("Sensitivity", "Specificity")) %>% 
+  ggplot(aes(x = tp_ind, y = value, col = method, group = method))+
+  geom_line(aes(linetype = lty))+
+  geom_linerange(aes(ymin = value - 1.96*mcse,
+                            ymax = value + 1.96*mcse),
+                        width = .5, 
+                 # position = position_dodge(0.1)
+                 )+
+  # geom_point()+
+  ggh4x::facet_nested(as.factor(dgp_ind) ~ as.factor(stat) + as.factor(mat))+
+  theme_bw()+
+  scale_color_manual(values = cond_colors)+
+  labs(x = "Timepoints",
+       col = "Method",
+       y = "",
+       linetype = "Select")+
+  theme_compare()+
+  theme(strip.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3), 
+                                           hjust = 0.5),
+        strip.text.x.top = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3),
+                                                 hjust = 0.5),
+        legend.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2)),
+        legend.title = ggplot2::element_text(face = "bold", size = ggplot2::rel(1.2)),
+        # panel.border = element_rect(color = "#D5D8DC", fill = NA, size = 1),
+        panel.spacing.y = ggplot2::unit(1.6, "lines"),
+        panel.spacing.x = ggplot2::unit(1.6, "lines"),
+        axis.text.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2)),
+        axis.title.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.4)))
+
+plot_eval_both
+ggsave("plot_eval_both_cor.svg", plot_eval_both, height = 9, width = 12, path = here::here("figures/"), device = "svg")
+
+
+```
+
+
+### Plot Selection Methods
+```{r}
+plot_eval_select <- df_eval_both_long %>% 
+  # delete older dgps
+  filter(dgp_ind > dgp_cut) %>%
+  # mutate tp_ind into factor
+  mutate(tp_ind = fct_recode(as_factor(as.character(tp_ind)), !!!tp_levels)) %>% 
+  # mutate dgp_ind into factor
+  mutate(dgp_ind = fct_recode(as_factor(as.character(dgp_ind)), !!!dgp_levels)) %>% 
+  mutate(prior_comb = paste0("b", beta_prior,  "_r", rho_prior)) %>% 
+  filter(prior_comb == "b1_r0.5" | prior_comb == "b0.2_r0.3") %>% 
+  dplyr::group_by(dgp_ind, tp_ind, lambda, ebic, prior_comb) %>% 
+  mutate(method = paste0(method, "_", prior_comb)) %>% 
+  mutate(method = case_when(
+    stringr::str_detect(method, "BGGM_b0.2") ~ "BGGM narrow",
+    stringr::str_detect(method, "BGGM_b1") ~ "BGGM wide",
+    stringr::str_detect(method, "graphicalVAR") ~ "graphicalVAR",
+    stringr::str_detect(method, "SEL_b0.2") ~ "SEL narrow",
+    stringr::str_detect(method, "SEL_b1") ~ "SEL wide"
+  )) %>% 
+  # disregard non-select methods
+  filter(!grepl("BGGM", method)) %>% 
+  # add linetype
+  mutate(lty = ifelse(grepl("SEL", method), "select", "nonselect")) %>% 
+  # only take default values for now
+  filter(is.na(lambda) & ebic == 0) %>% 
+  # not look at spec/sens here
+  filter(stat %in% c("Sensitivity", "Specificity")) %>% 
+  ggplot(aes(x = tp_ind, y = value, col = method, group = method))+
+  geom_line(aes(linetype = lty))+
+  geom_linerange(aes(ymin = value - 1.96*mcse,
+                            ymax = value + 1.96*mcse),
+                        width = .5, 
+                 # position = position_dodge(0.1)
+                 )+
+  # geom_point()+
+  ggh4x::facet_nested(as.factor(dgp_ind) ~ as.factor(stat) + as.factor(mat))+
+  theme_bw()+
+  scale_color_manual(values = cond_colors)+
+  labs(x = "Timepoints",
+       col = "Method",
+       y = "",
+       linetype = "Select")+
+  theme_compare()+
+  theme(strip.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3), 
+                                           hjust = 0.5),
+        strip.text.x.top = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3),
+                                                 hjust = 0.5),
+        legend.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2)),
+        legend.title = ggplot2::element_text(face = "bold", size = ggplot2::rel(1.2)),
+        # panel.border = element_rect(color = "#D5D8DC", fill = NA, size = 1),
+        panel.spacing.y = ggplot2::unit(1.6, "lines"),
+        panel.spacing.x = ggplot2::unit(1.6, "lines"),
+        axis.text.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2)),
+        axis.title.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.4)))
+
+plot_eval_select
+ggsave("plot_eval_select.svg", plot_eval_select, height = 9, width = 12, path = here::here("figures/"), device = "svg")
+
+
+```
+
+
+
+
+
+
+
+
+
+
+## OLDER WITHOUT STANDARD ERRORS
 #### Plot BGGM
 
 ```{r}
@@ -862,6 +1104,20 @@ plot_eval_both_select
 
 ggsave("plot_eval_both_select.svg", plot_eval_both_select, height = 9, width = 12, path = here::here("figures/"), device = "svg")
 ```
+
+
+Now with standard errors:
+```{r}
+
+
+
+
+```
+
+
+
+
+
 
 ### Focus on nonselect methods
 
