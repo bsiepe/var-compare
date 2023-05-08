@@ -1,7 +1,7 @@
 ---
 title: "var-resample"
 author: "Björn Siepe"
-date: "2022-11-10"
+date: "`r Sys.Date()"
 output: html_document
 ---
 
@@ -65,7 +65,6 @@ graph_fried$kappa <- graph_fried$kappa[1:6, 1:6]
 
 ```{r own-graph}
 graph <- readRDS(here::here("data/graph.RDS"))
-
 # delete PCC (not needed)
 graph <- graph[-3]
 
@@ -98,6 +97,16 @@ graph5 <- readRDS(here::here("data/graph5.RDS"))
 
 ```
 
+## Simulation Conditions
+```{r}
+# Simulation conditions
+n_ind <- 100 # number of individuals(so models to create) 
+n_tp <- c(50,100,200,400, 1000) # number of timepoints
+n_postds <- 120 # number of posterior datasets
+seed <- 2022
+dgp_names <- c("graph1", "graph2", "graph3", "graph4", "graph5")
+```
+
 
 
 
@@ -113,25 +122,27 @@ Now we can change all graphs according to the simulation conditions.
 #                  graph5 = graph5)
 
 l_graphs <- readRDS("data/l_graphs.RDS")
-l_changed_graphs <-readRDS("data/l_changed_graphs.RDS")
+l_graphs <- l_graphs[-6]
+l_changed_graphs <-readRDS("data/l_changed_graphs_0305.RDS")
 
 # Apply change function to every graph
 l_changed_graphs <- lapply(l_graphs,
                            function(x) {change_graphs(
                                             truegraph = x,
-                                            changemax = c(1.2, 1.4, 1.6),
+                                            changemax = c(1.4, 1.6),
                                             noise = c(0.1,0.2,0.3),
+                                            const = c(0.05, 0.1, 0.15),
                                             permute_active = FALSE,
                                             seed = seed)})
 
-# again for graph5 
-l_change5 <- change_graphs(truegraph = l_graphs$graph5,
-                           changemax = c(1.2, 1.4, 1.6),
-                                            noise = c(0.1,0.2,0.3),
-                                            permute_active = FALSE,
-                                            seed = 2023)
-
-l_changed_graphs$graph5$noise0.2 <- l_change5$noise0.2
+# # again for graph5 
+# l_change5 <- change_graphs(truegraph = l_graphs$graph5,
+#                            changemax = c(1.2, 1.4, 1.6),
+#                                             noise = c(0.1,0.2,0.3),
+#                                             permute_active = FALSE,
+#                                             seed = 2023)
+# 
+# l_changed_graphs$graph5$noise0.2 <- l_change5$noise0.2
 
 
 # write_rds(l_changed_graphs, "data/l_changed_graphs.RDS")
@@ -141,7 +152,6 @@ l_changed_graphs$graph5$noise0.2 <- l_change5$noise0.2
 
 Get change matrices for supplement
 ```{r}
-
 l_diff_mat <- list()
 
 # loop over dgps 
@@ -149,12 +159,11 @@ for(i in 1:5){
   l_diff_mat[[i]] <- list()
   # loop over noise structures
   ct <- 0
-  for(ch in 4:6){
+  for(ch in 7:9){
     ct <- ct+1
     l_diff_mat[[i]][[ct]] <- list()
-    l_diff_mat[[i]][[ct]]$beta <- round (l_changed_graphs[[i]][[ch]]$beta-l_changed_graphs[[i]]$truegraph$beta,3)
+    l_diff_mat[[i]][[ct]]$beta <- round(l_changed_graphs[[i]][[ch]]$beta-l_changed_graphs[[i]]$truegraph$beta,3)
     l_diff_mat[[i]][[ct]]$pcor <- round((-1*stats::cov2cor(l_changed_graphs[[i]][[ch]]$kappa))-(-1*stats::cov2cor(l_changed_graphs[[i]]$truegraph$kappa)),3)
-    # l_diff_mat[[i]][[ct]]$pcor <- round(-1*stats::cov2cor(l_diff_mat[[i]][[ct]]$kappa),3)
   }
     
   
@@ -168,9 +177,9 @@ return(paste("\\begin{bsmallmatrix}", matrix_string, "\\end{bsmallmatrix}"))
 }
 
 # For beta, identical across dgps
-array_to_latex(l_diff_mat[[1]][[1]]$beta)
-array_to_latex(l_diff_mat[[1]][[2]]$beta)
-array_to_latex(l_diff_mat[[1]][[3]]$beta)
+array_to_latex(l_diff_mat[[5]][[1]]$beta)
+array_to_latex(l_diff_mat[[5]][[2]]$beta)
+array_to_latex(l_diff_mat[[5]][[3]]$beta)
 
 lapply(l_diff_mat, function(x){
   lapply(x, function(y) mean(abs(y$beta)))
@@ -184,7 +193,7 @@ lapply(l_diff_mat, function(x){
 # For kappa, slightly different
 array_to_latex(l_diff_mat[[3]][[1]]$pcor)
 array_to_latex(l_diff_mat[[3]][[2]]$pcor)
-array_to_latex(l_diff_mat[[3]][[3]]$pcor)
+array_to_latex(l_diff_mat[[5]][[3]]$pcor)
 
 ```
 
@@ -194,25 +203,18 @@ array_to_latex(l_diff_mat[[3]][[3]]$pcor)
 Then, generate rawdata from data-generating processes. We create more posterior datasets than we fit in the end, because some of them may not converge when using the posterior predictive approach. 
 
 ```{r generate-rawdata-parallel}
-
-# Simulation conditions
-n_ind <- 100 # number of individuals(so models to create) 
-n_tp <- c(50,100,200,400, 1000) # number of timepoints
-n_postds <- 120 # number of posterior datasets
-seed <- 2022
-
-
 # Changed: instead of n_ind, we create n_postds datasets 
 # because some models don't converge
 before_simraw <- Sys.time()
 ncores = 40
 cl = makeCluster(ncores)
 registerDoParallel(cl)
-l_raw <- list()
-for(t in seq_along(n_tp)){
-      l_raw[[t]] <- list()
-  for(g in 1:5){
-      l_raw[[t]][[g]] <- lapply(l_changed_graphs[[g]],
+l_raw_new <- list()
+
+for(dgp in dgp_names){
+  l_raw_new[[dgp]] <- list()
+  for(t in seq_along(n_tp)){
+      l_raw_new[[dgp]][[t]] <- lapply(l_changed_graphs[[dgp]],
                                         function(x) sim_raw_parallel(dgp = x, 
                                                                      n = n_postds, 
                                                                      tp = n_tp[t], 
@@ -230,6 +232,14 @@ after_simraw <- Sys.time()-before_simraw  # less than 4 minutes
 # write_rds(l_raw, "data/l_raw_new_1703.RDS")
 l_raw <- readRDS(here::here("data/l_raw_new_1703.RDS"))
 
+for(dgp in dgp_names){
+  for(t in seq_along(n_tp)){
+    l_raw[[dgp]][[t]]$noise0.2 <- l_raw_new[[dgp]][[t]]$noise0.2
+    l_raw[[dgp]][[t]]$const0.05 <- l_raw_new[[dgp]][[t]]$const0.05
+    l_raw[[dgp]][[t]]$const0.1 <- l_raw_new[[dgp]][[t]]$const0.1
+    l_raw[[dgp]][[t]]$const0.15 <- l_raw_new[[dgp]][[t]]$const0.15
+  }
+}
 
 ```
 
@@ -237,9 +247,9 @@ l_raw <- readRDS(here::here("data/l_raw_new_1703.RDS"))
 ### Raw data permutation
 As a new change condition, just change variable indexes in the data before fitting. 
 ```{r}
-for(t in seq_along(n_tp)){
-  for(g in 1:5){
-    l_raw[[g]][[t]]$permute <- lapply(l_raw[[g]][[t]]$truegraph,
+for(dgp in dgp_names){
+  for(t in seq_along(n_tp)){
+    l_raw[[dgp]][[t]]$permute <- lapply(l_raw[[dgp]][[t]]$truegraph,
                                   function(x) {
                                     x$data <- x$data[,c(1,3,4,2,5,6)]
                                     x$args$dgp <- "permute134256" 
@@ -261,12 +271,6 @@ Fit a VAR model to each raw dataset.
 # model parameters
 rho_sd <- 0.5      # Prior for partial correlations
 beta_sd <- 1       # Prior for regression matrix
-seed <- 2022
-n_iter <- 50000
-
-# second iteration with more narrow priors
-rho_sd <- 0.25      # Prior for partial correlations
-beta_sd <- 0.2       # Prior for regression matrix
 seed <- 2022
 n_iter <- 50000
 
@@ -292,19 +296,35 @@ registerDoParallel(cl)
 clusterExport(cl, c("fit_var_parallel_merged", "summarize_post"))
 
 # Only compute for specific modification 
-# l_raw <- lapply(l_raw, function(x) lapply(x, function(y) list(noise0.2 = y$noise0.2)))
+l_raw <- lapply(l_raw, function(x) lapply(x, function(y) list(
+                                                              const0.05 = y$const0.05,
+                                                              const0.1 = y$const0.1,
+                                                              const0.15 = y$const0.15,
+                                                              noise0.2 = y$noise0.2
+                                                              )))
 
-dgp_names <- c("graph1", "graph2", "graph3", "graph4", "graph5")
+# dgp_names <- c("graph1", "graph2", "graph3", "graph4", "graph5")
 dgp_names <- c("graph3", "graph4", "graph5")
-  
-for(t in seq_along(n_tp)){
-  for(dgp in dgp_names){
+for(dgp in dgp_names){
+  for(t in seq_along(n_tp)){
     
     # output label based on prior
     dgp_string <- ifelse(prior_wide, dgp, paste0("narrow_",dgp))
     
-    lapply(l_raw[[dgp]][[t]], function(x){fit_var_parallel_merged(
-    data = x, n = n_ind, nds = n_postds, rho_prior = rho_sd, beta_prior = beta_sd, seed = seed, iterations = n_iter, get_kappa = FALSE, summarize_post = FALSE,      pruneresults = FALSE, dgp_name = dgp_string, save_files = TRUE
+    lapply(l_raw[[dgp]][[t]], 
+           function(x){fit_var_parallel_merged(
+                              data = x, 
+                              n = n_ind, 
+                              nds = n_postds, 
+                              rho_prior = rho_sd, 
+                              beta_prior = beta_sd, 
+                              seed = seed, 
+                              iterations = n_iter, 
+                              get_kappa = FALSE, 
+                              summarize_post = FALSE, 
+                              pruneresults = FALSE, 
+                              dgp_name = dgp_string, 
+                              save_files = TRUE
   )})
   }
 }
@@ -318,12 +338,23 @@ after_fitraw <- Sys.time()-before_fitraw
 
 For the server: move some files to HDD
 ```{r}
-l_copy <- list.files(path = here::here("data/compare_sim_fits"), pattern = "graph5")
+l_copy <- list.files(path = here::here("data/compare_sim_fits"), pattern = "change")
 file.copy(from = paste0(here::here("data/compare_sim_fits/"), l_copy),
           to = paste0("/home/bjoern/HDD/var-compare/data/", l_copy))
 
 
 file.remove(from = paste0(here::here("data/compare_sim_fits/"), l_copy))
+
+```
+
+
+The other way around:
+```{r}
+l_copy <- list.files(path = here::here("/home/bjoern/HDD/var-compare/data/"), pattern = "truegraph")
+l_copy <- l_copy[!grepl("graph1", l_copy)]
+file.copy(from = paste0(here::here("/home/bjoern/HDD/var-compare/data/"), l_copy),
+          to = paste0("data/compare_sim_fits/", l_copy))
+
 
 ```
 
@@ -344,18 +375,20 @@ n_dgp <- 5
 n_c_types <- 3
 
 # Number of different graph structures
-n_g_types <- 7
+n_g_types <- 9
 
 # Number of different tp conditions
 n_t_types <- 5
 
 dgp_names <- c("graph1", "graph2", "graph3", "graph4", "graph5")
 dgp_names <- c("narrow_graph3", "narrow_graph4", "narrow_graph5")
+dgp_names <- c("graph3", "graph4", "graph5")
 
-# change_names <- c("truegraph", "change1.2", "change1.4", "change1.6",
-#                   "noise0.1", "noise0.2", "noise0.3")
+change_names <- c("noise0.2", "const0.05", "const0.1", "const0.15")
 change_names <- c("truegraph", "change1.4", "change1.6",
-                  "noise0.1", "noise0.2", "noise0.3", "permute134256")
+                  "noise0.1", "noise0.2", "noise0.3", 
+                  "const0.05", "const0.1", "const0.15",
+                  "permute134256")
 
 comp_names <- c("frob","maxdiff", "l1")
 
@@ -405,7 +438,7 @@ clusterExport(cl, c("comp_grid",  "comp_grid_mod", "within_compare", "within_com
 clusterEvalQ(cl, library(tidyverse))
 
 # todo change back to 1:nrow(comp_grid)
-parLapply(cl = cl, 1:nrow(comp_grid), function(n){
+parLapply(cl = cl, todo_files_num, function(n){
   ## Get filter args
   dgp_it <- as.character(comp_grid$dgp[n])
   change_it <- as.character(comp_grid$change[n])
@@ -531,7 +564,6 @@ file.remove(from = paste0(here::here("data/compare_sim_res/"), l_copy))
 
 
 
-
 Reading the files in again and extracting summary information for each
 ```{r}
 file_list <- list.files(path = here::here("data/compare_sim_res"))
@@ -602,7 +634,7 @@ l_comp_res <- foreach(i = 1:length(file_list)) %dopar% {
 }
 stopCluster(cl)
 
-time_after_within_eval <- Sys.time() - time_before_within_eval  # ~12 mins
+time_after_within_eval <- Sys.time() - time_before_within_eval  
 
 # df_comp_res <- do.call(rbind, l_comp_res)
 # write_rds(df_comp_res, "df_comp_res.RDS")
@@ -617,8 +649,8 @@ desired_files <- setdiff(desired_files, exist_files_eval)
 file_list <- gsub("eval_res", "comp",desired_files)
 
 # This then has to be passed back to the loop above
-to_del <- list.files(path = here::here("data/compare_sim_eval/"), pattern = "narrow")
-file.remove(from = paste0(here::here("data/compare_sim_eval/"), to_del))
+# to_del <- list.files(path = here::here("data/compare_sim_eval/"), pattern = "narrow")
+# file.remove(from = paste0(here::here("data/compare_sim_eval/"), to_del))
 
 
 
@@ -632,7 +664,8 @@ l_comp_res <- lapply(file_list, readRDS)
 df_comp_res <- do.call(rbind, l_comp_res)
 
 # write_rds(df_comp_res, here::here("data/df_comp_res_3103.RDS"))
-df_comp_res <- readRDS(here::here("data/df_comp_res_3103.RDS"))
+df_comp_res <- readRDS(here::here("data/df_comp_res_0205.RDS"))
+
 ```
 
 
@@ -650,6 +683,7 @@ df_comp_res %>%
   View()
 
 ```
+
 
 
 
@@ -682,53 +716,15 @@ df_comp_res <- df_comp_res %>%
   mutate(comp = forcats::fct_relevel(comp, "l1")) %>% 
   mutate(change = gsub("permute134256", "permute", change))
 
+# Delete old conditions
+df_comp_res <- df_comp_res %>% 
+  dplyr::filter(!grepl("noise", change))
 
 
 
 ```
 
 
-
-
-
-#### Power
-n  = 2450. Combinatorics for 50 elements gives 1225, but we have two graphs two draw from, so 2450.
-
-```{r}
-v_graphs <- c("graph1", "graph2", "graph3", "graph4", "graph5")
-
-for(g in v_graphs){
-  
-  p <- df_comp_res %>%
-          pivot_longer(cols = c("beta_a", "beta_b", "pcor_a", "pcor_b"), names_to = "res") %>%
-          filter(dgp == g) %>%
-          mutate(sig05 = ifelse(value < 50, 1, 0),
-                 sig01 = ifelse(value < 10, 1, 0)) %>%
-          group_by(comp, tp, change, res) %>%
-          mutate(n_comp = n()) %>%
-          # need the max here so that it reduces to one row
-          # n_comp is the same for every row anyway
-          summarize(power05 = sum(sig05)/max(n_comp)) %>%
-          ungroup() %>%
-          mutate(res = case_match(res,
-                                  "beta_a" ~ "Temporal A",
-                                  "beta_b" ~ "Temporal B",
-                                  "pcor_a" ~ "Contemp. A",
-                                  "pcor_b" ~ "Contemp. B")) %>% 
-          ggplot(aes(x = as.numeric(tp), y = power05, col = comp)) +
-          geom_line()+
-          facet_grid(change ~ res)+
-          theme_minimal()+
-          ggokabeito::scale_color_okabe_ito()+
-          labs(caption = g,
-               x = "Timepeoints",
-               y = "Power")
-  
-  ggsave(filename = paste0("plot_power05_abseparate_", g, ".svg"),p, device = "svg",
-         path = here("figures/"), height = 10, width = 7)
-  print(p)
-}
-```
 
 
 
@@ -738,41 +734,6 @@ for(g in v_graphs){
 
 
 #### Posterior Diff > Empirical
-Instead of power, we can plot the median number of bootstrapped differences larger than empirical.
-
-```{r}
-v_graphs <- c("graph1", "graph2", "graph3", "graph4", "graph5")
-
-for(g in v_graphs){
-  
-  p <- df_comp_res %>% 
-          pivot_longer(cols = c("beta_a", "beta_b", "pcor_a", "pcor_b"), names_to = "res") %>% 
-          filter(dgp == g) %>% 
-          mutate(comp = as.factor(comp),
-                 tp = as.numeric(tp),
-                 change = as.factor(change),
-                 res = as.factor(res)) %>% 
-          dplyr::group_by(comp, tp, change, res) %>%
-          # we have 1000 draws, so divide by 10
-          dplyr::summarize(pct_larger = value/1000) %>%
-          dplyr::summarize(pct_larger = mean(pct_larger)) %>% 
-          ggplot(aes(x = as.numeric(tp), y = pct_larger, col = comp)) + 
-          # geom_text(aes(label = round(pct_larger,1)), size = 4)+
-          geom_line()+
-          facet_grid(change ~ res)+
-          theme_minimal()+
-          scale_color_okabe_ito()+ 
-          labs(caption = g,
-               x = "Timepeoints",
-               y = "% larger than empirical")
-  
-  ggsave(filename = paste0("plot_count_difference_", g, ".svg"),p, device = "svg",
-         path = here("figures/"), height = 10, width = 7)
-  print(p)
-}
-
-```
-
 
 Do this in one plot:
 ```{r}
@@ -806,6 +767,48 @@ plot_test_distribution
 
 
 ```
+
+Do this with uncertainty
+```{r}
+plot_test_distribution_box <- df_comp_res %>% 
+          dplyr::filter(dgp %in% c("graph3", "graph4", "graph5")) %>% 
+          dplyr::filter(change != "change1.2") %>% 
+          # mutate tp_ind into factor
+          mutate(tp = as.factor(tp)) %>% 
+          mutate(tp = forcats::fct_relevel(tp, "50", "100", "200", "400", "1000")) %>% 
+          mutate(dgp = case_match(dgp,
+                                  "graph3" ~ "Empirical Sparse",
+                                  "graph4" ~ "Simulated Chain",
+                                  "graph5" ~ "Simulated Nonsparse")) %>% 
+          pivot_longer(cols = c("beta_a", "beta_b", "pcor_a", "pcor_b"), 
+                       names_to = "res", values_to = "value") %>% 
+          group_by(comp, tp, change, dgp, res) %>% 
+          # we have 1000 draws, so divide by 1000
+          dplyr::summarize(pct_larger = value/1000) %>%  
+          # ignore model a and b because they are almost identical in distribution
+          mutate(res = gsub("_.", "", res)) %>% 
+          dplyr::mutate(res = case_match(res,
+                                         "beta" ~ "Temporal",
+                                         "pcor" ~ "Contemporaneous")) %>%
+          ggplot(aes(x = tp, y = pct_larger, col = comp)) + 
+          # geom_text(aes(label = round(pct_larger,1)), size = 4)+
+          geom_boxplot(outlier.size = 0.5, outlier.alpha = 0.4, outlier.color = "grey")+
+          ggh4x::facet_nested(change ~ dgp + res)+
+          theme_compare()+
+          ggokabeito::scale_color_okabe_ito()+ 
+          labs(
+               x = "Timepeoints",
+               y = "% larger than empirical")
+
+plot_test_distribution_box
+ggsave(filename = "plot_test_distribution_box.svg",plot_test_distribution_box, device = "svg",
+         path = here::here("figures/"), width = 14, height = 10)
+```
+
+
+
+
+
 
 Distribution of values under the null for the frobenius norm only.
 ```{r}
@@ -860,40 +863,6 @@ ggsave(filename = "plot_test_null_dist.svg",plot_test_null_dist, device = "svg",
 What happens to power/false positives if we implement the following decision rule:
 If either A or B are "significant", we have evidence for a difference in the networks.
 
-Decision rule figure in loop 
-```{r}
-v_graphs <- c("graph1", "graph2", "graph3", "graph4", "graph5")
-
-for(g in v_graphs){
-  
-  p <- df_comp_res %>% 
-          filter(dgp == g) %>% 
-          # setup decision rule
-          mutate(sig_beta05 = ifelse(beta_a < 50 | beta_b < 50, 1, 0),
-                 sig_pcor05 = ifelse(pcor_a < 50 | pcor_b < 50, 1, 0)) %>% 
-          group_by(dgp, comp, tp, change) %>% 
-          mutate(n_comp = n()) %>% 
-          summarize(power_beta05 = sum(sig_beta05)/n_comp,
-                    power_pcor05 = sum(sig_pcor05)/n_comp) %>% 
-          # somehow does not cut everything if I don't do this
-          # TODO
-          summarize(power_beta05 = mean(power_beta05),
-                    power_pcor05 = mean(power_pcor05)) %>% 
-          pivot_longer(cols = c("power_beta05", "power_pcor05"), names_to = "res") %>% 
-          ggplot(aes(x = as.numeric(tp), y = value, col = comp)) + 
-          geom_line()+
-          facet_grid(change ~ res)+
-          theme_minimal()+
-          theme_compare+
-          labs(caption = paste0("Power of decision rule \"OR\" for ", g))
-  
-  ggsave(filename = paste0("plot_dec_rule_", g, ".svg"),p, device = "svg",
-         path = here("figures/"))
-  print(p)
-}
-
-
-```
 
 
 Decision Rule into one plot.
@@ -966,7 +935,7 @@ plot_dec_rule <- df_comp_res %>%
 
 plot_dec_rule
 ggsave(filename = "plot_dec_rule_new.svg",plot_dec_rule, device = "svg",
-         path = here::here("figures/"), width = 13, height = 10)
+         path = here::here("figures/"), width = 13, height = 15)
 
 ```
 
@@ -1027,57 +996,74 @@ ggsave(filename = "plot_dec_rule.svg",plot_dec_rule, device = "svg",
 ```
 
 
-
-
-#### False Positives
-Plot false positives across graphs. 
-In loop:
+Now with uncertainty in the form of standard errors. 
 ```{r}
-v_graphs <- c("graph1", "graph2", "graph3", "graph4", "graph5")
+# Number of combinations
+n_comp <- 10000
 
-for(g in v_graphs){
-  
-  p <- df_comp_res %>%
-          # dplyr::filter(dgp %in% c("graph3", "graph4", "graph5")) %>%
-          filter(dgp == g) %>%
-          filter(change == "truegraph") %>%
-          # setup decision rule
-          mutate(sig_beta05 = ifelse(beta_a < 50 | beta_b < 50, 1, 0),
-                 sig_pcor05 = ifelse(pcor_a < 50 | pcor_b < 50, 1, 0)) %>%
+plot_dec_rule_box <- df_comp_res %>% 
+          dplyr::filter(dgp %in% c("graph3", "graph4", "graph5")) %>% 
+          dplyr::filter(change != "change1.2") %>% 
+          dplyr::filter(change != "truegraph") %>% 
           # mutate tp_ind into factor
-          mutate(tp = as.factor(tp)) %>%
-          mutate(tp = forcats::fct_relevel(tp, "50", "100", "200", "400", "1000")) %>%
+          mutate(tp = as.factor(tp)) %>% 
+          mutate(tp = forcats::fct_relevel(tp, "50", "100", "200", "400", "1000")) %>% 
           mutate(dgp = case_match(dgp,
                                   "graph3" ~ "Empirical Sparse",
                                   "graph4" ~ "Simulated Chain",
-                                  "graph5" ~ "Simulated Nonsparse")) %>%
-          group_by(dgp, comp, tp, change) %>%
-          mutate(n_comp = n()) %>%
-          summarize(fp_beta05 = sum(sig_beta05)/n_comp,
-                    fp_pcor05 = sum(sig_pcor05)/n_comp) %>%
-          # somehow does not cut everything if I don't do this
-          # TODO
-          summarize(fp_beta05 = mean(fp_beta05),
-                    fp_pcor05 = mean(fp_pcor05)) %>%
-          rename("Temporal" = fp_beta05,
-                 "Contemporaneous" = fp_pcor05) %>%
-          pivot_longer(cols = c("Temporal", "Contemporaneous"), names_to = "res") %>%
-          ggplot(aes(x = as.numeric(tp), y = value, col = comp)) +
-          geom_line()+
-          facet_grid(.~ res)+
-          theme_minimal()+
-          ylim(0,.1)+
-          ggokabeito::scale_color_okabe_ito()+
-          labs(caption = paste0("False Positives for ", g),
-               x = "Timepoints")
-    
-  
-  ggsave(filename = paste0("plot_fp05_", g, ".svg"),p, device = "svg",
-         path = here("figures/"))
-  print(p)
-}
+                                  "graph5" ~ "Simulated Nonsparse")) %>% 
+          # setup decision rule
+          dplyr::mutate(
+                 sig_beta05 = ifelse(beta_a < 50 | beta_b < 50, 1, 0),
+                 sig_pcor05 = ifelse(pcor_a < 50 | pcor_b < 50, 1, 0)) %>% 
+          dplyr::group_by(dgp, comp, tp, change) %>% 
+          dplyr::summarize(
+                    power_beta05 = sum(sig_beta05)/n_comp,
+                    power_pcor05 = sum(sig_pcor05)/n_comp,
+                    se_beta05 = sqrt((power_beta05 * (1-power_beta05))/100),
+                    se_pcor05 = sqrt((power_pcor05 * (1-power_pcor05))/100)) %>% 
 
+          tidyr::pivot_longer(cols = c("power_beta05", "power_pcor05"), names_to = "res") %>%
+          # attach correct se
+          dplyr::mutate(se = ifelse(grepl("beta", res), se_beta05, se_pcor05)) %>% 
+          dplyr::select(!c(se_beta05, se_pcor05)) %>% 
+          dplyr::mutate(mat = case_when(
+            grepl("beta05", res) ~ "Temporal",
+            grepl("pcor05", res) ~ "Contemp.")) %>% 
+          ggplot(aes(x = tp, y = value, col = comp, group = comp)) + 
+          geom_point(position = position_dodge(0.3), size = 0.5)+
+          geom_line()+
+          geom_linerange(aes(ymin = value - 1.96*se, x = tp,
+                            ymax = value + 1.96*se),
+                        width = .5, position = position_dodge(0.3))+
+          theme_compare()+
+          ggh4x::facet_nested(change ~ dgp + mat)+
+          ggokabeito::scale_colour_okabe_ito()+
+          labs(x = "Timepoints",
+               y = "Power",
+               col = "Norm")+
+            theme(
+                  strip.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2),
+                  hjust = 0.5),
+                  strip.text.x.top = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2),
+                  hjust = 0.5),
+                  legend.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2)),
+                  legend.title = ggplot2::element_text(face = "bold", size = ggplot2::rel(1.2)),
+                  # panel.border = element_rect(color = "#D5D8DC", fill = NA, size = 1),
+                  panel.spacing.y = ggplot2::unit(1.6, "lines"),
+                  panel.spacing.x = ggplot2::unit(1.6, "lines"),
+                  axis.text.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.05)),
+                  axis.title.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3)),
+                  axis.title.y = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3)))
+
+plot_dec_rule_box
+ggsave(filename = "plot_dec_rule_box.svg",plot_dec_rule_box, device = "svg", path = here::here("figures/"), width = 14, height = 12)
 ```
+
+
+
+
+#### False Positives
 
 In one graph:
 ```{r}
@@ -1138,6 +1124,77 @@ ggsave(filename = paste0("plot_false_positive.svg"),plot_false_positive, device 
 ```
 
 
+With uncertainty:
+```{r}
+plot_false_positive_box <- df_comp_res %>%
+          dplyr::filter(dgp %in% c("graph3", "graph4", "graph5")) %>%
+          filter(change == "truegraph") %>%
+          # setup decision rule
+          mutate(sig_beta05 = ifelse(beta_a < 50 | beta_b < 50, 1, 0),
+                 sig_pcor05 = ifelse(pcor_a < 50 | pcor_b < 50, 1, 0)) %>%
+          # mutate tp_ind into factor
+          mutate(tp = as.factor(tp)) %>%
+          mutate(tp = forcats::fct_relevel(tp, "50", "100", "200", "400", "1000")) %>%
+          mutate(dgp = case_match(dgp,
+                                  "graph3" ~ "Empirical Sparse",
+                                  "graph4" ~ "Simulated Chain",
+                                  "graph5" ~ "Simulated Nonsparse")) %>%
+          
+          # setup decision rule
+          dplyr::mutate(
+                 sig_beta05 = ifelse(beta_a < 50 | beta_b < 50, 1, 0),
+                 sig_pcor05 = ifelse(pcor_a < 50 | pcor_b < 50, 1, 0)) %>% 
+          dplyr::group_by(dgp, comp, tp, change) %>% 
+          dplyr::summarize(
+                    power_beta05 = sum(sig_beta05)/n_comp,
+                    power_pcor05 = sum(sig_pcor05)/n_comp,
+                    se_beta05 = sqrt((power_beta05 * (1-power_beta05))/100),
+                    se_pcor05 = sqrt((power_pcor05 * (1-power_pcor05))/100)) %>% 
+          tidyr::pivot_longer(cols = c("power_beta05", "power_pcor05"), names_to = "res") %>%
+          # attach correct se
+          dplyr::mutate(se = ifelse(grepl("beta", res), se_beta05, se_pcor05)) %>% 
+          dplyr::select(!c(se_beta05, se_pcor05)) %>% 
+          dplyr::mutate(mat = case_when(
+            grepl("beta05", res) ~ "Temporal",
+            grepl("pcor05", res) ~ "Contemp.")) %>% 
+          ggplot(aes(x = tp, y = value, col = comp, group = comp)) +
+          geom_point(position = position_dodge(0.3), size = 0.5)+
+          geom_line()+
+          geom_linerange(aes(ymin = value - 1.96*se, x = tp,
+                            ymax = value + 1.96*se),
+                        width = .5, position = position_dodge(0.3))+
+          ggh4x::facet_nested(. ~ dgp + mat)+
+          theme_minimal()+
+          ylim(-0.1,.2)+
+          ggokabeito::scale_color_okabe_ito()+
+          theme_compare()+
+          geom_hline(yintercept = 0.05, col = "#D5D8DC")+ 
+          labs(x = "Timepoints", 
+               col = "Norm",
+               y = "Proportion of false positives")+
+              theme(
+                  strip.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2),
+                  hjust = 0.5),
+                  strip.text.x.top = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2),
+                  hjust = 0.5),
+                  legend.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2)),
+                  legend.title = ggplot2::element_text(face = "bold", size = ggplot2::rel(1.2)),
+                  # panel.border = element_rect(color = "#D5D8DC", fill = NA, size = 1),
+                  panel.spacing.y = ggplot2::unit(1.6, "lines"),
+                  panel.spacing.x = ggplot2::unit(1.6, "lines"),
+                  axis.text.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.05)),
+                  axis.title.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3)),
+                  axis.title.y = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3)))
+
+plot_false_positive_box
+ggsave(filename = paste0("plot_false_positive_box.svg"),plot_false_positive_box, device = "svg",
+         path = here::here("figures/"), width = 13, height = 6)
+```
+
+
+
+
+
 ### Prior sensitivity graph
 To keep everything clearer visually, we only use one norm (Frobenius) for now. 
 ```{r}
@@ -1159,25 +1216,30 @@ plot_dec_rule_prior_sens <- df_comp_res %>%
           mutate(dgp = case_match(dgp,
                                   "graph3" ~ "Empirical Sparse",
                                   "graph4" ~ "Simulated Chain",
-                                  "graph5" ~ "Simulated Nonsparse")) %>% 
+                                  "graph5" ~ "Simulated Nonsparse")) %>%
           # setup decision rule
           dplyr::mutate(sig_beta05 = ifelse(beta_a < 50 | beta_b < 50, 1, 0),
                  sig_pcor05 = ifelse(pcor_a < 50 | pcor_b < 50, 1, 0)) %>% 
-          dplyr::group_by(dgp, comp, tp, change, prior) %>% 
-          dplyr::mutate(n_comp = n()) %>% 
-          dplyr::summarize(power_beta05 = sum(sig_beta05)/n_comp,
-                    power_pcor05 = sum(sig_pcor05)/n_comp) %>% 
-          # somehow does not cut everything if I don't do this
-          # TODO
-          dplyr::summarize(power_beta05 = mean(power_beta05),
-                    power_pcor05 = mean(power_pcor05)) %>% 
+          dplyr::group_by(dgp, comp, prior, tp, change) %>% 
+          dplyr::summarize(
+                    power_beta05 = sum(sig_beta05)/n_comp,
+                    power_pcor05 = sum(sig_pcor05)/n_comp,
+                    se_beta05 = sqrt((power_beta05 * (1-power_beta05))/100),
+                    se_pcor05 = sqrt((power_pcor05 * (1-power_pcor05))/100)) %>% 
           tidyr::pivot_longer(cols = c("power_beta05", "power_pcor05"), names_to = "res") %>%
-          dplyr::mutate(res = case_match(res,
-                                         "power_beta05" ~ "Temporal",
-                                         "power_pcor05" ~ "Contemporaneous")) %>% 
+          # attach correct se
+          dplyr::mutate(se = ifelse(grepl("beta", res), se_beta05, se_pcor05)) %>% 
+          dplyr::select(!c(se_beta05, se_pcor05)) %>% 
+          dplyr::mutate(mat = case_when(
+            grepl("beta05", res) ~ "Temporal",
+            grepl("pcor05", res) ~ "Contemp.")) %>%  
           ggplot(aes(x = tp, y = value, col = prior, group = prior)) + 
+          geom_point(position = position_dodge(0.1), size = 0.5)+
           geom_line()+
-          ggh4x::facet_nested(change ~ dgp + res)+
+          geom_linerange(aes(ymin = value - 1.96*se, x = tp,
+                            ymax = value + 1.96*se),
+                        width = .5, position = position_dodge(0.1))+
+          ggh4x::facet_nested(change ~ dgp + mat)+
           ggokabeito::scale_colour_okabe_ito()+
           theme_compare()+
           labs(caption = paste0("Power of decision rule \"OR\" at 5% level"),
