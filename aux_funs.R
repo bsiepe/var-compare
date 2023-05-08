@@ -428,8 +428,6 @@ sim_raw_parallel <- function(dgp,
 
 
 # Fit VAR parallel merged -------------------------------------------------
-# This is a merge of fit_var_parallel and fit_var_parallel_post into one function
-
 fit_var_parallel_merged <- function(data, 
                                      n,         # number of individuals
                                      nds,       # number of datasets
@@ -868,8 +866,10 @@ summarize_post <- function(res, cred = c(0.95)) {
   # Initialize output lists
   beta_lb_list <- vector("list", length(cred))
   beta_ub_list <- vector("list", length(cred))
+  beta_mean_list <- vector("list", length(cred))
   pcor_lb_list <- vector("list", length(cred))
   pcor_ub_list <- vector("list", length(cred))
+  pcor_mean_list <- vector("list", length(cred))
   
   # Compute bounds for each "cred" value
   for (i in seq_along(cred)) {
@@ -881,22 +881,28 @@ summarize_post <- function(res, cred = c(0.95)) {
     # for beta
     beta_lb_list[[i]] <- apply(res$fit$beta, c(1, 2), stats::quantile, lb)
     beta_ub_list[[i]] <- apply(res$fit$beta, c(1, 2), stats::quantile, ub)
+    beta_mean_list[[i]] <- apply(res$fit$beta, c(1, 2), mean)
     
     # for pcor
     pcor_lb_list[[i]] <- apply(res$fit$pcors, c(1, 2), stats::quantile, lb)
-    pcor_ub_list[[i]] <- apply(res$fit$pcors, c(1, 2), stats::quantile, ub)  
+    pcor_ub_list[[i]] <- apply(res$fit$pcors, c(1, 2), stats::quantile, ub)
+    pcor_mean_list[[i]] <- apply(res$fit$pcors, c(1, 2), mean)
     
   }
   names(beta_lb_list) <- paste0("lb_", cred)
   names(beta_ub_list) <- paste0("ub_", cred)
+  names(beta_mean_list) <- paste0("mean_", cred)
   names(pcor_lb_list) <- paste0("lb_", cred)
   names(pcor_ub_list) <- paste0("ub_", cred)
+  names(pcor_mean_list) <- paste0("mean_", cred)
   
   # Combine output into a list
   out <- list(beta_lb = beta_lb_list,
               beta_ub = beta_ub_list, 
+              beta_mean = beta_mean_list,
               pcor_lb = pcor_lb_list, 
-              pcor_ub = pcor_ub_list)
+              pcor_ub = pcor_ub_list
+              pcor_mean = pcor_mean_list)
   
   return(out)
 }
