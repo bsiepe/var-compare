@@ -1881,6 +1881,12 @@ bias <- function(e,t){
   return(b)
 }
 
+# for calculation of mcse of bias
+bias_sq <- function(e,t){
+  b <- mean((e - t)^2, na.rm = TRUE)
+  return(b)
+}
+
 rmse <- function(e,t){
   r <- sqrt(mean((t - e)^2, na.rm = TRUE))
   return(r)
@@ -1889,7 +1895,7 @@ rmse <- function(e,t){
 
 eval_bggm <- function(fit,
                       cred_int = c(0.9, 0.95, 0.99),    # different credible intervals
-                      nds = 100,         # number of datasets per simulation condition
+                      nds = 1000,         # number of datasets per simulation condition
                       dgp_list = l_graphs){
   
   
@@ -1932,7 +1938,9 @@ eval_bggm <- function(fit,
   
   # Compute Bias
   l_out$bias_beta <- bias(beta_est_vec, beta_true_vec)
+  l_out$bias_sq_beta <- bias_sq(beta_est_vec, beta_true_vec)
   l_out$bias_pcor <- bias(pcor_est_vec, pcor_true_vec)
+  l_out$bias_sq_pcor <- bias_sq(pcor_est_vec, pcor_true_vec)
   
   # RMSE
   l_out$rmse_beta <- rmse(beta_est_vec, beta_true_vec)
@@ -1959,20 +1967,22 @@ eval_bggm <- function(fit,
   pcor_est_sel_vec <- c(pcor_est_sel_vec[upper.tri(pcor_est_sel_vec, diag = FALSE)])
   
   # Correlations
-  l_out$cor_beta_sel <- cor_zero(beta_est_sel_vec, beta_true_vec)
-  l_out$cor_pcor_sel <- cor_zero(pcor_est_sel_vec, pcor_true_vec)
+  l_out$cor_sel_beta <- cor_zero(beta_est_sel_vec, beta_true_vec)
+  l_out$cor_sel_pcor <- cor_zero(pcor_est_sel_vec, pcor_true_vec)
   
   # Bias
-  l_out$bias_beta_sel <- bias(beta_est_sel_vec, beta_true_vec)
-  l_out$bias_pcor_sel <- bias(pcor_est_sel_vec, pcor_true_vec)
+  l_out$bias_sel_beta <- bias(beta_est_sel_vec, beta_true_vec)
+  l_out$bias_sq_sel_beta <- bias_sq(beta_est_sel_vec, beta_true_vec)
+  l_out$bias_sel_pcor <- bias(pcor_est_sel_vec, pcor_true_vec)
+  l_out$bias_sq_sel_pcor <- bias_sq(pcor_est_sel_vec, pcor_true_vec)
   
   # rmse
-  l_out$rmse_beta_sel <- rmse(beta_est_sel_vec, beta_true_vec)
-  l_out$rmse_pcor_sel <- rmse(pcor_est_sel_vec, pcor_true_vec)
+  l_out$rmse_sel_beta <- rmse(beta_est_sel_vec, beta_true_vec)
+  l_out$rmse_sel_pcor <- rmse(pcor_est_sel_vec, pcor_true_vec)
   
   # Amount of zeros
-  l_out$zeros_beta_sel <- sum(beta_est_sel_vec == 0)
-  l_out$zeros_pcor_sel <- sum(pcor_est_sel_vec == 0)
+  l_out$zeros_sel_beta <- sum(beta_est_sel_vec == 0)
+  l_out$zeros_sel_pcor <- sum(pcor_est_sel_vec == 0)
   
   
   ## True/False Positive/Negative
@@ -2179,7 +2189,7 @@ eval_across_bggm <- function(fit,
                      bias_mcse = sqrt((1/(n_rep*(n_rep-1)))*sum((est-true)^2)), # no longer correct when averaging over all params
                      mse = mean((est-true)^2),
                      mse_se = sqrt(sum(((est-true)^2-mse)^2)/((n_rep*(n_rep-1)))),
-                     tp = sum(est != 0 & true != 0)/n_rep,
+                     tp = sum(est != 0 & true != 0)/n_rep,   # should probably be NA when TRUE == 0)
                      fp = sum(est != 0 & true == 0)/n_rep,
                      tn = sum(est == 0 & true == 0)/n_rep,
                      fn = sum(est == 0 & true != 0)/n_rep,
@@ -2320,7 +2330,9 @@ eval_gvar <- function(fit,
   
   # Compute Bias
   l_out$bias_beta <- bias(beta_est_vec, beta_true_vec)
+  l_out$bias_sq_beta <- bias_sq(beta_est_vec, beta_true_vec)
   l_out$bias_pcor <- bias(pcor_est_vec, pcor_true_vec)
+  l_out$bias_sq_pcor <- bias_sq(pcor_est_vec, pcor_true_vec)
   
   # Compute rmse
   l_out$rmse_beta <- rmse(beta_est_vec, beta_true_vec)
@@ -2426,7 +2438,7 @@ eval_across_gvar <- function(fit,
                      sens = tp/(tp + fn),
                      sens_se = sqrt((sens * (1-sens))/n_rep),
                      spec = tn/(tn + fp),
-                     spec_se = sqrt((sens * (1-sens))/n_rep),
+                     spec_se = sqrt((spec * (1-spec))/n_rep),
                      cor = mean(cor)) %>% 
                      # cor_mcse = (1-cor^2)/sqrt(n_rep-3)) %>% 
     dplyr::ungroup()
