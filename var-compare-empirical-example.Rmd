@@ -15,6 +15,7 @@ library(doParallel)
 library(parallel)
 library(Hmisc)
 library(imputeTS)
+library(cowplot)
 source("aux_funs.R")
 ```
 
@@ -36,6 +37,12 @@ wide_pcor <- wide_pcor$plot_env$prior_samp$pcors[1,2,]
 narrow_pcor <- BGGM::plot_prior(prior_sd = 0.25, iter = 5000)
 narrow_pcor <- narrow_pcor$plot_env$prior_samp$pcors[1,2,]
 
+# Define symbols
+# beta <- "\u03B2"  # Beta
+# rho <- "\u03C1"   # Rho
+
+
+
 
 df_prior <- data.frame(
   value = c(wide_beta, narrow_beta, wide_pcor, narrow_pcor),
@@ -45,21 +52,33 @@ df_prior <- data.frame(
 )
 
 
+df_prior <- df_prior %>% 
+  mutate(prior = factor(prior,
+                        levels = c("wide", "narrow"),
+                        labels = c(expression(wide~(s[beta]~"= 1, "~ s[rho]~"= 0.5")),
+                                   expression(narrow~(s[beta]~"= 0.3, "~ s[rho]~"= 0.2")))),
+         mat = as.factor(mat)) %>% 
+  mutate(mat = forcats::fct_relevel(mat, "Temporal"))
+
+
+
+
+
 # Create grid plot
 prior_example <- df_prior %>% 
-  mutate(mat = as.factor(mat),
-         prior = as.factor(prior)) %>% 
   ggplot(aes(x = value))+
   geom_histogram(fill = ggokabeito::palette_okabe_ito()[2],
                  col = "black",
                  bins = 50)+
   theme_compare()+
-  ggh4x::facet_nested(prior~mat, scales = "free_x",)+
+  facet_grid(prior~mat, scales = "free_x",
+             labeller = label_parsed)+
   labs(y = "",
        x = "")+
   theme(axis.text.y = element_blank(),
         axis.ticks.y = element_blank(),
-        strip.text = element_text(size = 20), 
+        strip.text.y = element_text(size = 12), 
+        strip.text.x = element_text(size = 20),
         axis.text=element_text(size=rel(1.2)),
         panel.spacing.x = ggplot2::unit(2.5, "lines"))
 
@@ -538,8 +557,8 @@ n_obs <- do.call(rbind, lapply(l_data, function(x) nrow(x)))
 
 # Choose pair with similar n 
 # 18 and 12
-fit_12 <- l_fits[[2]][[12]]
-fit_18 <- l_fits[[2]][[18]]
+fit_12 <- l_fits_c[[2]][[12]]
+fit_18 <- l_fits_c[[2]][[18]]
 
 # Compare
 res_emp_comp <- compare_var(fit_12, fit_18, return_all = TRUE)
@@ -619,9 +638,8 @@ plt_beta <-
     mutate(mod = case_match(mod,
                             "mod_a" ~ "ID 19",
                             "mod_b" ~ "ID 40")) %>% 
-    ggplot(aes(x = null, fill = mod))+
+    ggplot(aes(x = null, fill = mod, linetype = mod))+
     geom_density(alpha = .7)+
-    theme_classic()+
     ggokabeito::scale_fill_okabe_ito()+
     geom_vline(aes(xintercept = res_emp_comp$emp_beta), 
                col = "black", lty = 1, linewidth = .75)+
@@ -630,6 +648,7 @@ plt_beta <-
     labs(y = "",
          x = "Norm Value",
          fill = "",
+         linetype = "",
          title = "Test")+
     theme(axis.ticks.y = element_blank(),
           axis.text.y = element_blank(),
@@ -644,9 +663,8 @@ plt_pcor <-
     mutate(mod = case_match(mod,
                             "mod_a" ~ "ID 19",
                             "mod_b" ~ "ID 40")) %>% 
-    ggplot(aes(x = null, fill = mod))+
+    ggplot(aes(x = null, fill = mod, linetype = mod))+
     geom_density(alpha = .7)+
-    theme_classic()+
     ggokabeito::scale_fill_okabe_ito()+
     geom_vline(aes(xintercept = res_emp_comp$emp_pcor), 
                col = "black", lty = 1, linewidth = .75)+
@@ -660,7 +678,7 @@ plt_pcor <-
           legend.position = "right", 
           plot.title = element_text(face = "plain", family = "news", size = 9, hjust = 0))
 
-leg <- get_legend(plt_beta)
+leg <- cowplot::get_legend(plt_beta)
   
 # Plot
 plt_tmp <- cowplot::plot_grid(plt_beta + theme(legend.position = "none"),
