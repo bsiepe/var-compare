@@ -670,7 +670,7 @@ df_comp_res <- df_comp_res %>%
   filter(mod_a < mod_b)
 
 # write_rds(df_comp_res, here::here("data/df_comp_res_wide_1905.RDS"))
-df_comp_res <- readRDS(here::here("data/df_comp_res_wide_1905.RDS"))
+df_comp_res_w <- readRDS(here::here("data/df_comp_res_wide_1905.RDS"))
 
 
 
@@ -687,6 +687,12 @@ df_comp_res_n <- df_comp_res_n %>%
 # write_rds(df_comp_res_n, here::here("data/df_comp_res_narrow_1905.RDS"))
 df_comp_res_n <- readRDS(here::here("data/df_comp_res_narrow_1905.RDS"))
 
+
+# Combine both 
+df_comp_res_w$prior <- rep("wide", nrow(df_comp_res_w))
+df_comp_res_n$prior <- rep("narrow", nrow(df_comp_res_n))
+
+df_comp_res <- rbind(df_comp_res_w, df_comp_res_n)
 
 
 ```
@@ -711,7 +717,6 @@ df_comp_res %>%
 
 ### Plotting Posterior Bootstrap approach
 General plotting preparation
-TODO: account for narrow priors!
 ```{r}
 change_names <- c("change1.2" = paste("Largest", "\u00D7", "1.2"),
                   "change1.4" = paste("Largest", "\u00D7", "1.4"),
@@ -732,15 +737,25 @@ norm_names <- c("frob" = "Frobenius",
 
 tp_levels <- c("50" = "1", "100" = "2", "200" = "3", "400" = "4", "1000" = "5")
 
+# plotting linetypes
+cond_lty <- set_names(c(1,2),
+                      c("narrow", "wide"))
+
+
+
 # Restructure results for proper plotting
 df_comp_res <- df_comp_res %>% 
   mutate(comp = as.factor(comp)) %>% 
+  mutate(prior = as.factor(prior)) %>% 
   mutate(comp = forcats::fct_relevel(comp, "l1")) %>% 
-  mutate(change = gsub("permute134256", "permute", change))
+  mutate(change = gsub("permute134256", "permute", change)) %>% 
+  # delete prior from dgp column
+  mutate(dgp = gsub("narrow_", "", dgp))
 
 # Delete old conditions
 df_comp_res <- df_comp_res %>% 
   dplyr::filter(!grepl("noise", change))
+
 
 
 
@@ -818,8 +833,7 @@ plot_test_distribution_box <- df_comp_res %>%
           ggh4x::facet_nested(change ~ dgp + res)+
           theme_compare()+
           ggokabeito::scale_color_okabe_ito()+ 
-          labs(
-               x = "Timepeoints",
+          labs(x = "Timepeoints",
                y = "% larger than empirical")
 
 plot_test_distribution_box
@@ -1023,6 +1037,12 @@ Now with uncertainty in the form of standard errors.
 # Number of combinations
 n_comp <- 4950
 
+# significance cutoff
+sig_cut <- 0.05
+
+# number of posterior draws
+n_draw <- 1000
+
 plot_dec_rule_se <- df_comp_res %>% 
           dplyr::filter(dgp %in% c("graph3", "graph4", "graph5")) %>% 
           dplyr::filter(change != "change1.2") %>% 
@@ -1050,9 +1070,13 @@ plot_dec_rule_se <- df_comp_res %>%
           # mutate(change = fct_recode(as_factor(as.character(change)), !!!change_names)) %>% 
           # setup decision rule
           dplyr::mutate(
-                 sig_beta05 = ifelse(beta_a < 50 | beta_b < 50, 1, 0),
-                 sig_pcor05 = ifelse(pcor_a < 50 | pcor_b < 50, 1, 0)) %>% 
-          dplyr::group_by(dgp, comp, tp, change) %>% 
+                 sig_beta05 = ifelse(beta_a < sig_cut*n_draw |
+                                       beta_b < sig_cut*n_draw, 
+                                     1, 0),
+                 sig_pcor05 = ifelse(pcor_a < sig_cut*n_draw |
+                                       pcor_b < sig_cut*n_draw, 
+                                     1, 0)) %>% 
+          dplyr::group_by(dgp, comp, tp, change, prior) %>% 
           dplyr::summarize(
                     power_beta05 = sum(sig_beta05)/n_comp,
                     power_pcor05 = sum(sig_pcor05)/n_comp,
@@ -1065,19 +1089,28 @@ plot_dec_rule_se <- df_comp_res %>%
           dplyr::mutate(mat = case_when(
             grepl("beta05", res) ~ "Temporal",
             grepl("pcor05", res) ~ "Contemporaneous")) %>% 
-          ggplot(aes(x = tp, y = value, col = comp, group = comp)) + 
-          geom_point(position = position_dodge(0.3), size = 0.5)+
+          dplyr::ungroup() %>% 
+          # for now, only narrow prior  
+          # dplyr::filter(prior == "narrow") %>% 
+          ggplot(aes(x = tp, y = value, col = comp, 
+                     group = interaction(comp, prior), linetype = prior)) + 
+          # geom_point(position = position_dodge(0.3), size = 0.5)+
           geom_line()+
           geom_linerange(aes(ymin = value - 1.96*se, x = tp,
                             ymax = value + 1.96*se),
-                        width = .5, position = position_dodge(0.3))+
+                        width = .5, position = position_dodge(0.3),
+                        show.legend = FALSE)+
           theme_compare()+
+          scale_linetype_manual(values = cond_lty)+
           ggh4x::facet_nested(change ~ dgp + mat,
-                              axes = TRUE)+
+                              axes = "all",
+                              remove_labels = "all"
+                              )+
           ggokabeito::scale_colour_okabe_ito()+
           labs(x = "Timepoints",
                y = "Power",
                col = "Norm")+
+          scale_y_continuous(limits = c(0,1), expand = c(0,0))+
             theme(
                   strip.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2),
                   hjust = 0.5),
@@ -1088,13 +1121,13 @@ plot_dec_rule_se <- df_comp_res %>%
                   # panel.border = element_rect(color = "#D5D8DC", fill = NA, size = 1),
                   panel.spacing.y = ggplot2::unit(1.6, "lines"),
                   panel.spacing.x = ggplot2::unit(1.6, "lines"),
-                  axis.line = element_line(),
+                  axis.line = element_line(colour = "#6d6d6e"),
                   axis.text.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.05)),
                   axis.title.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3)),
                   axis.title.y = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3)))
 
 plot_dec_rule_se
-ggsave(filename = "plot_dec_rule_se_axes.svg",plot_dec_rule_se, device = "svg", path = here::here("figures/"), width = 14, height = 12)
+ggsave(filename = "plot_dec_rule_se.svg",plot_dec_rule_se, device = "svg", path = here::here("figures/"), width = 14, height = 12)
 ```
 
 
@@ -1108,8 +1141,8 @@ plot_false_positive <- df_comp_res %>%
           dplyr::filter(dgp %in% c("graph3", "graph4", "graph5")) %>%
           filter(change == "truegraph") %>%
           # setup decision rule
-          mutate(sig_beta05 = ifelse(beta_a < 50 | beta_b < 50, 1, 0),
-                 sig_pcor05 = ifelse(pcor_a < 50 | pcor_b < 50, 1, 0)) %>%
+          mutate(sig_beta05 = ifelse(beta_a < sig_cut*n_draw | beta_b < sig_cut*n_draw, 1, 0),
+                 sig_pcor05 = ifelse(pcor_a < sig_cut*n_draw | pcor_b < sig_cut*n_draw, 1, 0)) %>%
           # mutate tp_ind into factor
           mutate(tp = as.factor(tp)) %>%
           mutate(tp = forcats::fct_relevel(tp, "50", "100", "200", "400", "1000")) %>%
@@ -1160,22 +1193,18 @@ ggsave(filename = paste0("plot_false_positive.svg"),plot_false_positive, device 
 
 With uncertainty:
 ```{r}
-plot_false_positive_box <- df_comp_res %>%
+plot_false_positive_se <- df_comp_res %>%
           dplyr::filter(dgp %in% c("graph3", "graph4", "graph5")) %>%
           filter(change == "truegraph") %>%
           # setup decision rule
-          mutate(sig_beta05 = ifelse(beta_a < 50 | beta_b < 50, 1, 0),
-                 sig_pcor05 = ifelse(pcor_a < 50 | pcor_b < 50, 1, 0)) %>%
+          mutate(sig_beta05 = ifelse(beta_a < sig_cut*n_draw | beta_b < sig_cut*n_draw, 1, 0),
+                 sig_pcor05 = ifelse(pcor_a < sig_cut*n_draw | pcor_b < sig_cut*n_draw, 1, 0)) %>%
           # mutate tp_ind into factor
           mutate(tp = as.factor(tp)) %>%
           mutate(tp = forcats::fct_relevel(tp, "50", "100", "200", "400", "1000")) %>%
           dplyr::mutate(dgp = fct_recode(as_factor(as.character(dgp)), !!!graph_names)) %>% 
-          
-          # setup decision rule
-          dplyr::mutate(
-                 sig_beta05 = ifelse(beta_a < 50 | beta_b < 50, 1, 0),
-                 sig_pcor05 = ifelse(pcor_a < 50 | pcor_b < 50, 1, 0)) %>% 
-          dplyr::group_by(dgp, comp, tp, change) %>% 
+        
+          dplyr::group_by(dgp, comp, tp, change, prior) %>% 
           dplyr::summarize(
                     power_beta05 = sum(sig_beta05)/n_comp,
                     power_pcor05 = sum(sig_pcor05)/n_comp,
@@ -1188,13 +1217,18 @@ plot_false_positive_box <- df_comp_res %>%
           dplyr::mutate(mat = case_when(
             grepl("beta05", res) ~ "Temporal",
             grepl("pcor05", res) ~ "Contemp.")) %>% 
+          dplyr::filter(prior == "narrow") %>% 
           ggplot(aes(x = tp, y = value, col = comp, group = comp)) +
           geom_point(position = position_dodge(0.3), size = 0.5)+
           geom_line()+
           geom_linerange(aes(ymin = value - 1.96*se, x = tp,
                             ymax = value + 1.96*se),
-                        width = .5, position = position_dodge(0.3))+
-          ggh4x::facet_nested(. ~ dgp + mat)+
+                        width = .5, position = position_dodge(0.3),
+                        show.legend = FALSE)+
+          ggh4x::facet_nested(. ~ dgp + mat,
+                              axes = TRUE,
+                              remove_labels = TRUE)+
+          scale_y_continuous(expand = c(0,0))+
           theme_minimal()+
           ylim(-0.1,.2)+
           ggokabeito::scale_color_okabe_ito()+
@@ -1213,12 +1247,13 @@ plot_false_positive_box <- df_comp_res %>%
                   # panel.border = element_rect(color = "#D5D8DC", fill = NA, size = 1),
                   panel.spacing.y = ggplot2::unit(1.6, "lines"),
                   panel.spacing.x = ggplot2::unit(1.6, "lines"),
+                  axis.line = element_line(colour = "#6d6d6e"),
                   axis.text.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.05)),
                   axis.title.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3)),
                   axis.title.y = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3)))
 
-plot_false_positive_box
-ggsave(filename = paste0("plot_false_positive_box.svg"),plot_false_positive_box, device = "svg",
+plot_false_positive_se
+ggsave(filename = paste0("plot_false_positive_se.svg"),plot_false_positive_se, device = "svg",
          path = here::here("figures/"), width = 13, height = 6)
 ```
 
