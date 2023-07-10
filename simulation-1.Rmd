@@ -1,9 +1,10 @@
 ---
 title: "bggm-var-investigation"
 author: "Björn Siepe"
-date: "2022-11-18"
+date: "`r Sys.Date()"
 output: html_document
 ---
+This document contains code to reproduce simulation study 1. 
 
 ```{r}
 library(tidyverse)
@@ -20,10 +21,20 @@ seed = 2022
 set.seed(seed)
 ```
 
+These are intermediate simulation results with which the main figures of the paper can be reproduced. If you load these results, you can jump to the section titled "IF RESULTS PRELOADED".
+```{r}
+# Evaluated simulation results for BGGM and GVAR
+df_eval_gvar <- readRDS(here::here("output/df_eval_gvar_0705.RDS"))
+df_eval_bggm <- readRDS(here::here("output/df_eval_bggm_0705.RDS"))
+
+```
+
+
+
+
 # Simulation study
 
-Simulation conditions
-
+## Simulation conditions
 ```{r}
 # Simulation conditions
 n_ind <- 1000 # number of individuals(so models to create) 
@@ -36,31 +47,35 @@ dgp_names <- c("graph1", "graph2", "graph3", "graph4", "graph5", "graph6")
 dgp <- c(1,2,3,4,5,6)
 rho_sd <- c(0.1, 0.3, 0.5)
 beta_sd <- c(0.2, 0.5, 1)
-n_tp <- c(50, 100, 200, 400, 1000) 
-tp_cond <- c(1,2,3,4,5)   # different tp conditions
-n_iter <- 50000
+n_tp <- c(50, 100, 200, 400, 1000)  # different number of timepoints
+tp_cond <- c(1,2,3,4,5)             # different timepoint conditions
+n_iter <- 50000                     # iterations for BGGM
 
+# create grid of simulation conditions
 cond_grid <- expand.grid(dgp = dgp,
                          n_tp = tp_cond,
                          rho_prior = rho_sd, 
                          beta_prior = beta_sd)
+
 # Conditions of varying sparsity for graphicalVAR
 gamma_ebic <- c(0, 0.5)      # EBIC hyperparameter
 lambda <- c(NA, 0)
 
-
+# Grid for graphicalVAR
 cond_grid_gvar <- expand.grid(dgp = dgp,
                          n_tp = tp_cond,
                          gamma_ebic = gamma_ebic,
                          lambda = lambda)
 
+# Load DGPs
+l_graphs <- readRDS(here::here("data/l_graphs.RDS"))
+
 ```
 
+
 ## Data Generation
-
 ```{r}
-# l_raw <- readRDS(l_raw, file = here::here("data/l_raw1000.RDS"))
-
+# Loop across all data-generating processes
 set.seed(seed)
 before_simraw <- Sys.time()
 ncores = 40
@@ -88,7 +103,11 @@ stopCluster(cl)
 # saveRDS(l_raw, file = here::here("data/l_raw1000.RDS"))
 l_raw <- readRDS(here::here("data/l_raw1000.RDS"))
 
+```
 
+Quick check how long estimation takes on these data:
+```{r}
+# Check time it takes for certain condition
 test <- l_raw[[4]][[3]][1:100]
 
 before <- Sys.time()
@@ -99,15 +118,12 @@ l_res <- lapply(test, function(x){
 after <- Sys.time() - before
 
 after/100
-
 ```
+
 
 ## Estimation
 
 Estimate both graphicalVAR in default settings as well as BGGM with varying priors.
-
-Next steps here: load results, then figure out which files haven't been done yet
-
 ```{r}
 # Estimating for each model 
 # store BGGM results under "nonselect"
@@ -118,7 +134,7 @@ registerDoParallel(cl)
 l_res_bggm <- list()
 
 
-
+# For every condition, apply fitting function for BGGM
 for(n in 1:nrow(cond_grid)) {
   dgp_ind <- as.numeric(cond_grid[n, "dgp"])
   tp_ind <- as.numeric(cond_grid[n, "n_tp"])
@@ -152,7 +168,7 @@ for(m in 1:nrow(cond_grid)){
   }
 }
 
-saveRDS(l_res_bggm, here::here("output/bggm-var-sim-res_2403.Rds"))
+# saveRDS(l_res_bggm, here::here("output/bggm-var-sim-res_2403.Rds"))
 # l_res_bggm <- readRDS(here::here("output/bggm-var-sim-res_2403.Rds"))
 
 
@@ -214,9 +230,6 @@ for(m in 1:nrow(cond_grid_gvar)){
 # saveRDS(l_res_gvar, here::here("output/graphicalvar-sim-res_2403.Rds"))
 # l_res_gvar <- readRDS(here::here("output/graphicalvar-sim-res_1703.Rds"))
 
-    
-
-
 
 ```
 
@@ -235,19 +248,28 @@ l_eval_bggm <- lapply(l_res_bggm, function(x){
   return(res)
 })
 
+# Convert list to useful dataframe
 rm(l_res_bggm)
 df_eval_bggm <- purrr::flatten(l_eval_bggm)
 df_eval_bggm <- dplyr::bind_rows(df_eval_bggm)
+
 # Pivot CIs wider
 df_eval_bggm_wide <- df_eval_bggm %>% 
   tidyr::unpack(cols = ci, names_sep = "_") %>% 
-  pivot_wider(names_from = ci_ci, values_from = c(ci_sum_cover_beta, ci_sum_cover_pcor,
-                                               ci_width_beta,ci_width_pcor, ci_true_pos_beta, ci_true_pos_pcor, ci_fal_pos_beta, ci_fal_pos_pcor, ci_true_neg_beta, ci_true_neg_pcor, ci_fal_neg_beta,
-  ci_fal_neg_pcor,
-  ci_sens_beta, ci_sens_pcor, ci_spec_beta, ci_spec_pcor))
+  pivot_wider(names_from = ci_ci, 
+              values_from = c(ci_sum_cover_beta, ci_sum_cover_pcor,
+                              ci_width_beta,ci_width_pcor, ci_true_pos_beta,
+                              ci_true_pos_pcor, ci_fal_pos_beta,
+                              ci_fal_pos_pcor, ci_true_neg_beta,
+                              ci_true_neg_pcor, ci_fal_neg_beta,
+                              ci_fal_neg_pcor, ci_sens_beta,
+                              ci_sens_pcor, ci_spec_beta, ci_spec_pcor))
+
+df_eval_bggm <- df_eval_bggm_wide
+
+# remove leftovers
 rm(df_eval_bggm)
 rm(l_eval_bggm)
-df_eval_bggm <- df_eval_bggm_wide
 rm(df_eval_bggm_wide)
 
 
@@ -271,8 +293,12 @@ df_eval_bggm <- readRDS(here::here("output/df_eval_bggm_0705.RDS"))
 ```
 
 
-New evaluation with standard errors. 
+
+# IF RESULTS PRELOADED; START HERE
+
+Summarize results and calculate standard errors for point estimates.
 ```{r}
+# Number of repetitions
 n_rep = 1000
 
 ## For GVAR
@@ -301,22 +327,24 @@ df_eval_bggm_mcse <- df_eval_bggm %>%
                            contains("ci")), 
                names_to = c(".value", "mat"), 
                names_pattern = "(.*)_([^_]+)$") %>% 
-  # seperate SEL and non-select
-  # tidyr::pivot_longer(cols = c(contains("bias"), cor, cor_sel, contains("rmse"))) %>% 
-  # mutate(method = ifelse(grepl("_sel", name), "sel", "bggm")) %>% 
-  # mutate(name = stringr::str_remove(name, "_sel")) %>% 
+
   rename(bias_bggm = bias, 
          rmse_bggm = rmse, 
          cor_bggm = cor) %>% 
     pivot_longer(
-    cols = c(bias_bggm, rmse_bggm, cor_bggm, bias_sel, rmse_sel, cor_sel),  # Specify the columns to pivot
+    cols = c(bias_bggm, # Specify the columns to pivot
+             rmse_bggm, 
+             cor_bggm, 
+             bias_sel, 
+             rmse_sel, 
+             cor_sel),  
     names_to = c(".value", "method"),  # Specify the new column names
     names_pattern = "(.*)_(.*)"  # Pattern to match the column names
   ) %>% 
   dplyr::group_by(dgp_ind, tp_ind, rho_prior, beta_prior, mat, method) %>% 
   dplyr::summarize(
     bias = mean(bias), 
-    bias_mcse = sqrt((1/(n_rep*(n_rep-1)))*sum(bias_sq)),  # double check the square here
+    bias_mcse = sqrt((1/(n_rep*(n_rep-1)))*sum(bias_sq)),
     cor = mean(cor), 
     cor_mcse = sqrt(1-cor^2)/sqrt(n_rep-2),
     sens = mean(sens), 
@@ -325,15 +353,10 @@ df_eval_bggm_mcse <- df_eval_bggm %>%
     spec_mcse = sqrt((spec * (1-spec))/n_rep)) %>% 
   ungroup()
 
-
-
 ```
 
 
-
-
-
-Combine evaluations.
+Combine evaluations of BGGM and graphicalVAR
 ```{r}
 # For joining, select one of the prior conditions
 df_eval_both <- df_eval_bggm_mcse %>% 
@@ -348,10 +371,6 @@ df_eval_both <- df_eval_bggm_mcse %>%
     names_sep = "_"
   ) %>% 
     rename_with(~ gsub("_bggm_", "_", .), contains("_bggm_"))
-  
-  
-
-
 
 ```
 
@@ -384,11 +403,10 @@ cond_colors <- set_names(ggokabeito::palette_okabe_ito()[1:5],
 cond_lty <- set_names(c(1,1,1,2,2),
                       c("BGGM narrow", "BGGM wide", "graphicalVAR", "SEL wide", "SEL narrow"))
 
-
 ```
 
 
-## NEW PLOTS WITH UNCERTAINTY
+## Plots with uncertainty
 Prepare data: Pivot longer and mutate columns. 
 ```{r}
 # Pivot longer and mutate columns
@@ -396,7 +414,11 @@ df_eval_both_long <- df_eval_both %>%
   ungroup() %>% 
   # Filter irrelevant condition
   dplyr::filter(!(!is.na(lambda) & ebic == 0.5)) %>% 
-  tidyr::pivot_longer(cols = c(contains("bias"), contains("cor"), contains("mcse"), contains("spec"), contains("sens"))) %>%
+  tidyr::pivot_longer(cols = c(contains("bias"), 
+                               contains("cor"), 
+                               contains("mcse"), 
+                               contains("spec"), 
+                               contains("sens"))) %>%
   mutate(val_type = case_when(
     stringr::str_detect(name, "mcse") ~ "mcse",
     TRUE ~ "value"
@@ -430,51 +452,122 @@ df_eval_both_long <- df_eval_both %>%
 ### Plot BGGM
 This is not done yet; I need to think about what to include.
 ```{r}
-plot_eval_bggm <- df_eval_both_long %>% 
+ls_data_eval_bggm <- df_eval_both_long %>% 
   filter(dgp_ind > dgp_cut) %>% 
   mutate(tp_ind = fct_recode(as_factor(as.character(tp_ind)), !!!tp_levels)) %>% 
   mutate(dgp_ind = fct_recode(as_factor(as.character(dgp_ind)), !!!dgp_levels)) %>% 
   filter(method != "graphicalVAR") %>% 
   mutate(prior_comb = paste0("b", beta_prior,  "_r", rho_prior)) %>% 
-  mutate(method = paste0(method, "_", prior_comb)) %>% 
   # filter to one graphicalVAR method, such that BGGM is not repeated
   filter(is.na(lambda) & ebic == 0) %>% 
   # not look at spec/sens here
   filter(!stat %in% c("Sensitivity", "Specificity")) %>%
-  ggplot(aes(x = tp_ind, y = value, col = method, group = method))+
-  geom_line()+
+  # Look at specific prior combinations
+  filter(prior_comb %in% c("b0.2_r0.1", "b0.2_r0.5",
+                           "b0.5_r0.5", "b1_r0.1")) %>% 
+  # Nice labels for plotting
+  # mutate(prior_comb = factor(prior_comb,
+  #                       levels = c("b0.2_r0.1", "b0.2_r0.5", "b0.5_r0.5", "b1_r0.1"),
+  #                       labels = c(expression(s[beta]~"= 0.2, "~ s[rho]~"= 0.1"),
+  #                                  expression(s[beta]~"= 0.2, "~ s[rho]~"= 0.5"),
+  #                                  expression(s[beta]~"= 0.5, "~ s[rho]~"= 0.5"),
+  #                                  expression(s[beta]~"= 1, "~ s[rho]~"= 0.1")
+  #                                  ))) %>% 
+  # Create combined method
+  mutate(method = paste0(method, "_", prior_comb)) %>%
+  # Split based on statistic to obtain different y-axes
+  split(., .$stat)
+
+
+# # # Create line types for different methods
+# cond_lty_bggm <- set_names(c(1,1, 1, 1, 2, 2, 2, 2),
+#                       c("BGGM_b0.2_r0.1", "BGGM_b0.2_r0.5", "BGGM_b0.5_r0.5", "BGGM_b1_r0.1",
+#                         "SEL_b0.2_r0.1", "SEL_b0.2_r0.5", "SEL_b0.5_r0.5", "SEL_b1_r0.1"))
+# cond_colors_bggm <- set_names(ggokabeito::palette_okabe_ito()[1:8],
+#                          c("BGGM_b0.2_r0.1", "BGGM_b0.2_r0.5", "BGGM_b0.5_r0.5", "BGGM_b1_r0.1",
+#                         "SEL_b0.2_r0.1", "SEL_b0.2_r0.5", "SEL_b0.5_r0.5", "SEL_b1_r0.1"))
+
+
+ls_eval_bggm_both_plots <- list()    
+ls_eval_bggm_both_plots[[1]] <- ggplot(data = ls_data_eval_bggm$Bias, 
+         aes(x = tp_ind, y = value, col = method, group = method))+
   geom_linerange(aes(ymin = value - 1.96*mcse,
                             ymax = value + 1.96*mcse),
                         width = .5, 
                  # position = position_dodge(0.1)
                  show.legend = FALSE)+
+  geom_line()+
   # geom_point()+
-  ggh4x::facet_nested(as.factor(dgp_ind) ~ as.factor(stat) + as.factor(mat))+
-  theme_bw()+
-  # scale_color_manual(values = cond_colors)+
-  # scale_linetype_manual(values = cond_lty)+
+  ggh4x::facet_nested(as.factor(dgp_ind) ~ as.factor(stat) + as.factor(mat),
+                      axes = TRUE,
+                      remove_labels = TRUE)+
+  # scale_color_manual(values = ggokabeito::palette_okabe_ito()[1:8])+
+  # scale_linetype_manual(values = c(1,1, 1, 1, 2, 2, 2, 2))+
+  ggokabeito::scale_color_okabe_ito()+
   labs(x = "Timepoints",
        col = "Method",
-       y = "",
-       linetype = "Method")+
+       group = "Method",
+       y = "")+
   theme_compare()+
+  scale_y_continuous(limits = c(0,.2), breaks = c(0, .05, .1, .15, .2), expand = c(0,0))+
+  theme(strip.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3), 
+                                           hjust = 0.5),
+        strip.text.x.top = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3),
+                                                 hjust = 0.5),
+        strip.text.y = element_blank(),
+        legend.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2)),
+        legend.title = ggplot2::element_text(face = "bold", size = ggplot2::rel(1.2)),
+        axis.line = element_line(colour = "#6d6d6e"),
+        panel.spacing.y = ggplot2::unit(1.6, "lines"),
+        panel.spacing.x = ggplot2::unit(1.6, "lines"),
+        axis.text.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2)),
+        axis.title.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.4)))
+
+ls_eval_bggm_both_plots[[2]] <- ggplot(data = ls_data_eval_bggm$Correlation, 
+         aes(x = tp_ind, y = value, col = method,  group = method))+
+
+  geom_linerange(aes(ymin = value - 1.96*mcse,
+                            ymax = value + 1.96*mcse),
+                        width = .5, 
+                 # position = position_dodge(0.1)
+                 show.legend = FALSE)+
+  geom_line()+
+  # geom_point()+
+  ggh4x::facet_nested(as.factor(dgp_ind) ~ as.factor(stat) + as.factor(mat),
+                      axes = TRUE,
+                      remove_labels = TRUE)+
+  # scale_color_manual(values = ggokabeito::palette_okabe_ito()[1:8])+
+  # scale_linetype_manual(values = c(1,1, 1, 1, 2, 2, 2, 2))+
+  ggokabeito::scale_color_okabe_ito()+
+  labs(x = "Timepoints",
+       col = "Method",
+       group = "Method",
+       y = "")+
+  theme_compare()+
+  scale_y_continuous(limits = c(0,1), breaks = c(0, .25, .5, .75, 1), expand = c(0,0))+
   theme(strip.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3), 
                                            hjust = 0.5),
         strip.text.x.top = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3),
                                                  hjust = 0.5),
         legend.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2)),
         legend.title = ggplot2::element_text(face = "bold", size = ggplot2::rel(1.2)),
-        # panel.border = element_rect(color = "#D5D8DC", fill = NA, size = 1),
+        axis.line = element_line(colour = "#6d6d6e"),
         panel.spacing.y = ggplot2::unit(1.6, "lines"),
         panel.spacing.x = ggplot2::unit(1.6, "lines"),
         axis.text.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2)),
         axis.title.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.4)))
 
-ggsave("plot_eval_bggm.svg", plot_eval_bggm, height = 9, width = 12, path = here::here("figures/"), device = "svg")
+
+plot_eval_bggm_separate <- patchwork::wrap_plots(ls_eval_bggm_both_plots) + 
+  patchwork::plot_layout(guides = "collect") & theme(legend.position = "top")
+plot_eval_bggm_separate
+
+ggsave("plot_eval_bggm.svg", plot_eval_bggm_separate, height = 9, width = 12, path = here::here("figures/"), device = "svg")
   
 ```
 
 ### Plot graphicalVAR
+Extensive plot for supplement.
 ```{r}
 plot_eval_graphicalvar <- df_eval_both_long %>% 
   filter(dgp_ind > dgp_cut) %>% 
@@ -500,7 +593,9 @@ plot_eval_graphicalvar <- df_eval_both_long %>%
                  # position = position_dodge(0.1)
                  show.legend = FALSE)+
   # geom_point()+
-  ggh4x::facet_nested(as.factor(dgp_ind) ~ as.factor(stat) + as.factor(mat))+
+  ggh4x::facet_nested(as.factor(dgp_ind) ~ as.factor(stat) + as.factor(mat),
+                      axes = TRUE,
+                      remove_labels = TRUE)+
   theme_bw()+
   # scale_color_manual(values = cond_colors)+
   # scale_linetype_manual(values = cond_lty)+
@@ -519,6 +614,7 @@ plot_eval_graphicalvar <- df_eval_both_long %>%
         # panel.border = element_rect(color = "#D5D8DC", fill = NA, size = 1),
         panel.spacing.y = ggplot2::unit(1.6, "lines"),
         panel.spacing.x = ggplot2::unit(1.6, "lines"),
+        axis.line = element_line(colour = "#6d6d6e"),
         axis.text.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2)),
         axis.title.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.4)))
 
@@ -528,69 +624,9 @@ ggsave("plot_eval_graphicalvar.svg", plot_eval_graphicalvar, height = 9, width =
 ```
 
 
-
-
 ### Plot both
-```{r}
-plot_eval_both <- df_eval_both_long %>% 
-  # delete older dgps
-  filter(dgp_ind > dgp_cut) %>%
-  # mutate tp_ind into factor
-  mutate(tp_ind = fct_recode(as_factor(as.character(tp_ind)), !!!tp_levels)) %>% 
-  # mutate dgp_ind into factor
-  mutate(dgp_ind = fct_recode(as_factor(as.character(dgp_ind)), !!!dgp_levels)) %>% 
-  mutate(prior_comb = paste0("b", beta_prior,  "_r", rho_prior)) %>% 
-  filter(prior_comb == "b1_r0.5" | prior_comb == "b0.2_r0.3") %>% 
-  dplyr::group_by(dgp_ind, tp_ind, lambda, ebic, prior_comb) %>% 
-  mutate(method = paste0(method, "_", prior_comb)) %>% 
-  mutate(method = case_when(
-    stringr::str_detect(method, "BGGM_b0.2") ~ "BGGM narrow",
-    stringr::str_detect(method, "BGGM_b1") ~ "BGGM wide",
-    stringr::str_detect(method, "graphicalVAR") ~ "graphicalVAR",
-    stringr::str_detect(method, "SEL_b0.2") ~ "SEL narrow",
-    stringr::str_detect(method, "SEL_b1") ~ "SEL wide"
-  )) %>% 
-  # only take default values for now
-  filter(is.na(lambda) & ebic == 0) %>% 
-  # not look at spec/sens here
-  filter(!stat %in% c("Sensitivity", "Specificity")) %>% 
-  ggplot(aes(x = tp_ind, y = value, col = method, linetype = method, group = method))+
-  geom_line()+
-  geom_linerange(aes(ymin = value - 1.96*mcse,
-                            ymax = value + 1.96*mcse),
-                        width = .5, 
-                 # position = position_dodge(0.1)
-                 )+
-  # geom_point()+
-  ggh4x::facet_nested(as.factor(dgp_ind) ~ as.factor(stat) + as.factor(mat))+
-  theme_bw()+
-  scale_color_manual(values = cond_colors)+
-  scale_linetype_manual(values = cond_lty)+
-  labs(x = "Timepoints",
-       col = "Method",
-       y = "",
-       linetype = "Method")+
-  theme_compare()+
-  theme(strip.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3), 
-                                           hjust = 0.5),
-        strip.text.x.top = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3),
-                                                 hjust = 0.5),
-        legend.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2)),
-        legend.title = ggplot2::element_text(face = "bold", size = ggplot2::rel(1.2)),
-        # panel.border = element_rect(color = "#D5D8DC", fill = NA, size = 1),
-        panel.spacing.y = ggplot2::unit(1.6, "lines"),
-        panel.spacing.x = ggplot2::unit(1.6, "lines"),
-        axis.text.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2)),
-        axis.title.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.4)))
-
-plot_eval_both
-ggsave("plot_eval_both_cor.svg", plot_eval_both, height = 9, width = 12, path = here::here("figures/"), device = "svg")
-
-
-```
 
 With separate y-axis scaling.
-
 ```{r}
 ls_data_both_stat <- df_eval_both_long %>% 
   # delete older dgps
@@ -812,7 +848,9 @@ plot_ci_sens <- df_eval_bggm %>%
                         width = .5,
                  # position = position_dodge(0.1)
                  show.legend = FALSE)+
-  ggh4x::facet_nested(as.factor(dgp_ind) ~ as.factor(stat) + as.factor(mat))+
+  ggh4x::facet_nested(as.factor(dgp_ind) ~ as.factor(stat) + as.factor(mat),
+                      axes = TRUE,
+                      remove_labels = TRUE)+
   # scale_color_manual(values = cond_colors)+
   labs(x = "Timepoints",
        col = "CI Width",
@@ -828,6 +866,7 @@ plot_ci_sens <- df_eval_bggm %>%
         # panel.border = element_rect(color = "#D5D8DC", fill = NA, size = 1),
         panel.spacing.y = ggplot2::unit(1.6, "lines"),
         panel.spacing.x = ggplot2::unit(1.6, "lines"),
+        axis.line = element_line(colour = "#6d6d6e"),
         axis.text.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2)),
         axis.title.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.4)))
 
@@ -842,61 +881,7 @@ ggsave("plot_ci_sens.svg", plot_ci_sens, height = 9, width = 12, path = here::he
 
 ### Focus on nonselect methods
 
-TODO Maybe omit RMSE here!
-```{r}
-plot_eval_both_nonselect <- df_eval_both %>% 
-  # delete older dgps
-  filter(dgp_ind > dgp_cut) %>%
-  dplyr::select(c(dgp_ind, tp_ind, lambda, ebic, contains("bias"), contains("rmse"), contains("prior"))) %>% 
-  dplyr::select(!contains("sel")) %>% 
-  # use non-lasso graphicalVAR
-  filter(lambda == 0 & ebic == 0) %>% 
-  # mutate tp_ind into factor
-  mutate(tp_ind = fct_recode(as_factor(as.character(tp_ind)), !!!tp_levels)) %>% 
-  # mutate dgp_ind into factor
-  mutate(dgp_ind = fct_recode(as_factor(as.character(dgp_ind)), !!!dgp_levels)) %>% 
-  mutate(prior_comb = paste0("b", beta_prior,  "_r", rho_prior)) %>% 
-  filter(prior_comb == "b1_r0.5" | prior_comb == "b0.2_r0.3") %>% 
-  dplyr::select(!c(rho_prior, beta_prior)) %>% 
-  dplyr::group_by(dgp_ind, tp_ind, lambda, ebic, prior_comb) %>% 
-  pivot_wider(names_from = prior_comb,
-              values_from = c(contains("bggm"))) %>%
-  pivot_longer(cols = c(contains("bias"), contains("rmse")),
-                        names_to = "stat") %>%
-
-  mutate(method = case_when(
-    stringr::str_detect(stat, "gvar") ~ "graphicalVAR",
-    stringr::str_detect(stat, "bggm_b0.2") ~ "BGGM narrow",
-    stringr::str_detect(stat, "bggm_b1") ~ "BGGM wide"
-  )) %>% 
-  mutate(mat = case_when(
-    stringr::str_detect(stat, "beta") ~ "Temp.",
-    stringr::str_detect(stat, "pcor") ~ "Contemp."
-  )) %>% 
-  mutate(stat = case_when(
-    stringr::str_detect(stat, "bias") ~ "Bias",
-    stringr::str_detect(stat, "rmse") ~ "RMSE"
-  )) %>% 
-  ggplot(aes(x = tp_ind, y = value, col = method))+
-  geom_boxplot(outlier.size = 0.5, outlier.alpha = 0.4, outlier.color = "grey")+
-  ggh4x::facet_nested(as.factor(dgp_ind) ~ as.factor(stat) + as.factor(mat),
-                      scales = "free")+
-  theme_bw()+
-  # ggokabeito::scale_color_okabe_ito()+
-  scale_color_manual(values = cond_colors)+
-  labs(caption = "graphicalVAR without LASSO",
-       x = "Timepoints",
-       col = "Method",
-       y = "")+
-  theme_compare()
-plot_eval_both_nonselect
-
-ggsave("plot_eval_both_nonselect.svg", plot_eval_both_nonselect, height = 7, width = 15, path = here::here("figures/"), device = "svg")
-
-```
-
-
-Now with SE
+With standard errors.
 ```{r}
 ls_data_both_nonselect <- df_eval_both_long %>% 
   # delete older dgps
@@ -1007,8 +992,7 @@ ggsave("plot_eval_both_cor_nonselect.svg", plot_eval_both_nonselect, height = 9,
 
 ### Coverage and interval width BGGM
 
-Create a plot to investigate credible intervals of BGGM
-Now with uncertainty
+Create a plot to investigate credible intervals of BGGM with uncertainty. 
 ```{r}
 plot_eval_credible <- df_eval_both %>% 
   # delete older dgps
@@ -1139,37 +1123,3 @@ df_eval_both %>%
 
 
 
-## Average model across simulation fits
-
-Find averaged model across 1000 iterations in one condition.
-
-```{r}
-# BGGM
-pcor_list <- lapply(fit_bggm[[30]], function(x)
-  return(x$pcor_mu))
-
-pcor_bggm <- apply(simplify2array(pcor_list), 1:2, mean)
-diag(pcor_bggm) <- rep(0, 6)
-options(scipen = 10)
-pcor_bggm
-
-beta_list <- lapply(fit_bggm[[70]], function(x)
-  return(x$beta_mu))
-
-apply(simplify2array(beta_list), 1:2, mean)
-
-
-# gVAR
-
-PCC_gvar_list <- lapply(l_res_gvar[[30]], function(x)
-  return(x$PCC))
-
-round(apply(simplify2array(PCC_gvar_list), 1:2, mean),3)
-
-beta_gvar_list <- lapply(l_res_gvar[[30]], function(x)
-  return(t(x$beta[,-1])))
-
-round(apply(simplify2array(beta_gvar_list), 1:2, mean),3)
-
-
-```
