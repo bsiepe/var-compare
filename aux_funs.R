@@ -424,10 +424,44 @@ sim_raw_parallel <- function(dgp,
 }
 
 
-
+# Fit graphicalVAR parallel -----------------------------------------------
+fit_graphicalvar_parallel <- function(data,
+                                      n, 
+                                      pruneresults = TRUE, 
+                                      ...){     # other arguments passed to graphicalVAR
+  # Save arguments
+  
+  require(doParallel)
+  
+  # reproducible parallelization
+  doRNG::registerDoRNG(seed)
+  
+  # Foreach
+  fit <- foreach(i = seq(n), .packages = "graphicalVAR") %dopar% {
+    fit_ind <- tryCatch({graphicalVAR::graphicalVAR(data = data[[i]]$data,
+                                                    ...)}, 
+                        error = function(e) NULL)
+    
+    
+    
+    if(isTRUE(pruneresults) & is.list(fit_ind)){
+      fit_ind[c("path", "allResults", "data", "labels")] <- NULL
+      
+    }
+    fit_ind$args <- data[[i]]$args
+    return(fit_ind)
+  } # end foreach
+  
+  
+  # Output
+  return(fit)
+  
+}     
 
 
 # Fit VAR parallel merged -------------------------------------------------
+# In simulation 1, we just use the default options. 
+
 fit_var_parallel_merged <- function(data, 
                                      n,         # number of individuals
                                      nds,       # number of datasets
@@ -774,84 +808,6 @@ fit_var_parallel_merged <- function(data,
 
 
 
-
-
-
-
-
-
-
-
-# Sim from posterior ------------------------------------------------------
-# This function is no longer used in the current approach
-
-#' Simulate from Posterior Samples
-#' This function simulates a specified number of datasets from the posterior
-#' of a given model. Uses the graphicalVARsim function from the graphicalVAR
-#' package to generate data. 
-#' @param fitobj BGGM fit object containing all posterior samples
-#' @param n_datasets Number of datasets to create
-#' @param n Number of individuals
-#' @param tp Number of timepoints
-#' @param iterations Number of iterations used in BGGM sampling
-#' @param means Mean vector
-#' @param convert_bggm DEPRECATED: Should results be converted to BGGM List format?
-#'
-#' @return List of datasets in dataframe format. 
-#' @export
-
-sim_from_post_parallel <- function(fitobj, 
-                                   n_datasets, 
-                                   n,
-                                   tp,
-                                   iterations,
-                                   seed,  
-                                   means = 0,
-                                   convert_bggm = FALSE){
-  # Extract parameters from fitobject
-  # delete first 50 samples
-  l_params <- list()
-  for(i in seq(n)){
-    l_params[[i]] <- list()
-    l_params[[i]]$beta <- fitobj[[i]]$fit$beta[,,51:iterations]
-    l_params[[i]]$kappa <- fitobj[[i]]$fit$kappa[,,51:iterations]
-  }
-  
-  # reproducible parallelization
-  registerDoRNG(seed)
-  
-  # Loop to create new datasets from posterior samples
-  post_data <- foreach(i = seq(n), .packages = "graphicalVAR") %dopar% {
-    dat <- list()
-    # Loop over number of datasets to create from posterior
-    for(j in seq(n_datasets)){
-      # get random posterior sample
-      # Needs transposing of beta matrix!
-      smp <- sample(iterations, size = 1)
-      dat[[j]] <- try(as.data.frame(graphicalVAR::graphicalVARsim(nTime = tp,
-                                                                  beta = t(l_params[[i]]$beta[,,smp]),
-                                                                  kappa = l_params[[i]]$kappa[,,smp],
-                                                                  mean = means))) 
-      
-    }
-    
-    dat
-    
-    
-    
-  } # end parallel
-  
-  # # No longer in use: Should data be converted to bggm format?
-  # if(isTRUE(convert_bggm)){
-  #   post_data <- lapply(post_data, format_bggm_list)
-  #   
-  # }
-  post_data
-  
-}
-
-
-
 # Summarize posterior -----------------------------------------------------
 summarize_post <- function(res, cred = c(0.95)) {
   
@@ -901,7 +857,7 @@ summarize_post <- function(res, cred = c(0.95)) {
               beta_ub = beta_ub_list, 
               beta_mean = beta_mean_list,
               pcor_lb = pcor_lb_list, 
-              pcor_ub = pcor_ub_list
+              pcor_ub = pcor_ub_list,
               pcor_mean = pcor_mean_list)
   
   return(out)
@@ -1843,40 +1799,7 @@ sim_select <- function(simobj,
 }
 
 
-# Fit graphicalVAR parallel -----------------------------------------------
 
-fit_graphicalvar_parallel <- function(data,
-                                      n, 
-                                      pruneresults = TRUE, 
-                                      ...){     # other arguments passed to graphicalVAR
-  # Save arguments
-  
-  require(doParallel)
-  
-  # reproducible parallelization
-  doRNG::registerDoRNG(seed)
-  
-  # Foreach
-  fit <- foreach(i = seq(n), .packages = "graphicalVAR") %dopar% {
-    fit_ind <- tryCatch({graphicalVAR::graphicalVAR(data = data[[i]]$data,
-                                                    ...)}, 
-                        error = function(e) NULL)
-    
-    
-    
-    if(isTRUE(pruneresults) & is.list(fit_ind)){
-      fit_ind[c("path", "allResults", "data", "labels")] <- NULL
-      
-    }
-    fit_ind$args <- data[[i]]$args
-    return(fit_ind)
-  } # end foreach
-  
-  
-  # Output
-  return(fit)
-  
-}     
 
 
 
@@ -1965,48 +1888,48 @@ eval_bggm <- function(fit,
   
   
   # Obtain estimates with selection
-  beta_est_sel_vec <- fit$beta_weighted_adj
-  pcor_est_sel_vec <- fit$pcor_weighted_adj
+  adj_beta <- fit$beta_weighted_adj
+  adj_pcor <- fit$pcor_weighted_adj
   
   # Vectors for correlations
-  beta_est_sel_vec <- c(beta_est_sel_vec)
-  pcor_est_sel_vec <- c(pcor_est_sel_vec[upper.tri(pcor_est_sel_vec, diag = FALSE)])
+  adj_beta <- c(adj_beta)
+  adj_pcor <- c(adj_pcor[upper.tri(adj_pcor, diag = FALSE)])
   
   # Correlations
-  l_out$cor_sel_beta <- cor_zero(beta_est_sel_vec, beta_true_vec)
-  l_out$cor_sel_pcor <- cor_zero(pcor_est_sel_vec, pcor_true_vec)
+  l_out$cor_sel_beta <- cor_zero(adj_beta, beta_true_vec)
+  l_out$cor_sel_pcor <- cor_zero(adj_pcor, pcor_true_vec)
   
   # Bias
-  l_out$bias_sel_beta <- bias(beta_est_sel_vec, beta_true_vec)
-  l_out$bias_sq_sel_beta <- bias_sq(beta_est_sel_vec, beta_true_vec)
-  l_out$bias_sel_pcor <- bias(pcor_est_sel_vec, pcor_true_vec)
-  l_out$bias_sq_sel_pcor <- bias_sq(pcor_est_sel_vec, pcor_true_vec)
+  l_out$bias_sel_beta <- bias(adj_beta, beta_true_vec)
+  l_out$bias_sq_sel_beta <- bias_sq(adj_beta, beta_true_vec)
+  l_out$bias_sel_pcor <- bias(adj_pcor, pcor_true_vec)
+  l_out$bias_sq_sel_pcor <- bias_sq(adj_pcor, pcor_true_vec)
   
   # rmse
-  l_out$rmse_sel_beta <- rmse(beta_est_sel_vec, beta_true_vec)
-  l_out$rmse_sel_pcor <- rmse(pcor_est_sel_vec, pcor_true_vec)
+  l_out$rmse_sel_beta <- rmse(adj_beta, beta_true_vec)
+  l_out$rmse_sel_pcor <- rmse(adj_pcor, pcor_true_vec)
   
   # Amount of zeros
-  l_out$zeros_sel_beta <- sum(beta_est_sel_vec == 0)
-  l_out$zeros_sel_pcor <- sum(pcor_est_sel_vec == 0)
+  l_out$zeros_sel_beta <- sum(adj_beta == 0)
+  l_out$zeros_sel_pcor <- sum(adj_pcor == 0)
   
   
   ## True/False Positive/Negative
   # TP
-  l_out$true_pos_beta <- sum(beta_true_vec != 0 & beta_est_sel_vec != 0)
-  l_out$true_pos_pcor <- sum(pcor_true_vec != 0 & pcor_est_sel_vec != 0)
+  l_out$true_pos_beta <- sum(beta_true_vec != 0 & adj_beta != 0)
+  l_out$true_pos_pcor <- sum(pcor_true_vec != 0 & adj_pcor != 0)
   
   # FP
-  l_out$fal_pos_beta <- sum(beta_true_vec == 0 & beta_est_sel_vec != 0)
-  l_out$fal_pos_pcor <- sum(pcor_true_vec == 0 & pcor_est_sel_vec != 0)  
+  l_out$fal_pos_beta <- sum(beta_true_vec == 0 & adj_beta != 0)
+  l_out$fal_pos_pcor <- sum(pcor_true_vec == 0 & adj_pcor != 0)  
   
   # TN
-  l_out$true_neg_beta <- sum(beta_true_vec == 0 & beta_est_sel_vec == 0)
-  l_out$true_neg_pcor <- sum(pcor_true_vec == 0 & pcor_est_sel_vec == 0)
+  l_out$true_neg_beta <- sum(beta_true_vec == 0 & adj_beta == 0)
+  l_out$true_neg_pcor <- sum(pcor_true_vec == 0 & adj_pcor == 0)
   
   # FN
-  l_out$fal_neg_beta <- sum(beta_true_vec != 0 & beta_est_sel_vec == 0)
-  l_out$fal_neg_pcor <- sum(pcor_true_vec != 0 & pcor_est_sel_vec == 0)
+  l_out$fal_neg_beta <- sum(beta_true_vec != 0 & adj_beta == 0)
+  l_out$fal_neg_pcor <- sum(pcor_true_vec != 0 & adj_pcor == 0)
   
   ## Sensitivity
   l_out$sens_beta <- l_out$true_pos_beta / (l_out$true_pos_beta + l_out$fal_neg_beta)
@@ -2027,14 +1950,26 @@ eval_bggm <- function(fit,
                       sum_cover_beta = rep(NA, length(cred_int)),
                       sum_cover_pcor = rep(NA, length(cred_int)),
                       width_beta = rep(NA, length(cred_int)),
-                      width_pcor = rep(NA, length(cred_int)) )
+                      width_pcor = rep(NA, length(cred_int)),
+                      true_pos_beta = rep(NA, length(cred_int)),
+                      true_pos_pcor = rep(NA, length(cred_int)),
+                      fal_pos_beta = rep(NA, length(cred_int)),
+                      fal_pos_pcor = rep(NA, length(cred_int)),
+                      true_neg_beta = rep(NA, length(cred_int)),
+                      true_neg_pcor = rep(NA, length(cred_int)),
+                      fal_neg_beta = rep(NA, length(cred_int)),
+                      fal_neg_pcor = rep(NA, length(cred_int)),
+                      sens_beta = rep(NA, length(cred_int)),
+                      sens_pcor = rep(NA, length(cred_int)),
+                      spec_beta = rep(NA, length(cred_int)),
+                      spec_pcor = rep(NA, length(cred_int)))
   for(i in 1:length(cred_int)){
     lb_beta <- c(cred_interval$beta_lb[[i]])
     ub_beta <- c(cred_interval$beta_ub[[i]])
     lb_pcor <- cred_interval$pcor_lb[[i]]
-    lb_pcor <- lb_pcor[upper.tri(lb_pcor)]
+    lb_pcor <- c(lb_pcor[upper.tri(lb_pcor)])
     ub_pcor <- cred_interval$pcor_ub[[i]]  
-    ub_pcor <- ub_pcor[upper.tri(ub_pcor)]
+    ub_pcor <- c(ub_pcor[upper.tri(ub_pcor)])
     
     m_cover_beta <- beta_true_vec >= lb_beta & beta_true_vec <= ub_beta 
     m_cover_pcor <- pcor_true_vec >= lb_pcor & pcor_true_vec <= ub_pcor 
@@ -2042,6 +1977,40 @@ eval_bggm <- function(fit,
     # Only consider upper diagonal of pcor
     df_ci[i, "sum_cover_beta"] <- sum(m_cover_beta)
     df_ci[i, "sum_cover_pcor"] <- sum(m_cover_pcor)
+    
+    # Get adjacency matrix
+    adj_beta <- lb_beta > 0 | ub_beta < 0
+    adj_pcor <- lb_pcor > 0 | ub_pcor < 0
+    
+    # Compute stats
+    ## True/False Positive/Negative
+    # TODO NEEDS CHANGE
+    # TP
+    df_ci[i, "true_pos_beta"] <- sum(beta_true_vec != 0 & adj_beta != 0)
+    df_ci[i, "true_pos_pcor"] <- sum(pcor_true_vec != 0 & adj_pcor != 0)
+    
+    # FP
+    df_ci[i, "fal_pos_beta"] <- sum(beta_true_vec == 0 & adj_beta != 0)
+    df_ci[i, "fal_pos_pcor"] <- sum(pcor_true_vec == 0 & adj_pcor != 0)  
+    
+    # TN
+    df_ci[i, "true_neg_beta"] <- sum(beta_true_vec == 0 & adj_beta == 0)
+    df_ci[i, "true_neg_pcor"] <- sum(pcor_true_vec == 0 & adj_pcor == 0)
+    
+    # FN
+    df_ci[i, "fal_neg_beta"] <- sum(beta_true_vec != 0 & adj_beta == 0)
+    df_ci[i, "fal_neg_pcor"] <- sum(pcor_true_vec != 0 & adj_pcor == 0)
+    
+    ## Sensitivity
+    df_ci[i, "sens_beta"] <- df_ci[i, "true_pos_beta"] / (df_ci[i, "true_pos_beta"] + df_ci[i, "fal_neg_beta"])
+    df_ci[i, "sens_pcor"] <- df_ci[i, "true_pos_pcor"] / (df_ci[i, "true_pos_pcor"] + df_ci[i, "fal_neg_pcor"])
+    
+    ## Specificity
+    df_ci[i, "spec_beta"] <- df_ci[i, "true_neg_beta"] / (df_ci[i, "true_neg_beta"] + df_ci[i, "fal_pos_beta"])
+    df_ci[i, "spec_pcor"] <- df_ci[i, "true_neg_pcor"] / (df_ci[i, "true_neg_pcor"] + df_ci[i, "fal_pos_pcor"])
+    
+    
+
     
     
   }
