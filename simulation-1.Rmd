@@ -68,6 +68,7 @@ cond_grid_gvar <- expand.grid(dgp = dgp,
                          lambda = lambda)
 
 # Load DGPs
+# They are created in true-networks.Rmd
 l_graphs <- readRDS(here::here("data/l_graphs.RDS"))
 
 ```

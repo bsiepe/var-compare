@@ -1,7 +1,7 @@
 ---
 title: "true-networks"
 author: "Björn Siepe"
-date: "2022-12-19"
+date: "`r Sys.Date()"
 output: html_document
 ---
 
@@ -29,11 +29,11 @@ set.seed(seed)
 
 
 # Own simulated graph (graph1)
-NO LONGER USED
+This is no longer used as the values were unrealistically high.
+Still keep this here for transparency.
 ```{r}
 # Ground truth model is still generated with graphicalVAR 
-# could also use empirical data with varying sparsity
-set.seed(2022)    # does NOT help here with model creation! need to write own function
+set.seed(2022)    
 og_graph <- randomGVARmodel(Nvar = 6, probKappaEdge = 0.5, probBetaEdge = 0.3)
 beta <- as.matrix(read.table(header = FALSE, colClasses = "numeric", text = "
  0.2266407 0.0000000  0.0000000 -0.2668593  0.0000000 0.0000000
@@ -51,7 +51,6 @@ kappa <- as.matrix(read.table(header = FALSE, colClasses = "numeric", text = "
  0.3717013  0.2593779  0.3175423 0.0000000  0.0000000 1.0000000"))
 
 # compute partial correlations from kappa
-# in the case of only 1s on the diagonal of kappa, this just changes the sign
 pcc <- -cov2cor(kappa)
 graph <- list()
 graph$beta <- beta
@@ -74,23 +73,9 @@ write_rds(graph, here("data/graph.RDS"))
 ```
 
 
-Try out if graphicalVAR needs to be transposed or not
-```{r}
-# Without transposing
-cool <- graphicalVARsim(2000, beta = t(graph$beta), kappa = graph$kappa)
-cool_res <- graphicalVAR(cool)
-cool_res$beta[,-1]-graph$beta
-
-# With transposing
-coolt <- graphicalVARsim(2000, beta = t(graph$beta), kappa = graph$kappa)
-coolt_res <- graphicalVAR(coolt)
-coolt_res$beta[,-1]-graph$beta
-
-
-```
 
 # Non-sparse graph (graph2)
-NO LONGER USED 
+No longer used, same reasons for including as above.
 ```{r}
 # Obtain random GVARmodel
 full_graph <- randomGVARmodel(6, probKappaEdge = .3, probBetaEdge = .3)
@@ -131,11 +116,7 @@ write_rds(full_graph_est_bggm, "full_graph.RDS")
 ```
 
 
-
-
-
 # Fried 2020
-
 Here, I use code by Mansueto et al. (2022) to obtain the mlVAR network and extract coefficients to simulate from. 
 It's based on https://osf.io/7fpw5, data can be obtained from https://osf.io/5a2ub.
 ```{r preparation}
@@ -250,15 +231,31 @@ for (v in seq_along(varLabs)){
   )
 }
 
-
 ```
 
 
 
 I get the following warnings: 
 "Warnung: Some beeps are recorded more than once! Results are likely unreliable.
+Check the beep warning:
+```{r}
+data_detrended %>% 
+  group_by(id, day, beep) %>% 
+  count() %>% 
+  filter(n>1) %>% 
+  View()
 
-Warnung: 4 subjects detected with < 20 measurements. This is not recommended, as within-person centering with too few observations per subject will lead to biased estimates (most notably: negative self-loops).Estimating temporal and between-subjects effects"
+
+# Seemingly, these are all NA beeps
+data_detrended %>% 
+  filter(id == 40) %>% 
+  View()
+
+```
+
+Warnung: 4 subjects detected with < 20 measurements. This is not recommended, as within-person centering with too few observations per subject will lead to biased estimates (most notably: negative self-loops). Estimating temporal and between-subjects effects"
+
+I did not change code to accomodate that to keep everything close to the original.
 
 
 Fit the model:
@@ -296,15 +293,11 @@ cont6 <- getNet(res3, "contemporaneous", layout = "spring", nonsig = "hide", rul
 #bet6 <- getNet(res3, "between", nonsig = "hide", rule = "and")
 temp6 <- getNet(res3, "temporal", nonsig = "hide")
 
-
-
-
-
 ```
+
 
 Get relevant statistics:
 ```{r extract-coefs}
-
 # beta 
 beta_dataset2_9n <- res3$results$Beta$mean[,,1] * t(temp6 != 0)
 
@@ -325,25 +318,6 @@ graph_fried[["kappa"]] <- theta_dataset2_9n
 graph_fried[["pdc"]] <- PDC6
 
 # write_rds(graph_fried, here("data/graph_fried.Rds"))
-
-```
-
-
-Check the beep warning:
-```{r}
-data_detrended %>% 
-  group_by(id, day, beep) %>% 
-  count() %>% 
-  filter(n>1) %>% 
-  View()
-
-
-# Seemingly, these are all NA beeps
-data_detrended %>% 
-  filter(id == 40) %>% 
-  View()
-
-
 ```
 
 
@@ -428,12 +402,6 @@ saveRDS(graph5, here::here("data/graph5.RDS"))
 
 
 ```
-
-
-
-
-
-
 
 
 # Summary of data-generating processes
