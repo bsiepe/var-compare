@@ -550,27 +550,27 @@ file_list <- gsub("eval_res", "comp",desired_files)
 Read in results again, they were saved as individual files. 
 ```{r}
 # For wide priors
-file_list <- list.files(path = "data/compare_sim_eval", full.names = TRUE)
-file_list_w <- file_list[-grep("_narrow_", file_list)]
-l_comp_res <- lapply(file_list_w, readRDS)
-df_comp_res <- do.call(rbind, l_comp_res)
-
-# Filter out redundant comparisons
-df_comp_res <- df_comp_res %>% 
-  filter(mod_a < mod_b)
+# file_list <- list.files(path = "data/compare_sim_eval", full.names = TRUE)
+# file_list_w <- file_list[-grep("_narrow_", file_list)]
+# l_comp_res <- lapply(file_list_w, readRDS)
+# df_comp_res <- do.call(rbind, l_comp_res)
+# 
+# # Filter out redundant comparisons
+# df_comp_res <- df_comp_res %>% 
+#   dplyr::filter(mod_a < mod_b)
 
 # write_rds(df_comp_res, here::here("data/df_comp_res_wide_1905.RDS"))
 df_comp_res_w <- readRDS(here::here("data/df_comp_res_wide_1905.RDS"))
 
 # For narrow priors
-file_list <- list.files(path = "data/compare_sim_eval", full.names = TRUE)
-file_list_n <- file_list[grep("_narrow_", file_list)]
-l_comp_res_n <- lapply(file_list_n, readRDS)
-df_comp_res_n <- do.call(rbind, l_comp_res_n)
-
-# Filter out redundant comparisons
-df_comp_res_n <- df_comp_res_n %>% 
-  filter(mod_a < mod_b)
+# file_list <- list.files(path = "data/compare_sim_eval", full.names = TRUE)
+# file_list_n <- file_list[grep("_narrow_", file_list)]
+# l_comp_res_n <- lapply(file_list_n, readRDS)
+# df_comp_res_n <- do.call(rbind, l_comp_res_n)
+# 
+# # Filter out redundant comparisons
+# df_comp_res_n <- df_comp_res_n %>% 
+#   filter(mod_a < mod_b)
 
 # write_rds(df_comp_res_n, here::here("data/df_comp_res_narrow_1905.RDS"))
 df_comp_res_n <- readRDS(here::here("data/df_comp_res_narrow_1905.RDS"))
@@ -682,7 +682,7 @@ plot_test_null_dist <- df_comp_res %>%
                               independent = "y")+
           theme_compare()+
           ggokabeito::scale_color_okabe_ito()+ 
-          labs(x = "p-value",
+          labs(x = "Test Value",
                y = "")+
           # scale_y_continuous(labels = NULL)+
           theme(
@@ -702,7 +702,7 @@ plot_test_null_dist <- df_comp_res %>%
           
 
 plot_test_null_dist
-ggsave(filename = "plot_test_null_dist_wide.svg",plot_test_null_dist, device = "svg",
+ggsave(filename = "plot_test_null_dist_narrow.svg",plot_test_null_dist, device = "svg",
          path = here::here("figures/"), width = 14, height = 10)
 
   
@@ -779,11 +779,13 @@ plot_dec_rule_se <- df_comp_res %>%
           #            group = interaction(comp, prior), linetype = prior)) +
           ggplot(aes(x = tp, y = value, col = comp,
                       group = comp)) +
-          geom_line()+
-          geom_linerange(aes(ymin = value - 1.96*se, x = tp,
+          geom_errorbar(aes(ymin = value - 1.96*se,
                             ymax = value + 1.96*se),
-                        width = .5, position = position_dodge(0.3),
-                        show.legend = FALSE)+
+                        width = .8, 
+                 position = position_dodge(0.7),
+                 show.legend = FALSE)+
+          # geom_line()+
+          geom_point(size = 1.2, position = position_dodge(0.7))+
           theme_compare()+
           # scale_linetype_manual(values = cond_lty)+
           ggh4x::facet_nested(change ~ dgp + mat,
@@ -793,7 +795,8 @@ plot_dec_rule_se <- df_comp_res %>%
           ggokabeito::scale_colour_okabe_ito()+
           labs(x = "Timepoints",
                y = "Power",
-               col = "Norm")+
+               col = "Norm",
+               linetype = "Norm")+
           scale_y_continuous(limits = c(0,1), expand = c(0,0))+
             theme(
                   strip.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2),
@@ -847,24 +850,29 @@ plot_false_positive_se <- df_comp_res %>%
             grepl("beta05", res) ~ "Temporal",
             grepl("pcor05", res) ~ "Contemp.")) %>% 
           dplyr::filter(prior == "narrow") %>% 
-          ggplot(aes(x = tp, y = value, col = comp, group = comp)) +
-          geom_point(position = position_dodge(0.3), size = 0.5)+
-          geom_line()+
-          geom_linerange(aes(ymin = value - 1.96*se, x = tp,
+          ggplot(aes(x = tp, y = value, 
+                     col = comp, group = comp)) +
+          geom_errorbar(aes(ymin = value - 1.96*se,
                             ymax = value + 1.96*se),
-                        width = .5, position = position_dodge(0.3),
-                        show.legend = FALSE)+
+                        width = .8, 
+                 position = position_dodge(0.7),
+                 show.legend = FALSE)+
+          # geom_line()+
+          geom_point(size = 1.2, position = position_dodge(0.7))+
           ggh4x::facet_nested(. ~ dgp + mat,
                               axes = TRUE,
                               remove_labels = TRUE)+
-          scale_y_continuous(expand = c(0,0))+
-          theme_minimal()+
-          ylim(-0.1,.2)+
+          # scale_y_continuous(expand = c(0,0))+
+          coord_cartesian(ylim = c(0, .15),
+                          expand = FALSE,
+                          xlim = c(0.5, 5.5))+
+          # ylim(-0.1,.2)+
           ggokabeito::scale_color_okabe_ito()+
           theme_compare()+
           geom_hline(yintercept = 0.05, col = "#D5D8DC")+ 
           labs(x = "Timepoints", 
                col = "Norm",
+               linetype = "Norm",
                y = "Proportion of false positives")+
               theme(
                   strip.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2),
@@ -937,21 +945,28 @@ plot_dec_rule_prior_sens <- df_comp_res %>%
           dplyr::mutate(mat = case_when(
             grepl("beta05", res) ~ "Temporal",
             grepl("pcor05", res) ~ "Contemp.")) %>%  
-          ggplot(aes(x = tp, y = value, linetype = prior, group = prior)) + 
+          ggplot(aes(x = tp, y = value, color = prior, group = prior)) + 
           # geom_point(position = position_dodge(0.1), size = 0.5)+
-          geom_line(col = "#56B4E9")+
-          geom_linerange(aes(ymin = value - 1.96*se, x = tp,
-                            ymax = value + 1.96*se),
-                        width = .5, position = position_dodge(0.1), 
-                        col = "#56B4E9")+
+          # geom_line(col = "#56B4E9")+
+          # geom_linerange(aes(ymin = value - 1.96*se, x = tp,
+          #                   ymax = value + 1.96*se),
+          #               width = .5, position = position_dodge(0.1), 
+          #               col = "#56B4E9")+
           ggh4x::facet_nested(change ~ dgp + mat,
                               axes = TRUE,
                               remove_labels = TRUE)+
-          # ggokabeito::scale_colour_okabe_ito()+
+          geom_errorbar(aes(ymin = value - 1.96*se,
+                            ymax = value + 1.96*se),
+                        width = .8, 
+                        position = position_dodge(0.7),
+                 show.legend = FALSE)+
+          # geom_line()+
+          geom_point(size = 1.2, position = position_dodge(0.7))+
+          ggokabeito::scale_colour_okabe_ito()+
           theme_compare()+
           labs(x = "Timepoints",
                y = "Power",
-               linetype = "Prior")+
+               col = "Prior")+
           theme(
                   strip.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2),
                   hjust = 0.5),
@@ -979,13 +994,13 @@ Now do the same for false positives:
 plot_false_positive_se_prior_sens <- df_comp_res %>%
           dplyr::filter(comp == "frob") %>% 
           dplyr::filter(dgp %in% c("graph3", "graph4", "graph5")) %>%
-          filter(change == "truegraph") %>%
+          dplyr::filter(change == "truegraph") %>%
           # setup decision rule
-          mutate(sig_beta05 = ifelse(beta_a < sig_cut*n_draw | beta_b < sig_cut*n_draw, 1, 0),
+          dplyr::mutate(sig_beta05 = ifelse(beta_a < sig_cut*n_draw | beta_b < sig_cut*n_draw, 1, 0),
                  sig_pcor05 = ifelse(pcor_a < sig_cut*n_draw | pcor_b < sig_cut*n_draw, 1, 0)) %>%
           # mutate tp_ind into factor
-          mutate(tp = as.factor(tp)) %>%
-          mutate(tp = forcats::fct_relevel(tp, "50", "100", "200", "400", "1000")) %>%
+          dplyr::mutate(tp = as.factor(tp)) %>%
+          dplyr::mutate(tp = forcats::fct_relevel(tp, "50", "100", "200", "400", "1000")) %>%
           dplyr::mutate(dgp = fct_recode(as_factor(as.character(dgp)), !!!graph_names)) %>% 
           dplyr::group_by(dgp, comp, tp, change, prior) %>% 
           dplyr::summarize(
@@ -1011,24 +1026,25 @@ plot_false_positive_se_prior_sens <- df_comp_res %>%
             grepl("beta05", res) ~ "Temporal",
             grepl("pcor05", res) ~ "Contemp.")) %>% 
           # dplyr::filter(prior == "narrow") %>% 
-          ggplot(aes(x = tp, y = value, linetype = prior, group = prior)) +
-          # geom_point(position = position_dodge(0.3), size = 0.5)+
-          geom_line(col = "#56B4E9")+
-          geom_linerange(aes(ymin = value - 1.96*se, x = tp,
+          ggplot(aes(x = tp, y = value, color = prior, group = prior)) +
+          geom_errorbar(aes(ymin = value - 1.96*se,
                             ymax = value + 1.96*se),
-                        width = .5, position = position_dodge(0.3),
-                        show.legend = FALSE, col = "#56B4E9")+
+                        width = .8, 
+                        position = position_dodge(0.7),
+                 show.legend = FALSE)+
+          # geom_line()+
+          geom_point(size = 1.2, position = position_dodge(0.7))+
           ggh4x::facet_nested(. ~ dgp + mat,
                               axes = TRUE,
                               remove_labels = TRUE)+
-          scale_y_continuous(expand = c(0,0))+
-          theme_minimal()+
-          ylim(-0.1,.2)+
-          # ggokabeito::scale_color_okabe_ito()+
+          coord_cartesian(ylim = c(0, .2), 
+                          expand = FALSE,
+                          xlim = c(0.5, 5.5))+
+          ggokabeito::scale_color_okabe_ito()+
           theme_compare()+
           geom_hline(yintercept = 0.05, col = "#D5D8DC")+ 
           labs(x = "Timepoints", 
-               linetype = "Prior",
+               col = "Prior",
                y = "Proportion of false positives")+
               theme(
                   strip.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2),

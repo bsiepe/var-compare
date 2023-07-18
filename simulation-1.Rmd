@@ -398,10 +398,10 @@ dgp_levels <- c("Empirical\nSparse" = "3",
                  "Simulated\nChain 8N" = "6")
 
 # Colors and linetypes consistent across plots
-cond_colors <- set_names(ggokabeito::palette_okabe_ito()[1:5],
+cond_colors <- set_names(ggokabeito::palette_okabe_ito()[c(1:5)],
                          c("BGGM narrow", "BGGM wide", "graphicalVAR", "SEL wide", "SEL narrow"))
 
-cond_lty <- set_names(c(1,1,1,2,2),
+cond_lty <- set_names(c(1,1,1,1,1),
                       c("BGGM narrow", "BGGM wide", "graphicalVAR", "SEL wide", "SEL narrow"))
 
 ```
@@ -451,7 +451,7 @@ df_eval_both_long <- df_eval_both %>%
 
 
 ### Plot BGGM
-This is not done yet; I need to think about what to include.
+
 ```{r}
 ls_data_eval_bggm <- df_eval_both_long %>% 
   filter(dgp_ind > dgp_cut) %>% 
@@ -657,13 +657,13 @@ ls_data_both_stat <- df_eval_both_long %>%
 ls_eval_both_plots <- list()    
 ls_eval_both_plots[[1]] <- ggplot(data = ls_data_both_stat$Bias, 
          aes(x = tp_ind, y = value, col = method, linetype = method, group = method))+
-  geom_linerange(aes(ymin = value - 1.96*mcse,
+  geom_errorbar(aes(ymin = value - 1.96*mcse,
                             ymax = value + 1.96*mcse),
-                        width = .5, 
-                 # position = position_dodge(0.1)
+                        width = .8, 
+                 position = position_dodge(0.7),
                  show.legend = FALSE)+
-  geom_line()+
-  # geom_point()+
+  # geom_line()+
+  geom_point(size = 1.2, position = position_dodge(0.7))+
   ggh4x::facet_nested(as.factor(dgp_ind) ~ as.factor(stat) + as.factor(mat),
                       axes = TRUE,
                       remove_labels = TRUE)+
@@ -692,13 +692,13 @@ ls_eval_both_plots[[1]] <- ggplot(data = ls_data_both_stat$Bias,
 ls_eval_both_plots[[2]] <- ggplot(data = ls_data_both_stat$Correlation, 
          aes(x = tp_ind, y = value, col = method, linetype = method, group = method))+
 
-  geom_linerange(aes(ymin = value - 1.96*mcse,
+  geom_errorbar(aes(ymin = value - 1.96*mcse,
                             ymax = value + 1.96*mcse),
-                        width = .5, 
-                 # position = position_dodge(0.1)
+                        width = .8, 
+                 position = position_dodge(0.7),
                  show.legend = FALSE)+
-  geom_line()+
-  # geom_point()+
+  # geom_line()+
+  geom_point(size = 1.2, position = position_dodge(0.7))+
   ggh4x::facet_nested(as.factor(dgp_ind) ~ as.factor(stat) + as.factor(mat),
                       axes = TRUE,
                       remove_labels = TRUE)+
@@ -766,13 +766,13 @@ plot_eval_select <- df_eval_both_long %>%
   # not look at spec/sens here
   filter(stat %in% c("Sensitivity", "Specificity")) %>% 
   ggplot(aes(x = tp_ind, y = value, col = method,linetype = method, group = method))+
-  geom_line()+
-  geom_linerange(aes(ymin = value - 1.96*mcse,
+  geom_errorbar(aes(ymin = value - 1.96*mcse,
                             ymax = value + 1.96*mcse),
-                        width = .5, 
-                 # position = position_dodge(0.1)
+                        width = .8, 
+                 position = position_dodge(0.7),
                  show.legend = FALSE)+
-  # geom_point()+
+  # geom_line()+
+  geom_point(size = 1.2, position = position_dodge(0.7))+
   ggh4x::facet_nested(as.factor(dgp_ind) ~ as.factor(stat) + as.factor(mat),
                       axes = TRUE,
                       remove_labels = TRUE)+
