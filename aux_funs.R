@@ -70,7 +70,6 @@ change_graphs <- function(truegraph = NULL,
   
   
   
-  
   ### Change max
   if(!is.null(changemax)){
     l_out_change <- list()
@@ -110,16 +109,7 @@ change_graphs <- function(truegraph = NULL,
       l_out_change[[c]]$args <- paste0("change", changemax[c])
       names(l_out_change)[[c]] <- paste0("change", changemax[c])
     }
-  #   ## Checking
-  #   # values outside unit circle
-  #   # TODO adapt to not setting kappa diagonal to 1
-  #   l_out_change <- lapply(l_out_change, function(x){
-  #     lapply(x, function(mat) {
-  #       mat[mat > 1] <- 1
-  #       mat[mat < -1] <- -1
-  #       mat
-  #     })
-  #   })
+
   }
   
   
@@ -135,7 +125,7 @@ change_graphs <- function(truegraph = NULL,
       eigen_cond <- FALSE
       eigen_iter <- 0
       while(isFALSE(eigen_cond) & eigen_iter < 100){
-        eigen_count <- eigen_iter + 1
+        eigen_iter <- eigen_iter + 1
         noise_beta <- matrix(runif(n = b_i*b_j, min = -noise[n], max = noise[n]), 
                              nrow = b_i, ncol = b_j)
         tmp_beta <- m_beta + noise_beta
@@ -205,7 +195,7 @@ change_graphs <- function(truegraph = NULL,
       
       # add Eigenvalue check
       eigen_cond <- FALSE
-      eigen_iter <- 0
+      eigen_count <- 0
       while(isFALSE(eigen_cond) & eigen_iter < 100){
         eigen_count <- eigen_count + 1
         l_out_const[[n]] <- list()
@@ -870,231 +860,114 @@ summarize_post <- function(res, cred = c(0.95)) {
 # -------------------------------------------------------------------------
 # Comparison Functions ----------------------------------------------------
 # -------------------------------------------------------------------------
-# Distance between empirical and posterior --------------------------------
-# THIS IS A NEW BETA VERSION! Not yet in use
-postemp_distance_new <- function(post,
-                             emp,
-                             comp,
-                             mod){
-  
-  # storage
-  dist_out <- list()
-  
-  
-  # define the distance function based on comp
-  distance_fn_beta <- switch(comp,
-                             frob =   {function(x) norm(emp[[mod]]$beta_mu-x$beta_mu, type = "F")},
-                             maxdiff = {function(x) max(abs((emp[[mod]]$beta_mu-x$beta_mu)))},
-                             l1 = {function(x) sum(abs((emp[[mod]]$beta_mu-x$beta_mu)))}
-  )
-  distance_fn_pcor <- switch(comp,
-                             frob = {function(x) norm(emp[[mod]]$pcor_mu-x$pcor_mu, type = "F")},
-                             maxdiff = {function(x) max(abs((emp[[mod]]$pcor_mu-x$pcor_mu)))},
-                             l1 = {function(x) sum(abs((emp[[mod]]$pcor_mu-x$pcor_mu)))}
-  )
-  
-  
-## Check if estimation worked
-# Should be unneccessary if non-converged attempts were deleted
-if(!is.list(post[[mod]]$fit) | !is.list(post[[mod]]$fit)){
-    beta_distance <- NA
-    pcor_distance <- NA
-    stop("Input not a list, probably estimation did not converge.")
-    
-} 
+# Within posterior comparison ---------------------------------------------
+# This function uses bootstrapping to generate a difference distribution
+# within the posterior
 
-  # if both elements are lists
-  else{
-    dist_out[["beta"]] <- unlist(lapply(post[[mod]]$fit, distance_fn_beta(x)))
-    dist_out[["pcor"]] <- unlist(lapply(post[[mod]]$fit, distance_fn_pcor(x)))
-    
-  }   
+# will be replaced by the "compare_gvar" function in the package
 
-  
-  
-  return(dist_out)
-}
-
-
-# TODO output structure
-postemp_distance <- function(post,
-                             emp,
-                             comp,
-                             mod){
-
-  # storage
-  dist_out <- list()
-
-
-
-  if(comp == "frob"){
-    normtype = "F"
-    frob_beta <- unlist(lapply(post[[mod]]$fit, function(x){
-      if(length(x) == 0 | !is.list(x))
-        {NA}
-      else
-        {norm(emp[[mod]]$beta_mu-x$beta_mu, type = normtype)}}))
-
-    frob_pcor <- unlist(lapply(post[[mod]]$fit, function(x){
-      if(length(x) == 0 | !is.list(x))
-        {NA}
-      else
-        {norm(emp[[mod]]$pcor_mu-x$pcor_mu, type = normtype)}}))
-
-    dist_out[["beta"]] <- frob_beta
-    dist_out[["pcor"]] <- frob_pcor
-
-    }  # end frob
-
-
-
-
-  if(comp == "maxdiff"){
-    maxdiff_beta <- unlist(lapply(post[[mod]]$fit, function(x){
-      if(length(x) == 0 | !is.list(x))
-        {NA}
-      else
-        {max(abs(emp[[mod]]$beta_mu-x$beta_mu))}}))
-
-    maxdiff_pcor <- unlist(lapply(post[[mod]]$fit, function(x){
-      if(length(x) == 0 | !is.list(x))
-        {NA}
-      else
-        {max(abs(emp[[mod]]$pcor_mu-x$pcor_mu))}}))
-
-    dist_out[["beta"]] <- maxdiff_beta
-    dist_out[["pcor"]] <- maxdiff_pcor
-
-    }  # end maxdiff
-
-
-
-  if(comp == "l1"){
-    l1_beta <-  unlist(lapply(post[[mod]]$fit, function(x){
-      if(length(x) == 0 | !is.list(x))
-        {NA}
-      else
-        {sum(abs(emp[[mod]]$beta_mu-x$beta_mu))}}))
-
-    l1_pcor <-  unlist(lapply(post[[mod]]$fit, function(x){
-      if(length(x) == 0 | !is.list(x))
-      {NA}
-      else
-      {sum(abs(emp[[mod]]$pcor_mu-x$pcor_mu))}}))
-
-      dist_out[["beta"]] <- l1_beta
-      dist_out[["pcor"]] <- l1_pcor
-
-
-    }  # end l1
-
-  if(comp == "pcmd"){
-    # only suitable for (partial) correlations
-    pcmd_pcor <-  unlist(lapply(post[[mod]]$fit, function(x){
-      if(length(x) == 0 | !is.list(x))
-      {NA}
-      else
-      {1 - (sum(diag(emp[[mod]]$pcor_mu %*% x$pcor_mu)) / (norm(emp[[mod]]$pcor_mu, type = "F") * norm(x$pcor_mu, type = "F")))}}))
-    # dist_out[["beta"]] <- NULL
-    dist_out[["pcor"]] <- pcmd_pcor
-
-
+within_compare <- function(
+    fitpost_a = l_postres,
+    fitpost_b = l_postres,
+    fitemp_a = l_res,
+    fitemp_b = l_res,
+    mod_a = 1, 
+    mod_b = 2,
+    n_datasets = 100,
+    comparison = "frob",
+    n_draws = 1000,
+    postpred = FALSE,          # do we use the posterior predictive approach?
+    # parallel = FALSE,
+    # ncores = NULL, 
+    ...){
+  if(!is.numeric(mod_a) | !is.numeric(mod_b)){
+    stop("Error: Model needs to have numerical index")
   }
-
-
-  return(dist_out)
-}
-
-
-# Distance between posterior samples --------------------------------------
-postpost_distance <- function(post_a,
-                             post_b,
-                             comp,
-                             mod_a,
-                             mod_b){
   
-  # storage
-  dist_out <- list()
+  # If one of the models did not converge
+  if(isFALSE(postpred) && length(fitpost_a[[mod_a]]$fit) == 0 |
+     isFALSE(postpred) && length(fitpost_a[[mod_b]]$fit) == 0 ){
+    cc_res <- data.frame(mat = c("beta", "pcor", "beta", "pcor"),
+                         null = c(NA, NA, NA, NA),
+                         model_ind = c(mod_a, mod_a, mod_b, mod_b),
+                         mod = c("mod_a", "mod_a", "mod_b", "mod_b"),
+                         emp = c(NA, NA, NA, NA),
+                         comp = rep(comparison, 4))
+    return(cc_res)
+  }
   
   
-  
-  if(comp == "frob"){
+  if(comparison == "frob"){
     normtype = "F"
-    frob_beta <- tryCatch(mapply(function(x,y)
-    {
-      if(!is.list(x) | !is.list(y))
-      {NA} 
-      else 
-        norm(x$beta_mu-y$beta_mu, type = normtype)}, post_a[[mod_a]], post_b[[mod_b]]), 
-    error = function(e) {NA})
+  }
+  
+  null_a <- post_distance_within(post = fitpost_a[[mod_a]], 
+                                 comp = comparison, 
+                                 draws = n_draws,
+                                 pred = postpred)
+  null_b <- post_distance_within(post = fitpost_b[[mod_b]], 
+                                 comp = comparison, 
+                                 draws = n_draws,
+                                 pred = postpred)
+  
+  
+  
+  # Compute empirical distance as test statistic
+  if(comparison == "frob"){
+    # Compute Distance of empirical betas between a and b
+    emp_beta <- tryCatch(norm(fitemp_a[[mod_a]]$beta_mu - fitemp_b[[mod_b]]$beta_mu, type = normtype), error = function(e) {NA})
     
-    frob_pcor <- tryCatch(mapply(function(x,y)
-    {
-      if(!is.list(x) | !is.list(y))
-      {NA} 
-      else 
-        norm(x$pcor_mu-y$pcor_mu, type = normtype)}, post_a[[mod_a]], post_b[[mod_b]]), 
-    error = function(e) {NA})
+    # Compute Distance of empirical pcors between a and b
+    emp_pcor <- tryCatch(norm(fitemp_a[[mod_a]]$pcor_mu - fitemp_b[[mod_b]]$pcor_mu, type = normtype), error = function(e) {NA})
     
-    dist_out[["beta"]] <- frob_beta
-    dist_out[["pcor"]] <- frob_pcor
     
-  }  # end frob
+  }
+  
+  if(comparison == "maxdiff"){
+    # Compute maxdiff of empirical betas between a and b
+    emp_beta <- tryCatch(max(abs(fitemp_a[[mod_a]]$beta_mu - fitemp_b[[mod_b]]$beta_mu)), error = function(e) {NA})
+    
+    # Compute maxdiff of empirical pcors between a and b
+    emp_pcor <- tryCatch(max(abs(fitemp_a[[mod_a]]$pcor_mu - fitemp_b[[mod_b]]$pcor_mu)), error = function(e) {NA})
+    
+  }
+  
+  if(comparison == "l1"){
+    # Compute l1 of empirical betas between a and b
+    emp_beta <- tryCatch(sum(abs(fitemp_a[[mod_a]]$beta_mu - fitemp_b[[mod_b]]$beta_mu)), error = function(e) {NA})
+    
+    # Compute l1 of empirical pcors between a and b
+    emp_pcor <- tryCatch(sum(abs(fitemp_a[[mod_a]]$pcor_mu - fitemp_b[[mod_b]]$pcor_mu)), error = function(e) {NA})
+    
+    
+  }
+  
+  # Save results
+  cc_res_beta <- data.frame(null = c(unlist(null_a[["beta"]]), unlist(null_b[["beta"]])),
+                            model_ind = c(rep(mod_a, n_draws), rep(mod_b, n_draws)),
+                            mod = c(rep("mod_a", n_draws), rep("mod_b", n_draws)),
+                            emp = rep(emp_beta, n_draws*2),
+                            comp = rep(comparison, n_draws*2))
+  
+  
+  cc_res_pcor <- data.frame(null = c(unlist(null_a[["pcor"]]), unlist(null_b[["pcor"]])),
+                            model_ind = c(rep(mod_a, n_draws), rep(mod_b, n_draws)),
+                            mod = c(rep("mod_a", n_draws), rep("mod_b", n_draws)),
+                            emp = rep(emp_pcor, n_draws*2),
+                            comp = rep(comparison, n_draws*2))
   
   
   
   
-  if(comp == "maxdiff"){
-    maxdiff_beta <- tryCatch(mapply(function(x,y)
-    {
-      if(!is.list(x) | !is.list(y))
-      {NA} 
-      else 
-        max(abs((x$beta_mu-y$beta_mu)))}, post_a[[mod_a]], post_b[[mod_b]]), 
-    error = function(e) {NA})
-    
-    maxdiff_pcor <- tryCatch(mapply(function(x,y)
-    {
-      if(!is.list(x) | !is.list(y))
-      {NA} 
-      else 
-        max(abs((x$pcor_mu-y$pcor_mu)))}, post_a[[mod_a]], post_b[[mod_b]]), 
-    error = function(e) {NA})
-    
-    dist_out[["beta"]] <- maxdiff_beta
-    dist_out[["pcor"]] <- maxdiff_pcor
-    
-  }  # end maxdiff
   
+  l_cc_res <- list()
+  l_cc_res[["beta"]] <- cc_res_beta
+  l_cc_res[["pcor"]] <- cc_res_pcor
   
+  cc_res <- dplyr::bind_rows(l_cc_res, .id = "mat")
   
-  if(comp == "l1"){
-    l1_beta <-  tryCatch(mapply(function(x,y)
-    {
-      if(!is.list(x) | !is.list(y))
-      {NA} 
-      else 
-        sum(abs((x$beta_mu-y$beta_mu)))}, post_a[[mod_a]], post_b[[mod_b]]), 
-    error = function(e) {NA})
-    
-    l1_pcor <-  tryCatch(mapply(function(x,y)
-    {
-      if(!is.list(x) | !is.list(y))
-      {NA} 
-      else 
-        sum(abs((x$beta_mu-y$beta_mu)))}, post_a[[mod_a]], post_b[[mod_b]]), 
-    error = function(e) {NA})
-    
-    dist_out[["beta"]] <- l1_beta
-    dist_out[["pcor"]] <- l1_pcor  
-    
-    
-  }  # end l1
-  
-  return(dist_out)
+  return(cc_res)
 }
-
-
 
 # Distance within posterior predictive samples ---------------------------------
 #' Calculates distances between pairs of fitted models using the posterior samples or posterior predictive draws
@@ -1132,7 +1005,7 @@ post_distance_within <- function(post,
                                maxdiff = {function(x, y, mod_one, mod_two) max(abs((x$fit[[mod_one]]$pcor_mu-y$fit[[mod_two]]$pcor_mu)))},
                                l1 = {function(x, y, mod_one, mod_two) sum(abs((x$fit[[mod_one]]$pcor_mu-y$fit[[mod_two]]$pcor_mu)))}
     )
-
+    
     # Obtain number of models
     n_mod <- length(post$fit)
     
@@ -1174,8 +1047,6 @@ post_distance_within <- function(post,
   
   # draw from second half of samples
   mod_pairs[2,1:(draws)] <- seq((n_mod/2)+51, (n_mod/2)+50+(draws), by = 1)
-  
-  # mod_pairs <- replicate(draws, sample(1:n_mod, size = 2, replace = TRUE))
   
   for(i in seq(draws)){
     # storage
@@ -1239,323 +1110,10 @@ post_distance_within <- function(post,
 
 
 
-# # Cross-compare all posterior samples -------------------------------------
-
-cross_compare <- function(
-    postpost = FALSE,        # compute differences between posteriors
-    fitpost_a = l_postres,
-    fitpost_b = l_postres,
-    fitemp_a = l_res,
-    fitemp_b = l_res,
-    mod_a = 1, 
-    mod_b = 2,
-    n_datasets = 100,
-    comparison = "frob",
-    ...){
-  if(!is.numeric(mod_a) | !is.numeric(mod_b)){
-    stop("Error: Model needs to have numerical index")
-  }
-  
-  if(comparison == "frob"){
-    normtype = "F"
-  }
-    # Distance within posterior samples
-    null_a <- postemp_distance(post = fitpost_a, emp = fitemp_a, 
-                               comp = comparison, mod = mod_a)
-    null_b <- postemp_distance(post = fitpost_b, emp = fitemp_b, 
-                               comp = comparison, mod = mod_b)
-    
-    # Compute empirical distance as test statistic
-    if(isFALSE(postpost)){
-      
-      if(comparison == "frob"){
-        # Compute Distance of empirical betas between a and b
-        emp_beta <- tryCatch(norm(fitemp_a[[mod_a]]$beta_mu - fitemp_b[[mod_b]]$beta_mu, type = normtype), error = function(e) {NA})
-        
-        # Compute Distance of empirical pcors between a and b
-        emp_pcor <- tryCatch(norm(fitemp_a[[mod_a]]$pcor_mu - fitemp_b[[mod_b]]$pcor_mu, type = normtype), error = function(e) {NA})
-        
-      }
-
-      if(comparison == "maxdiff"){
-        # Compute maxdiff of empirical betas between a and b
-        emp_beta <- tryCatch(max(abs(fitemp_a[[mod_a]]$beta_mu - fitemp_b[[mod_b]]$beta_mu)), error = function(e) {NA})
-        
-        # Compute maxdiff of empirical pcors between a and b
-        emp_pcor <- tryCatch(max(abs(fitemp_a[[mod_a]]$pcor_mu - fitemp_b[[mod_b]]$pcor_mu)), error = function(e) {NA})
-        
-      }
-      
-      if(comparison == "l1"){
-        # Compute l1 of empirical betas between a and b
-        emp_beta <- tryCatch(sum(abs(fitemp_a[[mod_a]]$beta_mu - fitemp_b[[mod_b]]$beta_mu)), error = function(e) {NA})
-        
-        # Compute l1 of empirical pcors between a and b
-        emp_pcor <- tryCatch(sum(abs(fitemp_a[[mod_a]]$pcor_mu - fitemp_b[[mod_b]]$pcor_mu)), error = function(e) {NA})
-        
-        
-      }
-      
-      # Save results
-      cc_res_beta <- data.frame(model_ind = c(rep(mod_a, n_datasets), rep(mod_b, n_datasets)),
-                                null = c(unlist(null_a[["beta"]]), unlist(null_b[["beta"]])),
-                                emp = rep(emp_beta, n_datasets*2),
-                                comp = rep(comparison, n_datasets*2),
-                                type = rep("postemp", n_datasets*2))
-      
-      
-      cc_res_pcor <- data.frame(model_ind = c(rep(mod_a, n_datasets), rep(mod_b, n_datasets)),
-                                null = c(unlist(null_a[["pcor"]]), unlist(null_b[["pcor"]])),
-                                emp = rep(emp_pcor, n_datasets*2),
-                                comp = rep(comparison, n_datasets*2),
-                                type = rep("postemp", n_datasets*2))
-      
-      
-      
-      
-    } # end isFALSE(postpost)
-    
-    
-    # Compute posterior distances as test distribution
-    if(isTRUE(postpost)){
-      
-      # Distance posterior estimates between A and B
-      post <- postpost_distance(post_a = fitpost_a, post_b = fitpost_b, 
-                                comp = comparison,mod_a = mod_a, mod_b = mod_b)
-      
-      # Save results
-      cc_res_beta <- data.frame(model_ind = c(rep(mod_a, n_datasets), rep(mod_b, n_datasets)),
-                                null = c(null_a[["beta"]], null_b[["beta"]]),
-                                emp = rep(post[["beta"]], 2),    
-                                comp = rep(comparison, n_datasets*2),
-                                type = rep("postpost", n_datasets*2))
-      
-      
-      cc_res_pcor <- data.frame(model_ind = c(rep(mod_a, n_datasets), rep(mod_b, n_datasets)),
-                                null = c(null_a[["pcor"]], null_b[["pcor"]]),
-                                emp = rep(post[["pcor"]], 2),
-                                comp = rep(comparison, n_datasets*2),
-                                type = rep("postpost", n_datasets*2))
-      
-      
-      
-      
-      
-    } # end isTRUE(postpost)
-
-
-  
-  l_cc_res <- list()
-  l_cc_res[["beta"]] <- cc_res_beta
-  l_cc_res[["pcor"]] <- cc_res_pcor
-  
-  return(l_cc_res)
-} # end function
-
-
-
-# Within posterior comparison ---------------------------------------------
-# This function uses bootstrapping to generate a difference distribution
-# within the posterior
-
-# TODO will be replaced by the "compare_gvar" function in the package
-
-within_compare <- function(
-    fitpost_a = l_postres,
-    fitpost_b = l_postres,
-    fitemp_a = l_res,
-    fitemp_b = l_res,
-    mod_a = 1, 
-    mod_b = 2,
-    n_datasets = 100,
-    comparison = "frob",
-    n_draws = 1000,
-    postpred = FALSE,          # do we use the posterior predictive approach?
-    # parallel = FALSE,
-    # ncores = NULL, 
-    ...){
-  if(!is.numeric(mod_a) | !is.numeric(mod_b)){
-    stop("Error: Model needs to have numerical index")
-  }
-  
-  # If one of the models did not converge
-  if(isFALSE(postpred) && length(fitpost_a[[mod_a]]$fit) == 0 |
-     isFALSE(postpred) && length(fitpost_a[[mod_b]]$fit) == 0 ){
-    cc_res <- data.frame(mat = c("beta", "pcor", "beta", "pcor"),
-                         null = c(NA, NA, NA, NA),
-                         model_ind = c(mod_a, mod_a, mod_b, mod_b),
-                         mod = c("mod_a", "mod_a", "mod_b", "mod_b"),
-                         emp = c(NA, NA, NA, NA),
-                         comp = rep(comparison, 4))
-    return(cc_res)
-  }
-  
-  
-  if(comparison == "frob"){
-    normtype = "F"
-  }
-
-      null_a <- post_distance_within(post = fitpost_a[[mod_a]], 
-                                     comp = comparison, 
-                                     draws = n_draws,
-                                     pred = postpred)
-      null_b <- post_distance_within(post = fitpost_b[[mod_b]], 
-                                     comp = comparison, 
-                                     draws = n_draws,
-                                     pred = postpred)
-      
-
-  
-  # Compute empirical distance as test statistic
-    if(comparison == "frob"){
-      # Compute Distance of empirical betas between a and b
-      emp_beta <- tryCatch(norm(fitemp_a[[mod_a]]$beta_mu - fitemp_b[[mod_b]]$beta_mu, type = normtype), error = function(e) {NA})
-      
-      # Compute Distance of empirical pcors between a and b
-      emp_pcor <- tryCatch(norm(fitemp_a[[mod_a]]$pcor_mu - fitemp_b[[mod_b]]$pcor_mu, type = normtype), error = function(e) {NA})
-
-      
-    }
-    
-    if(comparison == "maxdiff"){
-      # Compute maxdiff of empirical betas between a and b
-      emp_beta <- tryCatch(max(abs(fitemp_a[[mod_a]]$beta_mu - fitemp_b[[mod_b]]$beta_mu)), error = function(e) {NA})
-      
-      # Compute maxdiff of empirical pcors between a and b
-      emp_pcor <- tryCatch(max(abs(fitemp_a[[mod_a]]$pcor_mu - fitemp_b[[mod_b]]$pcor_mu)), error = function(e) {NA})
-      
-    }
-    
-    if(comparison == "l1"){
-      # Compute l1 of empirical betas between a and b
-      emp_beta <- tryCatch(sum(abs(fitemp_a[[mod_a]]$beta_mu - fitemp_b[[mod_b]]$beta_mu)), error = function(e) {NA})
-      
-      # Compute l1 of empirical pcors between a and b
-      emp_pcor <- tryCatch(sum(abs(fitemp_a[[mod_a]]$pcor_mu - fitemp_b[[mod_b]]$pcor_mu)), error = function(e) {NA})
-      
-
-    }
-    
-    # Save results
-    cc_res_beta <- data.frame(null = c(unlist(null_a[["beta"]]), unlist(null_b[["beta"]])),
-                              model_ind = c(rep(mod_a, n_draws), rep(mod_b, n_draws)),
-                              mod = c(rep("mod_a", n_draws), rep("mod_b", n_draws)),
-                              emp = rep(emp_beta, n_draws*2),
-                              comp = rep(comparison, n_draws*2))
-    
-    
-    cc_res_pcor <- data.frame(null = c(unlist(null_a[["pcor"]]), unlist(null_b[["pcor"]])),
-                              model_ind = c(rep(mod_a, n_draws), rep(mod_b, n_draws)),
-                              mod = c(rep("mod_a", n_draws), rep("mod_b", n_draws)),
-                              emp = rep(emp_pcor, n_draws*2),
-                              comp = rep(comparison, n_draws*2))
-    
-
-    
- 
-  
-  l_cc_res <- list()
-  l_cc_res[["beta"]] <- cc_res_beta
-  l_cc_res[["pcor"]] <- cc_res_pcor
-
-  cc_res <- dplyr::bind_rows(l_cc_res, .id = "mat")
-  
-  return(cc_res)
-}
-
-
-
-
-
-
-
-
-
 
 # -------------------------------------------------------------------------
 # Comparison Evaluation ---------------------------------------------------
 # -------------------------------------------------------------------------
-# Evaluate Cross-Comparison with Matrix Norm ------------------------------
-#' Evaluate Cross-Comparison with Matrix Norm
-#'
-#' @param df_res Dataframe with posterior predictive and empirical distance measures. 
-#' @param plot Should results be plotted with densities? Defaults to FALSE.
-#'
-#' @return List with number of posterior predictive differences that were smaller than empirical difference. 
-#' @export
-#'
-#' 
-
-cross_compare_eval <- function(l_res){
-  
-  ### Betas
-  df_res_beta <- l_res[["beta"]]
-  # Obtain model indexes
-  model_ind_a <- unique(df_res_beta$model_ind)[1]
-  model_ind_b <- unique(df_res_beta$model_ind)[2]
-  
-  # Check if model even converged
-  # if(is.na(df_res_beta$null[df_res_beta$model_ind == model_ind_a])){
-  #   teststat_a_beta <- NULL
-  # }
-  # if(is.na(df_res_beta$null[df_res_beta$model_ind == model_ind_b])){
-  #   teststat_b_beta <- NULL
-  # }
-  
-  # Replace infinite with NA
-  df_res_beta$null[is.infinite(df_res_beta$null)] <- NA
-  df_res_beta$emp[is.infinite(df_res_beta$emp)] <- NA
-  
-    # Number of posterior difference > empirical difference
-    teststat_a_beta <- sum(df_res_beta$null[df_res_beta$model_ind == model_ind_a] > df_res_beta$emp[df_res_beta$model_ind == model_ind_a])
-    teststat_b_beta <- sum(df_res_beta$null[df_res_beta$model_ind == model_ind_b] > df_res_beta$emp[df_res_beta$model_ind == model_ind_b])
-    
-    
-    
-
-  ### Pcor
-  df_res_pcor <- l_res[["pcor"]]
-  # Obtain model indexes
-  model_ind_a <- unique(df_res_pcor$model_ind)[1]
-  model_ind_b <- unique(df_res_pcor$model_ind)[2]
-  
-  # Check if model even converged
-  # if(is.na(df_res_pcor$null[df_res_pcor$model_ind == model_ind_a])){
-  #   teststat_a_pcor <- NULL
-  # }
-  # if(is.na(df_res_pcor$null[df_res_pcor$model_ind == model_ind_b])){
-  #   teststat_b_pcor <- NULL
-  # }
-  #     
-  
-  # Replace infinite with NA
-  df_res_pcor$null[is.infinite(df_res_pcor$null)] <- NA
-  df_res_pcor$emp[is.infinite(df_res_pcor$emp)] <- NA
-  
-      # Number of posterior difference > empirical difference
-      teststat_a_pcor <- sum(df_res_pcor$null[df_res_pcor$model_ind == model_ind_a] > df_res_pcor$emp[df_res_pcor$model_ind == model_ind_a])
-      teststat_b_pcor <- sum(df_res_pcor$null[df_res_pcor$model_ind == model_ind_b] > df_res_pcor$emp[df_res_pcor$model_ind == model_ind_b])
-    
-
-
-  ### Store Output
-  testres <- list(beta_a = teststat_a_beta,
-                  beta_b = teststat_b_beta,
-                  pcor_a = teststat_a_pcor,
-                  pcor_b = teststat_b_pcor,
-                  comp = df_res_beta$comp[[1]], # get type of comparison
-                  dgp = l_res[["params"]]$dgp,
-                  tp = l_res[["params"]]$tp,
-                  comp_graph = l_res[["params"]]$comp_graph)  
-  testres
-}
-
-
-
-
-
-
-
 # Evaluate Within-Comparison ----------------------------------------------
 within_compare_eval <- function(l_res,
                                 pcor = TRUE,
@@ -1617,11 +1175,9 @@ within_compare_eval <- function(l_res,
 
 
 
-
-
-
 # Compare to DGP ----------------------------------------------------------
 # This function compares the BGGM VAR estimates to the true data-generating process
+# Not used for manuscript, can just be helpful for some checks
 compare_dgp <- function(true, 
                         est_bggm,
                         comp_gvar = TRUE,
@@ -1661,9 +1217,6 @@ compare_dgp <- function(true,
   
   
   # Aggregate differences
-  # TODO add standard deviations? or even look at raw differences across all individuals
-
-  
   out[["diff_beta_mean"]] <- lapply(l_diff_beta, function(x){apply(simplify2array(x), 1:2, mean)})
   out[["diff_pcor_mean"]] <- lapply(l_diff_pcor, function(x){apply(simplify2array(x), 1:2, mean)})
   
@@ -1876,7 +1429,6 @@ eval_bggm <- function(fit,
   l_out$rmse_pcor <- rmse(pcor_est_vec, pcor_true_vec)
   
   # Correlations
-  # TODO should I do it like this? just ignore matrix structure?
   l_out$cor_beta <- cor_zero(beta_est_vec, beta_true_vec)
   l_out$cor_pcor <- cor_zero(pcor_est_vec, pcor_true_vec)
   
@@ -1984,7 +1536,6 @@ eval_bggm <- function(fit,
     
     # Compute stats
     ## True/False Positive/Negative
-    # TODO NEEDS CHANGE
     # TP
     df_ci[i, "true_pos_beta"] <- sum(beta_true_vec != 0 & adj_beta != 0)
     df_ci[i, "true_pos_pcor"] <- sum(pcor_true_vec != 0 & adj_pcor != 0)
@@ -2010,9 +1561,6 @@ eval_bggm <- function(fit,
     df_ci[i, "spec_pcor"] <- df_ci[i, "true_neg_pcor"] / (df_ci[i, "true_neg_pcor"] + df_ci[i, "fal_pos_pcor"])
     
     
-
-    
-    
   }
   
   ## Average width
@@ -2036,228 +1584,6 @@ eval_bggm <- function(fit,
   
   return(l_out)
 }
-
-
-
-
-# Evaluate BGGM across ----------------------------------------------------
-eval_across_bggm <- function(fit,
-                      cred_int = c(0.9, 0.95, 0.99),    # different credible intervals
-                      n_rep = 1000,         # number of repetitions per simulation condition
-                      dgp_list = l_graphs){
-  
-  
-  # Prepare output
-  l_out <- list()
-  
-  
-  # Save arguments
-  args <- fit[[1]]$args
-  l_out$dgp_ind <- fit[[1]]$sim_cond$dgp
-  l_out$tp_ind <- fit[[1]]$sim_cond$n_tp
-  l_out$rho_prior <- fit[[1]]$sim_cond$rho_prior
-  l_out$beta_prior <- fit[[1]]$sim_cond$beta_prior
-  
-  
-  ## Find corresponding true graph
-  # transposing bc we use graphicalVARsim
-  true_graph <- dgp_list[[l_out$dgp_ind]]
-  beta_true_vec <- t(true_graph$beta)
-  kappa_true <- true_graph$kappa
-  
-  # Calculate PCOR 
-  pcor_true_vec <- -1*stats::cov2cor(kappa_true)
-  
-  
-  # Vectors for correlations
-  beta_true_vec <- c(beta_true_vec)
-  pcor_true_vec <- c(pcor_true_vec[upper.tri(pcor_true_vec, diag = FALSE)])
-  
-  
-  # convert fitted values to matrices
-  # number of coefficients
-  p_beta <- length(as.numeric(c(fit[[1]]$beta_mu)))
-  p_pcor <- length(c(fit[[1]]$pcor_mu[upper.tri(fit[[1]]$pcor_mu, diag = FALSE)]))
-
-  #--- Nonselect Method ---#
-  # Convert data into matrices
-  beta_est_vec <- unlist(lapply(fit, function(x) as.numeric(c(x$beta_mu))))
-  beta_true_vec <- rep(as.numeric(c(t(true_graph$beta))), n_rep)
-  beta_full_mat <- matrix(c(beta_est_vec, beta_true_vec), ncol = 2)
-  beta_full_mat <- cbind(beta_full_mat, rep(1:p_beta, n_rep))
-  colnames(beta_full_mat) <- c("est", "true", "par")
-  df_beta_full <- as.data.frame(beta_full_mat)
-  df_beta_full$mat <- rep("beta", nrow(df_beta_full))
-
-  pcor_est_vec <- unlist(lapply(fit, function(x) as.numeric(c(x$pcor_mu[upper.tri(x$pcor_mu, diag = FALSE)]))))
-  pcor_true <- -1*stats::cov2cor(true_graph$kappa)
-  pcor_true_vec <- rep(as.numeric(c(pcor_true[upper.tri(pcor_true, diag = FALSE)])), n_rep)
-  pcor_full_mat <- matrix(c(pcor_est_vec, pcor_true_vec), ncol = 2)
-  pcor_full_mat <- cbind(pcor_full_mat, rep(1:p_pcor, n_rep))
-  colnames(pcor_full_mat) <- c("est", "true", "par")
-  df_pcor_full <- as.data.frame(pcor_full_mat)
-  df_pcor_full$mat <- rep("pcor", nrow(df_pcor_full))
-
-  df_full_nonsel <- rbind(df_beta_full, df_pcor_full)
-
-  # # Calculate results
-  df_res_nonsel <- df_full_nonsel %>%
-    dplyr::group_by(mat) %>%
-    # dplyr::mutate(cor = cor_zero(true, est)) %>%
-    dplyr::group_by(mat, par) %>%
-    dplyr::summarize(bias = mean(abs(est-true)),
-                     bias_mcse = sqrt((1/(n_rep*(n_rep-1)))*sum((est-true)^2)), # no longer correct when averaging over all params
-                     mse = mean((est-true)^2),
-                     mse_se = sqrt(sum(((est-true)^2-mse)^2)/((n_rep*(n_rep-1)))),
-                     # tp = sum(est != 0 & true != 0)/n_rep,
-                     # fp = sum(est != 0 & true == 0)/n_rep,
-                     # tn = sum(est == 0 & true == 0)/n_rep,
-                     # fn = sum(est == 0 & true != 0)/n_rep,
-                     # sens = tp/(tp + fn),
-                     # spec = tn/(tn + fp),
-                     # cor = mean(cor)
-                     ) %>%
-    # cor_mcse = (1-cor^2)/sqrt(n_rep-3)) %>%
-    dplyr::ungroup()
-
-  l_out$df_nonsel <- df_res_nonsel
-
-
-  #--- Select Method ---#
-  # # Obtain different credible intervals
-  # cred_interval <- fit$cred_interval
-
-  # # Obtain estimates with selection
-  # beta_est_sel_vec <- fit$beta_weighted_adj
-  # pcor_est_sel_vec <- fit$pcor_weighted_adj
-  #
-  # # Vectors for correlations
-  # beta_est_sel_vec <- c(beta_est_sel_vec)
-  # pcor_est_sel_vec <- c(pcor_est_sel_vec[upper.tri(pcor_est_sel_vec, diag = FALSE)])
-
-  # Convert data into matrices
-  beta_est_vec <- unlist(lapply(fit, function(x) as.numeric(c(x$beta_weighted_adj))))
-  beta_true_vec <- rep(as.numeric(c(t(true_graph$beta))), n_rep)
-  beta_full_mat <- matrix(c(beta_est_vec, beta_true_vec), ncol = 2)
-  beta_full_mat <- cbind(beta_full_mat, rep(1:p_beta, n_rep))
-  colnames(beta_full_mat) <- c("est", "true", "par")
-  df_beta_full <- as.data.frame(beta_full_mat)
-  df_beta_full$mat <- rep("beta", nrow(df_beta_full))
-
-  pcor_est_vec <- unlist(lapply(fit, function(x) as.numeric(c(x$pcor_weighted_adj[upper.tri(x$pcor_weighted_adj, diag = FALSE)]))))
-  pcor_true <- -1*stats::cov2cor(true_graph$kappa)
-  pcor_true_vec <- rep(as.numeric(c(pcor_true[upper.tri(pcor_true, diag = FALSE)])), n_rep)
-  pcor_full_mat <- matrix(c(pcor_est_vec, pcor_true_vec), ncol = 2)
-  pcor_full_mat <- cbind(pcor_full_mat, rep(1:p_pcor, n_rep))
-  colnames(pcor_full_mat) <- c("est", "true", "par")
-  df_pcor_full <- as.data.frame(pcor_full_mat)
-  df_pcor_full$mat <- rep("pcor", nrow(df_pcor_full))
-
-  df_full_sel <- rbind(df_beta_full, df_pcor_full)
-
-  # # Calcuate results
-  df_res_sel <- df_full_sel %>%
-    dplyr::group_by(mat) %>%
-    # dplyr::mutate(cor = cor_zero(true, est)) %>%
-    dplyr::group_by(mat, par) %>%
-    dplyr::summarize(bias = mean(abs(est-true)),
-                     bias_mcse = sqrt((1/(n_rep*(n_rep-1)))*sum((est-true)^2)), # no longer correct when averaging over all params
-                     mse = mean((est-true)^2),
-                     mse_se = sqrt(sum(((est-true)^2-mse)^2)/((n_rep*(n_rep-1)))),
-                     tp = sum(est != 0 & true != 0)/n_rep,   # should probably be NA when TRUE == 0)
-                     fp = sum(est != 0 & true == 0)/n_rep,
-                     tn = sum(est == 0 & true == 0)/n_rep,
-                     fn = sum(est == 0 & true != 0)/n_rep,
-                     sens = tp/(tp + fn),
-                     sens_se = sqrt((sens * (1-sens))/n_rep),
-                     spec = tn/(tn + fp),
-                     spec_se = sqrt((spec * (1-spec))/n_rep),
-                     zeros = sum(est == 0)
-                     # cor = mean(cor)
-                     ) %>%
-    # cor_mcse = (1-cor^2)/sqrt(n_rep-3)) %>%
-    dplyr::ungroup()
-
-
-  l_out$df_sel <- df_res_sel
-
- 
-  
-  ## Coverage
-  # # Obtain different credible intervals
-  # number of different cis
-  n_ci <- length(fit[[1]]$cred_interval$beta_lb)
-  
-  # loop over repetitions
-  l_ci <- lapply(fit, function(x){
-    ci <- x$cred_interval
-    
-    l_store <- list()
-    # loop over different intervals
-    for(i in 1:n_ci){
-      l_store[[i]] <- list()
-      # Coverage
-      lb_beta <- c(ci$beta_lb[[i]])
-      ub_beta <- c(ci$beta_ub[[i]])
-      lb_pcor <- ci$pcor_lb[[i]]
-      lb_pcor <- c(lb_pcor[upper.tri(lb_pcor)])
-      ub_pcor <- ci$pcor_ub[[i]]
-      ub_pcor <- c(ub_pcor[upper.tri(ub_pcor)])
-      
-      l_store[[i]]$cover_beta <- beta_true_vec >= lb_beta & beta_true_vec <= ub_beta
-      l_store[[i]]$cover_pcor <- pcor_true_vec >= lb_pcor & pcor_true_vec <= ub_pcor
-      
-      # Width
-      l_store[[i]]$width_beta <- c(ub_beta-lb_beta)
-      l_store[[i]]$width_pcor <- c(ub_pcor-lb_pcor)
-    }
-    l_store
-  }
-    )
-
-    
-    
-    # Summarize across repetitions
-    # add SE for coverage
-    cover_beta <- lapply(l_ci, function(x){
-      cb1 <- x[[1]]$cover_beta
-      cb2 <- x[[2]]$cover_beta
-      cb3 <- x[[3]]$cover_beta
-      cb <- data.frame(cover = c(cb1, cb2, cb3),
-                       ci = rep(c("cb1", "cb2", "cb3"), each = length(cb1)),
-                       mat = rep("beta", length(cb1)*3))
-      # cb <- cbind(cb, rep("c_beta", nrow(cb)))
-      cb
-    })
-    cover_beta <- do.call(rbind, cover_beta)
-    
-    cover_pcor <- lapply(l_ci, function(x){
-      cp1 <- x[[1]]$cover_pcor
-      cp2 <- x[[2]]$cover_pcor
-      cp3 <- x[[3]]$cover_pcor
-      cp <- data.frame(cover = c(cp1, cp2, cp3),
-                       ci = rep(c("cp1", "cp2", "cp3"), each = length(cp1)),
-                       mat = rep("beta", length(cp1)*3))
-      cp
-    })
-    cover_pcor <- do.call(rbind, cover_pcor)
-    df_cover <- rbind(cover_beta, cover_pcor)
-    
-    df_cover <- df_cover %>% 
-      dplyr::group_by(ci, mat) %>% 
-      dplyr::summarize(coverage_mean = mean(cover), 
-                       coverage_se = sqrt((coverage_mean * (1-coverage_mean))/n_rep)) %>% 
-      dplyr::ungroup()
-    
-  l_out$df_cover <- df_cover
-    
-
-  #--- Output ---#
-
-  return(l_out)
-}
-
-
 
 
 
@@ -2301,7 +1627,6 @@ eval_gvar <- function(fit,
   # Vectors for correlations
   beta_est_vec <- c(beta_est)
   pcor_est_vec <- c(pcor_est[upper.tri(pcor_est, diag = FALSE)])
-  
   
   # Compute Bias
   l_out$bias_beta <- bias(beta_est_vec, beta_true_vec)
@@ -2350,88 +1675,10 @@ eval_gvar <- function(fit,
   
   
   
-  
   #--- Output ---#
   
   return(l_out)
 }
-
-
-
-
-eval_across_gvar <- function(fit, 
-                             dgp_list = l_graphs,
-                             # summarize_params = TRUE, # summarize across all parameters within a coef matrix
-                             n_rep = 1000){
-  # output
-  l_out <- list()
-  # Save arguments
-  args <- fit$args
-  l_out$dgp_ind <- fit[[1]]$sim_cond$dgp
-  l_out$tp_ind <- fit[[1]]$sim_cond$n_tp
-  l_out$ebic <- fit[[1]]$sim_cond$gamma_ebic
-  l_out$lambda <- fit[[1]]$sim_cond$lambda
-  
-  # Get true graph
-  true_graph <- dgp_list[[l_out$dgp_ind]]
-  
-  # number of coefficients
-  p_beta <- length(as.numeric(c(t(fit[[1]]$beta[,-1]))))
-  p_pcor <- length(c(fit[[1]]$PCC[upper.tri(fit[[1]]$PCC, diag = FALSE)]))
-  
-  # Convert data into matrices
-  beta_est_vec <- unlist(lapply(fit, function(x) as.numeric(c(t(x$beta[,-1])))))
-  beta_true_vec <- rep(as.numeric(c(t(true_graph$beta))), n_rep)
-  beta_full_mat <- matrix(c(beta_est_vec, beta_true_vec), ncol = 2)
-  beta_full_mat <- cbind(beta_full_mat, rep(1:p_beta, n_rep))
-  colnames(beta_full_mat) <- c("est", "true", "par")
-  df_beta_full <- as.data.frame(beta_full_mat)
-  df_beta_full$mat <- rep("beta", nrow(df_beta_full))
-  
-  pcor_est_vec <- unlist(lapply(fit, function(x) as.numeric(c(x$PCC[upper.tri(x$PCC, diag = FALSE)]))))
-  pcor_true <- -1*stats::cov2cor(true_graph$kappa)
-  pcor_true_vec <- rep(as.numeric(c(pcor_true[upper.tri(pcor_true, diag = FALSE)])), n_rep)
-  pcor_full_mat <- matrix(c(pcor_est_vec, pcor_true_vec), ncol = 2)
-  pcor_full_mat <- cbind(pcor_full_mat, rep(1:p_pcor, n_rep))
-  colnames(pcor_full_mat) <- c("est", "true", "par")
-  df_pcor_full <- as.data.frame(pcor_full_mat)
-  df_pcor_full$mat <- rep("pcor", nrow(df_pcor_full))
-  
-  df_full <- rbind(df_beta_full, df_pcor_full)
-  
-  # # Calcuate results
-  df_res <- df_full %>% 
-    dplyr::group_by(mat) %>% 
-    dplyr::mutate(cor = cor_zero(true, est)) %>% 
-    dplyr::group_by(mat, par) %>% 
-    dplyr::summarize(bias = mean(abs(est-true)),
-                     bias_mcse = sqrt((1/(n_rep*(n_rep-1)))*sum((est-true)^2)), # no longer correct when averaging over all params
-                     tp = sum(est != 0 & true != 0)/n_rep, 
-                     fp = sum(est != 0 & true == 0)/n_rep, 
-                     tn = sum(est == 0 & true == 0)/n_rep, 
-                     fn = sum(est == 0 & true != 0)/n_rep, 
-                     sens = tp/(tp + fn),
-                     sens_se = sqrt((sens * (1-sens))/n_rep),
-                     spec = tn/(tn + fp),
-                     spec_se = sqrt((spec * (1-spec))/n_rep),
-                     cor = mean(cor)) %>% 
-                     # cor_mcse = (1-cor^2)/sqrt(n_rep-3)) %>% 
-    dplyr::ungroup()
-  
-  # if(isTRUE(summarize_params)){
-  #   df_res <- df_res %>% 
-  #     dplyr::select(!par) %>% 
-  #     dplyr::group_by(mat) %>% 
-  #     dplyr::summarize(across(everything(), 
-  #                      ~mean(., na.rm = TRUE)))
-  # }
-  # 
-  return(df_res)
-  
-  
-  
-}
-
 
 
 
@@ -2494,40 +1741,6 @@ var_ess <- function(fitobj,
 }
 
 # Compare VAR -------------------------------------------------------------
-# TODO this roxygen is still incorrect, e.g. larger_beta
-
-#' Compare Variance Components between Two Models
-#'
-#' Computes the empirical distance between two models based on the variance components
-#' and compares them using reference distributions. Returns the p-value for the comparison
-#' based on a decision rule specified by the user.
-#'
-#' @param fit_a Fitted model object for Model A
-#' @param fit_b Fitted model object for Model B
-#' @param cutoff The percentage level of the test (default: 5%)
-#' @param dec_rule The decision rule to be used. Currently only supports default "OR".
-#' @param n_draws The number of draws to use for reference distributions (default: 1000)
-#' @param comp The distance metric to use. Should be one of "frob" (Frobenius norm), 
-#' "maxdiff" (maximum  difference), or "l1" (L1 norm) (default: "frob")
-#' @param return_all Logical indicating whether to return all distributions (default: FALSE)
-#'
-#' @return A list containing the results of the comparison. The list includes:
-#'   \item{sig_beta}{The decision on whether there is a significant difference between the variance components for Model A and Model B (based on the beta parameter)}
-#'   \item{sig_pcor}{The decision on whether there is a significant difference between the variance components for Model A and Model B (based on the partial correlation parameter)}
-#'   \item{res_beta}{The null distribution for the variance components (based on the beta parameter) for both models}
-#'   \item{res_pcor}{The null distribution for the variance components (based on the partial correlation parameter) for both models}
-#'   \item{emp_beta}{The empirical distance between the two models (based on the beta parameter)}
-#'   \item{emp_pcor}{The empirical distance between the two models (based on the partial correlation parameter)}
-#'   \item{larger_beta}{The number of times the null hypothesis (based on the beta parameter) was rejected across all draws}
-#'   \item{larger_pcor}{The number of times the null hypothesis (based on the partial correlation parameter) was rejected across all draws}
-#'
-#'
-#' @importFrom magrittr %>%
-#' @importFrom dplyr group_by summarize pull
-#' @importFrom stats norm max abs sum
-#'
-#' @export
-
 compare_var <- function(fit_a, 
                         fit_b, 
                         cutoff = 5,           # percentage level of test
@@ -2957,7 +2170,7 @@ theme_compare <- function(){
       # Grid
       panel.grid = ggplot2::element_line(colour = "#F3F4F5"),
       # Legend
-      legend.title = ggplot2::element_text(face = "bold"),
+      legend.title = ggplot2::element_text(face = "plain"),
       legend.position = "top",
       legend.justification = 1,
       # Panel/Facets
