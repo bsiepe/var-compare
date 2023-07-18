@@ -12,3 +12,14 @@
 *.xlsx
 *.Rproj.user
 .Rproj.user
+bayes-factors.Rmd
+concatenate-var.Rmd
+mlgraphicalVAR.R
+fit-psychonetrics.R
+data_Fisher2017.RDS
+graveyard.Rmd
+var-posterior-simulation.Rmd
+var-reliability-estimate.Rmd
+posterior-distance-sampling-comparison.Rmd
+norm-exploration.Rmd
+posterior-predictive-var.R
