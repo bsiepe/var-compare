@@ -1,0 +1,763 @@
+---
+title: "var-compare-empirical-example"
+author: "Björn Siepe"
+date: "`r Sys.Date()"
+output: html_document
+---
+
+This document contains code to reproduce the empirical example section in the paper, as well as the prior illustration in the introduction. 
+```{r}
+library(BGGM)
+library(qgraph)
+library(tidyverse)
+library(foreach)
+library(doParallel)
+library(parallel)
+library(Hmisc)
+library(imputeTS)
+library(cowplot)
+source("aux_funs.R")
+```
+
+
+
+# Example prior distributions
+Draw 5000 observations for temporal and contemporaneous priors. 
+```{r}
+## Temporal
+# Simply sample from normal distribution
+wide_beta <- rnorm(n = 5000, mean = 0, sd = 1)
+narrow_beta <- rnorm(n = 5000, mean = 0, sd = 0.5)
+
+## Contemporaneous
+# Wide prior
+wide_pcor <- BGGM::plot_prior(prior_sd = 0.5, iter = 5000)
+wide_pcor <- wide_pcor$plot_env$prior_samp$pcors[1,2,]
+
+# Narrow prior
+narrow_pcor <- BGGM::plot_prior(prior_sd = 0.25, iter = 5000)
+narrow_pcor <- narrow_pcor$plot_env$prior_samp$pcors[1,2,]
+
+# Create dataframe
+df_prior <- data.frame(
+  value = c(wide_beta, narrow_beta, wide_pcor, narrow_pcor),
+  mat = c(rep("Temporal",2*5000), rep("Contemporaneous", 2*5000)),
+  prior = rep(c(rep("wide", 5000), rep("narrow", 5000)),2),
+  label = c(rep("1", 5000), rep("0.5", 5000), rep("0.5", 5000), rep("0.25", 5000))
+)
+
+# Expressions
+df_prior <- df_prior %>% 
+  mutate(prior = factor(prior,
+                        levels = c("wide", "narrow"),
+                        labels = c(expression(wide~prior~(s[beta]~"= 1, "~ s[rho]~"= 0.5")),
+                                   expression(narrow~prior~(s[beta]~"= 0.3, "~ s[rho]~"= 0.2")))),
+         mat = as.factor(mat)) %>% 
+  mutate(mat = forcats::fct_relevel(mat, "Temporal"))
+
+
+
+
+
+# Create grid plot
+prior_example <- df_prior %>% 
+  ggplot(aes(x = value))+
+  geom_histogram(fill = ggokabeito::palette_okabe_ito()[2],
+                 col = "black",
+                 bins = 50)+
+  theme_compare()+
+  # facet_grid(prior~mat, 
+  #            scales = "free_x",
+  #            labeller = label_parsed)+
+  ggh4x::facet_grid2(
+             prior~mat, 
+             axes = "all",
+             scales = "free_x",
+             # remove_labels = "y",
+             labeller = label_parsed)+
+  labs(y = "",
+       x = "")+
+  scale_x_continuous(expand = c(0,0))+
+  scale_y_continuous(expand = c(0,0))+
+  theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.line.y = element_line(),
+        axis.line.x = element_line(),
+        strip.text.y = element_text(size = 12),
+        strip.text.x = element_text(size = 20),
+        axis.text=element_text(size=rel(1.2)),
+        panel.spacing.x = ggplot2::unit(2.5, "lines"))
+
+prior_example
+ggsave("prior_example.svg", prior_example, path = here::here("figures/") ,device = "svg", width = 10, height = 8)
+
+
+```
+
+
+
+# Empirical Example
+We use data from Fisher et al. (2017), downloaded from https://osf.io/5ybxt/
+Functions needed:
+```{r}
+lagpad <- function(x, k) {
+     c(rep(NA, k), x)[1 : length(x)] 
+ }
+```
+
+
+Then use code adapted from Fisher et al. https://osf.io/m63ks to perform cubic spline interpolation to resample to even time intervals for observations. 
+```{r}
+file_list <- list.files(path = here::here("data/empirical_example/fisher_2017"), pattern = ".RData", full.names = TRUE)
+
+# Number of items
+n_items <- 21
+rel_items <-  c("energetic", "enthusiastic", "content", "irritable", "restless", "worried",  "guilty",  "afraid", "anhedonia", "angry", "hopeless", "down", 
+"positive", "fatigue", "tension", "concentrate", "ruminate", "avoid_act", "reassure",  "procrast", "avoid_people")
+
+l_data <- list()
+for(i in 1:length(file_list)){
+  l_data[[i]] <- list()
+  load(file_list[[i]])
+  
+  # add lags
+  data$lag=lagpad(data$start,1)
+
+  # Calculate time differences
+  data$tdif=as.numeric(difftime(strptime(data$start,"%m/%d/%Y %H:%M"),strptime(data$lag,"%m/%d/%Y %H:%M")))
+
+  # Replace NA
+  data$tdif[is.na(data$tdif)] <- 0
+  
+  # give names to columns with missing names
+  # Get the index of NA column names
+  na_cols <- which(is.na(colnames(data)))
+
+  # Replace NA column names with new names
+  colnames(data)[na_cols] <- paste0("new_name_", na_cols)
+  
+  # Calculate cumulative sum of numeric elapsed time
+  data$cumsumT = cumsum(data$tdif)
+
+  # Subset data
+  trim=data[,c(3:18,21:24,28)]
+  dedat=data.frame(matrix(ncol = dim(trim)[2], nrow = dim(trim[1])))
+  colnames(dedat) <- colnames(trim)
+
+  ### Detrend
+  for(d in 1:n_items){
+    dedat[,d] = resid(lm(scale(trim[,d])~data$cumsumT, na.action = na.exclude))
+  }
+  ### Cubic spline interpolation
+  datcub <- data.frame(matrix(ncol=21,nrow=nrow(data)))
+  for(d in 1:n_items){
+    datcub[,d]=(spline(x = data$cumsumT, y=dedat[,d], nrow(data), method='fmm'))$y
+  }
+  colnames(datcub) <- colnames(dedat)
+  
+  # Only choose relevant data for us
+  datcub <- datcub %>% 
+    dplyr::select(c("content", "fatigue", "concentrate", "positive", "hopeless", "enthusiastic"))
+
+  l_data[[i]] <- datcub
+  
+}
+# remove everything but the data list
+rm(list=setdiff(ls(), "l_data"))
+
+```
+
+Using new data by Aaron Fisher, where some beep issues have been fixed. 
+```{r}
+load("C:/Users/Bjoern/Drive/Academia/Projects/var-compare/data/empirical_example/Fisher_Raw_Data.RData")
+
+files <- lapply(ls(pattern="dat"), function(x) get(x))
+```
+
+
+
+
+
+Description of missing data
+```{r}
+data <- bind_rows(l_data, .id = "id")
+data %>% 
+  group_by(id) %>% 
+  count() %>% 
+  ungroup() %>% 
+  dplyr::summarize(mean_obs = mean(n))
+
+
+```
+
+
+
+# Fit new models
+```{r}
+rho_prior = 0.25
+beta_prior = .5
+iterations = 50000
+seed = 2022
+
+df_prior <- data.frame(
+  rho_prior = c(0.1, 0.25, 0.5),
+  beta_prior = c(0.25, 0.5, 1)
+)
+
+
+l_fits <- list()
+
+
+cl = makeCluster(3)
+registerDoParallel(cl)
+l_fits <- foreach(i = 1:nrow(df_prior), .packages = "BGGM") %dopar% {
+  r_p <- df_prior[i,"rho_prior"]
+  b_p <- df_prior[i, "beta_prior"]
+  
+  fit <- lapply(l_data, function(x){
+  tryCatch(BGGM::var_estimate(Y = x,      
+                     rho_sd = r_p,
+                     beta_sd = b_p,
+                     iter = 50000,
+                     seed = 2022), error = function(e) NA)
+
+    
+})
+
+  return(fit)
+}
+
+stopCluster(cl)  
+  
+l_fits_c <- list()
+for(i in 1:3){
+  l_fits_c[[i]] <- lapply(l_fits[[i]], function(x){
+  x$fit$Sigma <- NULL
+  x$fit$fisher_z <- NULL
+  x
+})
+  
+}
+# saveRDS(l_fits_c, here::here("output/empirical-example/l_fits.RDS"))
+l_fits_c <- readRDS(here::here("output/empirical-example/l_fits.RDS"))
+```
+
+
+
+## Diagnostic plots 
+Create diagnostic plots for the second prior combination here. 
+```{r}
+# Obtain parameter names
+# nodes
+p <- 6
+# identity matrix
+I_p <- diag(p)
+# column names
+cn_pcor <- colnames(l_fits_c[[2]][[1]]$pcor_mu)
+cn_beta <- colnames(l_fits_c[[2]][[1]]$beta_mu)
+rn_beta <- rownames(l_fits_c[[2]][[1]]$beta_mu)
+
+names_pcor <- sapply(cn_pcor, function(x) paste(cn_pcor, x, sep = "--"))[upper.tri(I_p)]
+names_beta <- sapply(rn_beta, function(x) paste(cn_beta, x, sep = "_"))
+all_names <- c(names_pcor, names_beta)
+
+
+# ACF plots 
+pdf("figures/acf_plots_empirical.pdf")
+for(i in 1:40){
+  for(n in all_names){
+  plt <- BGGM::convergence(l_fits_c[[2]][[i]], type = "acf", param = n)
+  print(plt[[1]] + theme_compare() + labs(title = paste0("ID ", i)))
+  }
+}
+dev.off()
+
+# One example combination
+acf_pcor <- BGGM::convergence(l_fits_c[[2]][[12]], type = "acf", param = "content--concentrate")
+acf_beta <- BGGM::convergence(l_fits_c[[2]][[12]], type = "acf", param = "content_concentrate.l1")
+
+plot_pcor <- acf_pcor[[1]]+
+  theme_compare()+
+  labs(title = "Contemporaneous")
+
+plot_beta <- acf_beta[[1]]+
+  theme_compare()+
+  labs(title = "Temporal")
+
+plot_acf_example <- cowplot::plot_grid(plot_pcor, plot_beta)
+ggsave("plot_acf_example.svg", plot_acf_example, device = "svg", path = here::here("figures/"), width = 12, height = 6)
+
+
+# Trace plots
+pdf("figures/trace_plots_empirical.pdf")
+for(i in 1:40){
+  for(n in all_names){
+  plt <- BGGM::convergence(l_fits_c[[2]][[i]], type = "trace", param = n)
+  print(plt[[1]] + theme_compare() + labs(title = paste0("ID ", i)))
+  }
+}
+dev.off()
+BGGM::convergence(l_fits_c[[2]][[12]], type = "trace", param = "concentrate--hopeless")
+
+# One example combination
+trace_pcor <- BGGM::convergence(l_fits_c[[2]][[12]], type = "trace", param = "content--concentrate")
+trace_beta <- BGGM::convergence(l_fits_c[[2]][[12]], type = "trace", param = "content_concentrate.l1")
+
+plot_pcor <- trace_pcor[[1]]+
+  theme_compare()+
+  labs(title = "Contemporaneous")
+
+plot_beta <- trace_beta[[1]]+
+  theme_compare()+
+  labs(title = "Temporal")
+
+plot_trace_example <- cowplot::plot_grid(plot_pcor, plot_beta)
+ggsave("plot_trace_example.svg", plot_trace_example, device = "svg", path = here::here("figures/"), width = 12, height = 6)
+
+
+# Get ESS for all samples
+l_ess <- lapply(l_fits_c[[2]], var_ess)
+
+# Obtain statistics about ESS 
+ess_beta <- list()
+ess_pcor <- list()
+for(i in 1:40){
+  ess_beta[[i]] <- l_ess[[i]]$ess_beta
+  arr_beta <- do.call(rbind, lapply(ess_beta, as.numeric))
+  
+  ess_pcor[[i]] <- l_ess[[i]]$ess_pcor
+  arr_pcor <- do.call(rbind, lapply(ess_pcor, as.numeric))
+}
+# Calculate means
+mean(colMeans(arr_beta))
+mean(colMeans(arr_pcor)[colMeans(arr_pcor)!=0])
+
+
+# calculate mean ess per individual
+ind_ess_beta <- sapply(l_ess, function(x) mean(x$ess_beta))
+min(ind_ess_beta)
+max(ind_ess_beta)
+
+ind_ess_pcor <- sapply(l_ess, function(x) mean(x$ess_pcor[x$ess_pcor!=0]))
+min(ind_ess_pcor)
+max(ind_ess_pcor)
+```
+
+
+# Test
+Test across all participants and across different priors. I ran into some memory issues here, so I splitted based on priors.
+We use compare_var instead of within_compare from the simulation study here because I improved the function after having 
+computed all simulation results. The improvements were only for clarity/performance, results are the same. 
+```{r}
+l_fits <- l_fits_c
+fit_grid <- expand.grid(fit_a = 1:length(l_fits[[1]]), 
+                        fit_b = 1:length(l_fits[[1]]), 
+                        priors = seq(nrow(df_prior), 1), 
+                        comp = c("l1", "frob", "maxdiff"))
+l_comps <- list()
+
+cl = makeCluster(14)
+registerDoParallel(cl)
+clusterExport(cl, c("compare_var", "post_distance_within"))
+l_fits_1 <- l_fits[[1]]
+fit_grid_1 <- fit_grid %>% 
+  filter(priors == 1)
+l_comps_1 <- foreach(i = 1:nrow(fit_grid_1)) %dopar% {
+  
+  # Extract information
+  a <- fit_grid_1$fit_a[i]
+  b <- fit_grid_1$fit_b[i]
+  p_ind <- fit_grid_1$priors[i]
+  compa <-  as.character(fit_grid_1$comp[i])
+
+
+  
+  if(is.list(l_fits_1[[a]]) & is.list(l_fits_1[[b]])){
+
+  comp_res  <- compare_var(l_fits_1[[a]],l_fits_1[[b]], comp = compa)
+
+  return(comp_res)
+  }
+  else
+    return(NA)
+  
+}
+
+
+
+l_fits_2 <- l_fits_c[[2]]
+fit_grid_2 <- fit_grid %>% 
+  filter(priors == 2)
+l_comps_2 <- foreach(i = 1:nrow(fit_grid_2)) %dopar% {
+  
+  # Extract information
+  a <- fit_grid_2$fit_a[i]
+  b <- fit_grid_2$fit_b[i]
+  p_ind <- fit_grid_2$priors[i]
+  compa <-  as.character(fit_grid_2$comp[i])
+
+  
+  if(is.list(l_fits_2[[a]]) & is.list(l_fits_2[[b]])){
+  comp_res  <- compare_var(l_fits_2[[a]],l_fits_2[[b]], comp = compa)
+
+  return(comp_res)
+  }
+  else
+    return(NA)
+  
+  
+    
+  
+  
+}
+
+rm(l_fits_2)
+
+
+
+l_fits_3 <- l_fits_c[[3]]
+fit_grid_3 <- fit_grid %>% 
+  filter(priors == 3)
+l_comps_3 <- foreach(i = 1:nrow(fit_grid_3)) %dopar% {
+  
+  # Extract information
+  a <- fit_grid_3$fit_a[i]
+  b <- fit_grid_3$fit_b[i]
+  p_ind <- fit_grid_3$priors[i]
+  compa <-  as.character(fit_grid_3$comp[i])
+
+  
+  if(is.list(l_fits_3[[a]]) & is.list(l_fits_3[[b]])){
+
+  comp_res  <- compare_var(l_fits_3[[a]],l_fits_3[[b]], comp = compa)
+
+  return(comp_res)
+  }
+  else
+    return(NA)
+  
+}
+stopCluster(cl)
+rm(l_fits_3)
+
+df_comps2_1 <- do.call(rbind, l_comps_1)
+df_comps2_2 <- do.call(rbind, l_comps_2)
+df_comps2_3 <- do.call(rbind, l_comps_3)
+
+# Add prior information
+df_comps2_1c <- df_comps2_1 %>% 
+  cbind(fit_grid_1)
+df_comps2_2c <- df_comps2_2 %>% 
+  cbind(fit_grid_2)
+df_comps2_3c <- df_comps2_3 %>% 
+  cbind(fit_grid_3)
+
+
+
+df_compsc <- as.data.frame(rbind(df_comps2_1c, df_comps2_2c, df_comps2_3c))
+
+# delete unnecessary columns
+df_comps <- df_compsc %>% 
+  dplyr::select(-c(larger_beta, larger_pcor)) %>% 
+  as.data.frame()
+
+# saveRDS(df_comps, file = here::here("data/empirical_example/df_comps_cubicspline.RDS"))
+
+df_comps <- readRDS(here::here("data/empirical_example/df_comps_cubicspline.RDS"))
+```
+
+
+## Prior Sensitivity Plot
+```{r}
+# Calculate amount of possible combinations per condition
+# 1560
+# we count all comparisons twice, which is useless, but also does not change results
+df_comps %>% 
+  filter(fit_a != fit_b) %>% 
+  group_by(priors, comp) %>% 
+  count()
+
+
+prior_names <- c(
+  "1" = "Rho: 0.1, Beta: 0.25",
+  "2" = "Rho: 0.25, Beta: 0.5",
+  "3" = "Rho: 0.5, Beta: 1"
+)
+
+
+# Summarize information
+df_comps_summary <- df_comps %>% 
+  dplyr::filter(fit_a != fit_b) %>% 
+  dplyr::mutate(across(c(contains("beta"), contains("pcor")),
+                ~as.numeric(.))) %>% 
+  dplyr::group_by(priors, comp) %>% 
+  dplyr::summarize(sum_sig_beta = sum(ifelse(sig_beta >0, 1, 0)),
+            sum_sig_pcor = sum(ifelse(sig_pcor >0, 1, 0)),
+            mean_emp_beta = mean(emp_beta, na.rm =  TRUE)) %>% 
+  dplyr::mutate(prop_sig_beta = sum_sig_beta / 1560,
+         prop_sig_pcor = sum_sig_pcor / 1560) %>% 
+  pivot_longer(cols = c("sum_sig_beta", "sum_sig_pcor"), names_to = "mat_sum", values_to = "sum") %>% 
+  pivot_longer(cols = c("prop_sig_beta", "prop_sig_pcor"), names_to = "mat_prop", values_to = "prop")
+
+
+emp_ex_prior_sensitivity <- df_comps_summary %>% 
+  ggplot(aes(x = comp, y = prop, group = mat_prop, fill = mat_prop))+
+  geom_bar(position = "dodge", stat = "identity")+
+  # geom_point()+
+  # geom_segment(aes(x = prop, xend = prop, y = 0, yend = comp))+
+  # coord_flip()+
+  facet_wrap(priors~., labeller = as_labeller(prior_names))+
+  theme_compare()+
+  ggokabeito::scale_fill_okabe_ito(labels = c("Temporal", "Contemporaneous"))+
+  scale_y_continuous(limits = c(0,1),labels = function(x) paste0(x*100, "%"))+
+  labs(x = "Norm",
+       y = "Proportion Significant",
+       # title = "Prior Sensitivity Empirical Example",
+       fill = "Matrix")
+emp_ex_prior_sensitivity
+
+ggsave("emp_ex_prior_sensitivity_cubicspline.svg", emp_ex_prior_sensitivity, device = "svg", path = here::here("figures/"), width = 7, height = 5)
+
+```
+
+
+## Plot networks
+
+```{r}
+plot_net <- function(fit_obj){
+  par(mfrow=c(1,2))
+  qgraph::qgraph(fit_obj$beta_mu, title = "Temporal", theme = "colorblind", layout = "circle")
+  qgraph::qgraph(fit_obj$pcor_mu, title = "Contemporaneous", theme = "colorblind", layout = "circle")
+}
+
+
+```
+
+
+## Example: No evidence for differences
+8 and 29
+```{r}
+# Look for examples with no evidence for diffs
+df_comps %>% 
+  filter(priors == 2) %>% 
+  filter(fit_a != fit_b) %>% 
+  filter(comp == "frob") %>% 
+  mutate(across(c(contains("sig"), contains("emp")),
+                ~as.numeric(.))) %>% 
+  filter(sig_beta == 0 & sig_pcor == 0) %>% View()
+
+# find number of observations
+n_obs <- do.call(rbind, lapply(l_data, function(x) nrow(x)))
+
+# Choose pair with similar n 
+# 18 and 12
+fit_12 <- l_fits_c[[2]][[12]]
+fit_18 <- l_fits_c[[2]][[18]]
+
+# Compare
+res_emp_comp <- compare_var(fit_12, fit_18, return_all = TRUE)
+
+# calculate median edge difference
+mean(abs(fit_12$beta_mu-fit_18$beta_mu))
+mean(abs(fit_12$pcor_mu[upper.tri(fit_12$pcor_mu, diag = FALSE)]-fit_18$pcor_mu[upper.tri(fit_18$pcor_mu, diag = FALSE)]))
+
+# calcute number of sign differences
+sum(sign(fit_12$beta_mu) != sign(fit_18$beta_mu))
+sum(sign(fit_12$pcor_mu[upper.tri(fit_12$pcor_mu, diag = FALSE)]) != sign(fit_18$pcor_mu[upper.tri(fit_18$pcor_mu, diag = FALSE)]))
+
+# Plot automatically
+plot.compare_var(res_emp_comp, name_a = "ID 12", name_b = "ID 18")
+
+
+```
+
+Create network plots below each other, then plot the comparison.
+Do this manually to have more control beyond the functions.
+Note that the study ID used for the plot is unequal to iteration ID used here. 
+```{r}
+# First, all the networks
+svg(filename = "figures/empirical_temp_networks.svg")
+par(mfrow=c(1,2))
+p12_temp <- qgraph::qgraph(fit_12$beta_mu, theme = "colorblind", layout = "circle",
+                           color = ggokabeito::palette_okabe_ito()[1])
+
+p18_temp <- qgraph::qgraph(fit_18$beta_mu, theme = "colorblind", layout = "circle",
+                           color = ggokabeito::palette_okabe_ito()[2])
+
+dev.off()
+
+svg(filename = "figures/empirical_cont_networks.svg")
+par(mfrow=c(1,2))
+
+p12_cont <- qgraph::qgraph(fit_12$pcor_mu, theme = "colorblind", layout = "circle",
+                           color = ggokabeito::palette_okabe_ito()[1])
+p18_cont <- qgraph::qgraph(fit_18$pcor_mu, theme = "colorblind", layout = "circle",
+                           color = ggokabeito::palette_okabe_ito()[2])
+dev.off()
+
+
+
+## Find edge for scaling
+max_sc<- max(c(max(abs(fit_12$beta_mu)), max(abs(fit_12$pcor_mu)), max(abs(fit_18$beta_mu)), max(abs(fit_18$pcor_mu))))
+
+
+# Plot individually
+svg(filename = "figures/empirical_network_12t.svg")
+
+p12_temp <- qgraph::qgraph(fit_12$beta_mu, 
+                           theme = "colorblind", 
+                           layout = "circle",
+                           color = ggokabeito::palette_okabe_ito()[1], 
+                           maximum = max_sc, 
+                           negDashed = TRUE)
+dev.off()
+
+svg(filename = "figures/empirical_network_18t.svg")
+p18_temp <- qgraph::qgraph(fit_18$beta_mu, 
+                           theme = "colorblind", 
+                           layout = "circle",
+                           color = ggokabeito::palette_okabe_ito()[2], 
+                           maximum = max_sc, 
+                           negDashed = TRUE)
+dev.off()
+
+svg(filename = "figures/empirical_network_12c.svg")
+p12_cont <- qgraph::qgraph(fit_12$pcor_mu, 
+                           theme = "colorblind", 
+                           layout = "circle",
+                           color = ggokabeito::palette_okabe_ito()[1], 
+                           maximum = max_sc, 
+                           negDashed = TRUE)
+dev.off()
+
+svg(filename = "figures/empirical_network_18c.svg")
+
+p18_cont <- qgraph::qgraph(fit_18$pcor_mu, 
+                           theme = "colorblind", 
+                           layout = "circle",
+                           color = ggokabeito::palette_okabe_ito()[2], 
+                           maximum = max_sc, 
+                           negDashed = TRUE)
+dev.off()
+
+
+
+# Then, comparison for temporal and contemporaneous
+plt_beta <- 
+  res_emp_comp$res_beta %>%
+    mutate(mod = case_match(mod,
+                            "mod_a" ~ "ID 19",
+                            "mod_b" ~ "ID 40")) %>% 
+    ggplot(aes(x = null, fill = mod, linetype = mod))+
+    geom_density(alpha = .7)+
+    ggokabeito::scale_fill_okabe_ito()+
+    geom_vline(aes(xintercept = res_emp_comp$emp_beta), 
+               col = "black", lty = 1, linewidth = .75)+
+    scale_y_continuous(expand = c(0,0.05))+
+    theme_compare()+
+    labs(y = "",
+         x = "Norm Value",
+         fill = "",
+         linetype = "",
+         title = "Test")+
+    theme(axis.ticks.y = element_blank(),
+          axis.text.y = element_blank(),
+          legend.position = "right",
+          legend.key.height= unit(0.5, 'cm'),
+          legend.key.width= unit(1, 'cm'),
+          plot.title = element_text(face = "plain", family = "news", size = 9, hjust = 0))
+plt_beta
+
+plt_pcor <- 
+  res_emp_comp$res_pcor %>%
+    mutate(mod = case_match(mod,
+                            "mod_a" ~ "ID 19",
+                            "mod_b" ~ "ID 40")) %>% 
+    ggplot(aes(x = null, fill = mod, linetype = mod))+
+    geom_density(alpha = .7)+
+    ggokabeito::scale_fill_okabe_ito()+
+    geom_vline(aes(xintercept = res_emp_comp$emp_pcor), 
+               col = "black", lty = 1, linewidth = .75)+
+    scale_y_continuous(expand = c(0,0.05))+
+    labs(y = "",
+         x = "Norm Value",
+         title = "")+
+    theme_compare()+
+    theme(axis.ticks.y = element_blank(),
+          axis.text.y = element_blank(),
+          legend.position = "right", 
+          plot.title = element_text(face = "plain", family = "news", size = 9, hjust = 0))
+
+leg <- cowplot::get_legend(plt_beta)
+  
+# Plot
+plt_tmp <- cowplot::plot_grid(plt_beta + theme(legend.position = "none"),
+                              plt_pcor + theme(legend.position = "none"))
+
+# Add legend
+# plt <- plot_grid(plt_tmp, leg, rel_widths = c(3, .4))
+plt <- plt_tmp 
+plt
+
+plt_pcor
+
+# Figure had to be created manually because qgraph cannot be used by cowplot...
+svg_12t <- magick::image_read_svg(here::here("figures/empirical_network_12t.svg"))
+svg_12c <- magick::image_read_svg(here::here("figures/empirical_network_12c.svg"))
+svg_18t <- magick::image_read_svg(here::here("figures/empirical_network_18t.svg"))
+svg_18c <- magick::image_read_svg(here::here("figures/empirical_network_18c.svg"))
+
+
+plt_12t <- ggdraw() + 
+  draw_image(svg_12t, scale = 1) +
+  draw_label("ID 12", x = 0.1, y = 0.85, fontfamily = "news", size = 9)
+plt_12t
+plt_12c <- ggdraw() + 
+  draw_image(svg_12c, scale = 1)
+plt_18t <- ggdraw() + 
+  draw_image(svg_18t, scale = 1) + 
+  draw_label("ID 18", x = 0.1, y = 0.85, fontfamily = "news", size = 9)
+plt_18c <- ggdraw() + draw_image(svg_18c, scale = 1)
+
+row_12 <- plot_grid(plt_12t, plt_12c, 
+                    labels = c("Temporal", "Contemporaneous"),
+                    label_size = 14,
+                    label_fontfamily = "news",
+                    label_x = c(-0.1, -0.2))
+row_18 <- plot_grid(plt_18t, plt_18c)
+
+
+full_plot <- plot_grid(
+  row_12,
+  row_18,
+  plt,
+  nrow = 3,
+  rel_heights = c(1,1,0.7)
+)
+
+ggsave("full_plot_empirical_example_dashed.svg", full_plot, device = "svg", height = 8.5, width = 6, 
+       path = here::here("figures/"))
+
+```
+
+
+## Posterior matrix
+Idea: Plot posterior distributions, color based on if the parameter is positive or not. 
+```{r}
+fit <- l_fits_c[[1]][[1]]
+
+plot_example_posterior <- posterior_plot(fit, mat = beta)
+
+plot_example_posterior+geom_text()
+
+ggsave("plot_example_posterior_beta.svg", plot_example_posterior, 
+       device = "svg", path = here::here("figures/"), width = 20, height = 12, 
+       units = "cm")
+
+```
+
+
+
+
+
+
