@@ -930,6 +930,12 @@ plot_dec_rule_prior_sens <- df_comp_res %>%
                   "const0.15" ~ paste("All", "\u00b1", "0.15"),
                   "permute" ~ "Permute"
           )) %>% 
+          dplyr::mutate(change = as.factor(change)) %>% 
+          dplyr::mutate(change = forcats::fct_relevel(change, "Largest × 1.4", 
+                                                      "Largest × 1.6",
+                                                      "All ± 0.05",
+                                                      "All ± 0.10",
+                                                      "All ± 0.15")) %>% 
           # setup decision rule
           dplyr::mutate(sig_beta05 = ifelse(beta_a < 50 | beta_b < 50, 1, 0),
                  sig_pcor05 = ifelse(pcor_a < 50 | pcor_b < 50, 1, 0)) %>% 
@@ -946,6 +952,7 @@ plot_dec_rule_prior_sens <- df_comp_res %>%
           dplyr::mutate(mat = case_when(
             grepl("beta05", res) ~ "Temporal",
             grepl("pcor05", res) ~ "Contemp.")) %>%  
+          
           ggplot(aes(x = tp, y = value, color = prior, group = prior)) + 
           ggh4x::facet_nested(change ~ dgp + mat,
                               axes = TRUE,

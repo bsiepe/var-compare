@@ -746,13 +746,20 @@ Idea: Plot posterior distributions, color based on if the parameter is positive 
 ```{r}
 fit <- l_fits_c[[1]][[1]]
 
-plot_example_posterior <- posterior_plot(fit, mat = beta)
+plot_example_posterior <- tsnet::posterior_plot(fit, mat = "beta")+
+  theme(legend.title = element_text(size = rel(1.3)))
 
-plot_example_posterior+geom_text()
+plot_example_posterior
 
 ggsave("plot_example_posterior_beta.svg", plot_example_posterior, 
        device = "svg", path = here::here("figures/"), width = 20, height = 12, 
        units = "cm")
+
+ggsave("plot_example_posterior_beta.png", plot_example_posterior, 
+       device = "png", path = here::here("figures/"), width = 10, height = 8, 
+       units = "cm")
+
+
 
 ```
 
