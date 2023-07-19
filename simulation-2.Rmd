@@ -645,6 +645,14 @@ df_comp_res <- df_comp_res %>%
 
 # write_rds(df_comp_res, here::here("output/df_comp_res.RDS"))
 
+# Number of combinations
+n_comp <- 4950
+
+# significance cutoff
+sig_cut <- 0.05
+
+# number of posterior draws
+n_draw <- 1000
 
 ```
 
@@ -716,14 +724,7 @@ If either A or B are "significant", we have evidence for a difference in the net
 
 With uncertainty in the form of standard errors. 
 ```{r}
-# Number of combinations
-n_comp <- 4950
 
-# significance cutoff
-sig_cut <- 0.05
-
-# number of posterior draws
-n_draw <- 1000
 
 plot_dec_rule_se <- df_comp_res %>% 
           dplyr::filter(dgp %in% c("graph3", "graph4", "graph5")) %>% 
@@ -946,12 +947,6 @@ plot_dec_rule_prior_sens <- df_comp_res %>%
             grepl("beta05", res) ~ "Temporal",
             grepl("pcor05", res) ~ "Contemp.")) %>%  
           ggplot(aes(x = tp, y = value, color = prior, group = prior)) + 
-          # geom_point(position = position_dodge(0.1), size = 0.5)+
-          # geom_line(col = "#56B4E9")+
-          # geom_linerange(aes(ymin = value - 1.96*se, x = tp,
-          #                   ymax = value + 1.96*se),
-          #               width = .5, position = position_dodge(0.1), 
-          #               col = "#56B4E9")+
           ggh4x::facet_nested(change ~ dgp + mat,
                               axes = TRUE,
                               remove_labels = TRUE)+
