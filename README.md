@@ -19,18 +19,12 @@ Session information can be found in **session_info.txt**.
 
 
 ### data
-
-
-
-### figures
-
-This folder contains all figures in the manuscript, appendix, and supplementary material.
+Contains data-generating processes used in simulation study 1 & 2. 
 
 ### output
+Contains intermediate results for simulation study 1. 
 
-This folder contains certain outputs from multiple scripts.
 
-It is structured as follows:
 
 
 
