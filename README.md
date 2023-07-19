@@ -2,8 +2,8 @@
 
 ## Overview
 
-This repository contains code to reproduce the analyses in the preprint "Bayesian Estimation and Comparison of Idiographic Network Models" by Siepe & Heck (2023).
-It is best to start the R project **var-compare.Rproj** to run all the scripts.
+This repository contains code to reproduce the analyses in the preprint "Bayesian Estimation and Comparison of Idiographic Network Models" by Siepe & Heck (2023) (https://psyarxiv.com/uwfjc/).
+Start the .Rproj **var-compare.Rproj** prior to running the scripts.
 
 Full simulation results are too large (multiple GBs) and can be requested from the corresponding author. We try to provide intermediate simulation results where possible. 
 
