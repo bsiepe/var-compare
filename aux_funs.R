@@ -418,13 +418,14 @@ sim_raw_parallel <- function(dgp,
 fit_graphicalvar_parallel <- function(data,
                                       n, 
                                       pruneresults = TRUE, 
+                                      seed,
                                       ...){     # other arguments passed to graphicalVAR
   # Save arguments
   
   require(doParallel)
   
   # reproducible parallelization
-  doRNG::registerDoRNG(seed)
+  doRNG::registerDoRNG(seed = seed)
   
   # Foreach
   fit <- foreach(i = seq(n), .packages = "graphicalVAR") %dopar% {
