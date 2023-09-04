@@ -26,6 +26,7 @@ library(Matrix)
 library(here)
 library(rrapply)       
 library(ggh4x)
+library(gghighlight)
 here::i_am("var-compare.Rproj")
 
 
@@ -118,6 +119,47 @@ df_eval_both <- df_eval_bggm_mcse %>%
   ) %>% 
     rename_with(~ gsub("_bggm_", "_", .), contains("_bggm_"))
 
+
+
+```
+
+Prepare data: Pivot longer and mutate columns. 
+```{r}
+# Pivot longer and mutate columns
+df_eval_both_long <- df_eval_both %>% 
+  ungroup() %>% 
+  # Filter irrelevant condition
+  dplyr::filter(!(!is.na(lambda) & ebic == 0.5)) %>% 
+  tidyr::pivot_longer(cols = c(contains("bias"), 
+                               contains("cor"), 
+                               contains("mcse"), 
+                               contains("spec"), 
+                               contains("sens"))) %>%
+  mutate(val_type = case_when(
+    stringr::str_detect(name, "mcse") ~ "mcse",
+    TRUE ~ "value"
+  )) %>%   
+  mutate(method = case_when(
+    stringr::str_detect(name, "bggm") ~ "BGGM",
+    stringr::str_detect(name, "sel") ~ "SEL",
+    stringr::str_detect(name, "gvar") ~ "graphicalVAR"
+  )) %>% 
+  mutate(name = stringr::str_remove(name, "_.*")) %>% 
+  rename(stat = name) %>% 
+  pivot_wider(names_from = val_type, 
+              values_from = value) %>% 
+  mutate(mat = case_when(
+    stringr::str_detect(mat, "beta") ~ "Temporal",
+    stringr::str_detect(mat, "pcor") ~ "Contemporaneous"
+  )) %>% 
+ mutate(stat = case_when(
+                          stringr::str_detect(stat, "sens") ~ "Sensitivity",
+                          stringr::str_detect(stat, "spec") ~ "Specificity",
+                          stringr::str_detect(stat, "bias") ~ "Bias",
+                          stringr::str_detect(stat, "cor") ~ "Correlation"))
+  
+  
+
 ```
 
 
@@ -149,6 +191,142 @@ cond_lty <- set_names(c(1,1,1,1,1),
 
 ```
 
+
+## Bias
+
+```{r}
+ls_data_both_stat <- df_eval_both_long %>% 
+  # delete older dgps
+  filter(dgp_ind > dgp_cut) %>%
+  # mutate tp_ind into factor
+  mutate(tp_ind = fct_recode(as_factor(as.character(tp_ind)), !!!tp_levels)) %>% 
+  # mutate dgp_ind into factor
+  mutate(dgp_ind = fct_recode(as_factor(as.character(dgp_ind)), !!!dgp_levels)) %>% 
+  mutate(prior_comb = paste0("b", beta_prior,  "_r", rho_prior)) %>% 
+  filter(prior_comb == "b1_r0.5" | prior_comb == "b0.2_r0.3") %>% 
+  dplyr::group_by(dgp_ind, tp_ind, lambda, ebic, prior_comb) %>% 
+  mutate(method = paste0(method, "_", prior_comb)) %>% 
+  mutate(method = case_when(
+    stringr::str_detect(method, "BGGM_b0.2") ~ "BGGM narrow",
+    stringr::str_detect(method, "BGGM_b1") ~ "BGGM wide",
+    stringr::str_detect(method, "graphicalVAR") ~ "graphicalVAR",
+    stringr::str_detect(method, "SEL_b0.2") ~ "SEL narrow",
+    stringr::str_detect(method, "SEL_b1") ~ "SEL wide"
+  )) %>% 
+  # only take default values for now
+  filter(is.na(lambda) & ebic == 0) %>% 
+  # not look at spec/sens here
+  filter(!stat %in% c("Sensitivity", "Specificity")) %>% 
+  
+  #---added for presentation
+  filter(dgp_ind %in% c("Empirical\nSparse", "Simulated\nNonsparse")) %>% 
+  #---
+  
+  # Split based on statistic to obtain different y-axes
+  split(., .$stat)
+
+
+plot_bias_present <- ggplot(data = ls_data_both_stat$Bias, 
+         aes(x = tp_ind, y = value, col = method, linetype = method, group = method))+
+  geom_errorbar(aes(ymin = value - 1.96*mcse,
+                            ymax = value + 1.96*mcse),
+                        width = .8, 
+                 position = position_dodge(0.7),
+                 show.legend = FALSE)+
+  # geom_line()+
+  geom_point(size = 1.2, position = position_dodge(0.7))+
+  ggh4x::facet_nested(as.factor(dgp_ind) ~ as.factor(mat),
+                      axes = TRUE,
+                      remove_labels = FALSE)+
+  scale_color_manual(values = cond_colors)+
+  scale_linetype_manual(values = cond_lty)+
+  labs(x = "Timepoints",
+       col = "Method",
+       group = "Method",
+       y = "Bias",
+       linetype = "Method")+
+  theme_compare()+
+  scale_y_continuous(limits = c(0,.2), breaks = c(0, .05, .1, .15, .2), expand = c(0,0))+
+  theme(strip.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3), 
+                                           hjust = 0.5),
+        strip.text.x.top = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3),
+                                                 hjust = 0.5),
+        # strip.text.y = element_blank(),
+        legend.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2)),
+        legend.title = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2)),
+        axis.line = element_line(colour = "#6d6d6e"),
+        panel.spacing.y = ggplot2::unit(1.6, "lines"),
+        panel.spacing.x = ggplot2::unit(1.6, "lines"),
+        axis.text.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2)),
+        axis.title.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.4)),
+        legend.position = "right")
+
+
+  
+
+plot_bias_present
+ggsave("plot_bias_present.svg", plot_bias_present, height = 4.5, width = 10, path = here::here("figures/"), device = "svg")
+
+
+```
+
+Bias with highlighting:
+
+```{r}
+# Do this manually for now
+cond_colors_high1 <- cond_colors <- set_names(c(ggokabeito::palette_okabe_ito()[c(1)], 
+                                                "grey80", 
+                                                ggokabeito::palette_okabe_ito()[c(3)],
+                                                "grey80",
+                                                ggokabeito::palette_okabe_ito()[c(5)]),
+                         c("BGGM narrow", "BGGM wide", "graphicalVAR", "SEL wide", "SEL narrow"))
+
+
+plot_bias_present_highlight <- ggplot(data = ls_data_both_stat$Bias, 
+         aes(x = tp_ind, 
+             y = value, 
+             col = method, 
+             linetype = method, 
+             group = method))+
+  geom_errorbar(aes(col = method, linetype = method,group = method,
+    ymin = value - 1.96*mcse,
+                            ymax = value + 1.96*mcse),
+                        width = .8, 
+                 position = position_dodge(0.7),
+                 show.legend = FALSE)+
+  geom_point(aes(col = method, group = method), size = 1.2, position = position_dodge(0.7))+
+  ggh4x::facet_nested(as.factor(dgp_ind) ~ as.factor(mat),
+                      axes = TRUE,
+                      remove_labels = FALSE)+
+  scale_color_manual(values = cond_colors_high1)+
+  scale_linetype_manual(values = cond_lty)+
+  labs(x = "Timepoints",
+       col = "Method",
+       group = "Method",
+       y = "Bias",
+       linetype = "Method")+
+  theme_compare()+
+  scale_y_continuous(limits = c(0,.2), breaks = c(0, .05, .1, .15, .2), expand = c(0,0))+
+  theme(strip.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3), 
+                                           hjust = 0.5),
+        strip.text.x.top = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3),
+                                                 hjust = 0.5),
+        # strip.text.y = element_blank(),
+        legend.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2)),
+        legend.title = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2)),
+        axis.line = element_line(colour = "#6d6d6e"),
+        panel.spacing.y = ggplot2::unit(1.6, "lines"),
+        panel.spacing.x = ggplot2::unit(1.6, "lines"),
+        axis.text.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2)),
+        axis.title.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.4)),
+        legend.position = "right")
+
+
+  
+
+plot_bias_present_highlight
+ggsave("plot_bias_present_highlight.svg", plot_bias_present_highlight, height = 4.5, width = 10, path = here::here("figures/"), device = "svg")
+```
 
 
 
@@ -306,7 +484,7 @@ plot_dec_rule_se_present <- df_comp_res %>%
                   strip.text.x.top = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2),
                   hjust = 0.5),
                   legend.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2)),
-                  legend.title = ggplot2::element_text(face = "bold", size = ggplot2::rel(1.2)),
+                  legend.title = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2)),
                   # panel.border = element_rect(color = "#D5D8DC", fill = NA, size = 1),
                   panel.spacing.y = ggplot2::unit(1.6, "lines"),
                   panel.spacing.x = ggplot2::unit(1.6, "lines"),
@@ -398,7 +576,7 @@ plot_dec_rule_prior_sens_present <- df_comp_res %>%
                   strip.text.x.top = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2),
                   hjust = 0.5),
                   legend.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2)),
-                  legend.title = ggplot2::element_text(face = "bold", size = ggplot2::rel(1.2)),
+                  legend.title = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2)),
                   # panel.border = element_rect(color = "#D5D8DC", fill = NA, size = 1),
                   panel.spacing.y = ggplot2::unit(1.6, "lines"),
                   panel.spacing.x = ggplot2::unit(1.6, "lines"),
@@ -413,4 +591,109 @@ ggsave(filename ="plot_dec_rule_prior_sens_present.svg",plot_dec_rule_prior_sens
          path = here::here("figures/"), width = 10, height = 4.5)
 
 ```
+Now do the same for false positives:
+```{r}
+plot_false_positive_se_prior_sens <- df_comp_res %>%
+          dplyr::filter(comp == "frob") %>% 
+          dplyr::filter(dgp %in% c("graph3", "graph4", "graph5")) %>%
+          dplyr::filter(change == "truegraph") %>%
+          # setup decision rule
+          dplyr::mutate(sig_beta05 = ifelse(beta_a < sig_cut*n_draw | beta_b < sig_cut*n_draw, 1, 0),
+                 sig_pcor05 = ifelse(pcor_a < sig_cut*n_draw | pcor_b < sig_cut*n_draw, 1, 0)) %>%
+          # mutate tp_ind into factor
+          dplyr::mutate(tp = as.factor(tp)) %>%
+          dplyr::mutate(tp = forcats::fct_relevel(tp, "50", "100", "200", "400", "1000")) %>%
+          dplyr::mutate(dgp = fct_recode(as_factor(as.character(dgp)), !!!graph_names)) %>% 
+          dplyr::group_by(dgp, comp, tp, change, prior) %>% 
+          dplyr::summarize(
+                    power_beta05 = sum(sig_beta05)/n_comp,
+                    power_pcor05 = sum(sig_pcor05)/n_comp,
+                    se_beta05 = sqrt((power_beta05 * (1-power_beta05))/100),
+                    se_pcor05 = sqrt((power_pcor05 * (1-power_pcor05))/100)) %>% 
+          dplyr::mutate(change = case_match(
+            change,
+                  "change1.2" ~ paste("Largest", "\u00D7", "1.2"),
+                  "change1.4" ~ paste("Largest", "\u00D7", "1.4"),
+                  "change1.6" ~ paste("Largest", "\u00D7", "1.6"),
+                  "const0.05" ~ paste("All", "\u00b1", "0.05"),
+                  "const0.1" ~ paste("All", "\u00b1", "0.10"),
+                  "const0.15" ~ paste("All", "\u00b1", "0.15"),
+                  "permute" ~ "Permute"
+          )) %>% 
+          tidyr::pivot_longer(cols = c("power_beta05", "power_pcor05"), names_to = "res") %>%
+          # attach correct se
+          dplyr::mutate(se = ifelse(grepl("beta", res), se_beta05, se_pcor05)) %>% 
+          dplyr::select(!c(se_beta05, se_pcor05)) %>% 
+          dplyr::mutate(mat = case_when(
+            grepl("beta05", res) ~ "Temporal",
+            grepl("pcor05", res) ~ "Contemp.")) %>% 
+          # dplyr::filter(prior == "narrow") %>% 
+          ggplot(aes(x = tp, y = value, color = prior, group = prior)) +
+          geom_errorbar(aes(ymin = value - 1.96*se,
+                            ymax = value + 1.96*se),
+                        width = .8, 
+                        position = position_dodge(0.7),
+                 show.legend = FALSE)+
+          # geom_line()+
+          geom_point(size = 1.2, position = position_dodge(0.7))+
+          ggh4x::facet_nested(. ~ dgp + mat,
+                              axes = TRUE,
+                              remove_labels = TRUE)+
+          coord_cartesian(ylim = c(0, .2), 
+                          expand = FALSE,
+                          xlim = c(0.5, 5.5))+
+          ggokabeito::scale_color_okabe_ito()+
+          theme_compare()+
+          geom_hline(yintercept = 0.05, col = "#D5D8DC")+ 
+          labs(x = "Timepoints", 
+               col = "Prior",
+               y = "Proportion of false positives")+
+              theme(
+                  strip.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2),
+                  hjust = 0.5),
+                  strip.text.x.top = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2),
+                  hjust = 0.5),
+                  legend.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2)),
+                  legend.title = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2)),
+                  # panel.border = element_rect(color = "#D5D8DC", fill = NA, size = 1),
+                  panel.spacing.y = ggplot2::unit(1.6, "lines"),
+                  panel.spacing.x = ggplot2::unit(1.6, "lines"),
+                  axis.line = element_line(colour = "#6d6d6e"),
+                  axis.text.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(0.95)),
+                  axis.title.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3)),
+                  axis.title.y = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3)))
+
+plot_false_positive_se_prior_sens
+ggsave(filename = paste0("plot_false_positive_se_prior_sens_present.svg"),plot_false_positive_se_prior_sens, device = "svg",
+         path = here::here("figures/"), width = 13, height = 6)
+```
+
+
+# Empirical example
+
+```{r}
+df_comps <- readRDS(here::here("data/empirical_example/df_comps_cubicspline.RDS"))
+l_fits_c <- readRDS(here::here("output/empirical-example/l_fits.RDS"))
+fit_12 <- l_fits_c[[2]][[12]]
+fit_18 <- l_fits_c[[2]][[18]]
+
+svg(filename = "figures/empirical_networks_present.svg")
+par(mfrow=c(2,2))
+p12_temp <- qgraph::qgraph(fit_12$beta_mu, theme = "colorblind", layout = "circle",
+                           color = ggokabeito::palette_okabe_ito()[1],
+                           title = "ID 12", title.cex  = 1.2)
+p18_temp <- qgraph::qgraph(fit_18$beta_mu, theme = "colorblind", layout = "circle",
+                           color = ggokabeito::palette_okabe_ito()[2],
+                           title = "ID 18", title.cex  = 1.2)
+p12_cont <- qgraph::qgraph(fit_12$pcor_mu, theme = "colorblind", layout = "circle",
+                           color = ggokabeito::palette_okabe_ito()[1])
+p18_cont <- qgraph::qgraph(fit_18$pcor_mu, theme = "colorblind", layout = "circle",
+                           color = ggokabeito::palette_okabe_ito()[2])
+dev.off()
+
+
+```
+
+
+
 
