@@ -16,6 +16,7 @@ library(parallel)
 library(Hmisc)
 library(imputeTS)
 library(cowplot)
+library(here)
 source("aux_funs.R")
 ```
 
@@ -765,6 +766,95 @@ ggsave("plot_example_posterior_beta.png", plot_example_posterior,
 
 
 
+# Matched Comparisons
+Based on a recent preprint by Ebrahimi et al. (2023), we can also only compare individuals with a similar severity of depression, which may be a more meaningful comparison than just comparing everyone. 
+
+We use the HAM-D and HAM-A scores from https://osf.io/uuz4y to match participants.
+Only use one of the priors: 
+```{r}
+# Load fitted models
+l_fits <- l_fits_c[[2]]
+
+# Load depression and anxiety scores
+df_hamd <- readxl::read_xlsx(here("data/empirical_example/fisher_2017/fisher_2017_hamd.xlsx"))
+
+df_hamd <- df_hamd %>% 
+  janitor::clean_names()
+
+
+```
+
+
+## Matching individuals
+We only form groups of two by nearest-neighbour search.
+```{r}
+library(RANN)
+
+# nearest neigbhour search (ignoring ID col)
+nn <- RANN::nn2(df_hamd[,-1], df_hamd[,-1], k = 2)
+
+# delete first column, which just finds the datapoints themselves
+nn_ids <- nn$nn.idx[,-1]
+
+# except for id 9 and 30
+nn_ids[9] <- 29
+nn_ids[30] <- 2
+
+
+```
+
+
+## Testing
+All relevant combinations:
+```{r}
+fit_grid_match <- data.frame(fit_a = 1:40, 
+                        fit_b = nn_ids, 
+                        comp =  "frob")
+
+priors <- df_prior[2,]
+
+# compare all
+cl = makeCluster(14)
+registerDoParallel(cl)
+clusterExport(cl, c("compare_var", "post_distance_within"))
+l_comp_match <- foreach(i = 1:nrow(fit_grid_match)) %dopar% {
+  
+  # Extract information
+  a <- fit_grid_match$fit_a[i]
+  b <- fit_grid_match$fit_b[i]
+  compa <-  as.character(fit_grid_match$comp[i])
+
+
+  
+  if(is.list(l_fits[[a]]) & is.list(l_fits[[b]])){
+
+  comp_res  <- compare_var(l_fits[[a]],l_fits[[b]], comp = compa)
+
+  return(comp_res)
+  }
+  else
+    return(NA)
+  
+}
+stopCluster(cl)
+
+
+```
+
+
+## Summarize results
+
+```{r}
+df_comps_match <- do.call(rbind, l_comp_match)
+df_comps_match %>% 
+  as.data.frame() %>% 
+  dplyr::select(sig_beta, sig_pcor) %>% 
+  unnest() %>% 
+  mutate(sig_beta = ifelse(sig_beta != 0, 1, 0),
+         sig_pcor = ifelse(sig_pcor != 0, 1, 0)) %>% 
+  summary()
+
+``` 
 
 
 
