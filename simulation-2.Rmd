@@ -780,8 +780,8 @@ plot_dec_rule_se <- df_comp_res %>%
           #            group = interaction(comp, prior), linetype = prior)) +
           ggplot(aes(x = tp, y = value, col = comp,
                       group = comp)) +
-          geom_errorbar(aes(ymin = value - 1.96*se,
-                            ymax = value + 1.96*se),
+          geom_errorbar(aes(ymin = value - 1*se,
+                            ymax = value + 1*se),
                         width = .8, 
                  position = position_dodge(0.7),
                  show.legend = FALSE)+
@@ -853,8 +853,8 @@ plot_false_positive_se <- df_comp_res %>%
           dplyr::filter(prior == "narrow") %>% 
           ggplot(aes(x = tp, y = value, 
                      col = comp, group = comp)) +
-          geom_errorbar(aes(ymin = value - 1.96*se,
-                            ymax = value + 1.96*se),
+          geom_errorbar(aes(ymin = value - 1*se,
+                            ymax = value + 1*se),
                         width = .8, 
                  position = position_dodge(0.7),
                  show.legend = FALSE)+
@@ -957,8 +957,8 @@ plot_dec_rule_prior_sens <- df_comp_res %>%
           ggh4x::facet_nested(change ~ dgp + mat,
                               axes = TRUE,
                               remove_labels = TRUE)+
-          geom_errorbar(aes(ymin = value - 1.96*se,
-                            ymax = value + 1.96*se),
+          geom_errorbar(aes(ymin = value - 1*se,
+                            ymax = value + 1*se),
                         width = .8, 
                         position = position_dodge(0.7),
                  show.legend = FALSE)+
@@ -1029,8 +1029,8 @@ plot_false_positive_se_prior_sens <- df_comp_res %>%
             grepl("pcor05", res) ~ "Contemp.")) %>% 
           # dplyr::filter(prior == "narrow") %>% 
           ggplot(aes(x = tp, y = value, color = prior, group = prior)) +
-          geom_errorbar(aes(ymin = value - 1.96*se,
-                            ymax = value + 1.96*se),
+          geom_errorbar(aes(ymin = value - 1*se,
+                            ymax = value + 1*se),
                         width = .8, 
                         position = position_dodge(0.7),
                  show.legend = FALSE)+
