@@ -1,0 +1,54 @@
+
+# Load required libraries
+library(vars)
+
+# Set seed for reproducibility
+set.seed(123)
+
+# Simulate data from VAR(2) model
+n <- 10000  # Number of observations
+p <- 2    # Number of lags
+k <- 2    # Number of variables
+
+# Define the true coefficients for VAR(2) model
+A1 <- matrix(c(0.7, -0.2, 0.3, 0.5), nrow = k, ncol = k)
+A2 <- matrix(c(-0.1, 0.4, -0.6, 0.2), nrow = k, ncol = k)
+
+# Generate the data
+data_var1 <- matrix(0, nrow = n, ncol = k)
+data_var2 <- matrix(0, nrow = n, ncol = k)
+library(MASS)
+
+# Generate multivariate normal residuals
+true_cov <- diag(2)
+residuals <- mvrnorm(n, mu = rep(0, k), Sigma = true_cov)
+
+for (i in (p + 1):n) {
+    data_var1[i, ] <- A1 %*% data[(i - 1), ] + A2 %*% data[(i - 2), ] + residuals[i, ]
+    data_var2[i, ] <- A1 %*% data[(i-1), ] + residuals[i, ]
+}
+
+colnames(data) = c("V1", "V2")
+
+
+# Fit VAR(1) model to the simulated data
+model_var1 <- VAR(data_var1, p = 1, type = "const")
+model_var2 <- VAR(data_var2, p = 1, type = "const")
+
+# Get the estimated residual covariance matrix
+mod_sum1 <- summary(model_var1)
+mod_sum2 <- summary(model_var2)
+
+residual_cov1 <- mod_sum1$covres
+residual_cor1 <- mod_sum1$corres
+residual_cov2 <- mod_sum2$covres
+residual_cor2 <- mod_sum2$corres
+
+# Print the estimated residual covariance matrix
+residual_cov1
+residual_cor1
+residual_cor2
+residual_cov2
+
+# Compare to true residual covariance matrix
+

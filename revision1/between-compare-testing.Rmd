@@ -1,0 +1,460 @@
+---
+title: "between-compare-testing"
+author: "Björn Siepe"
+output: html_document
+---
+```{r}
+library(here)
+library(tidyverse)
+library(BGGM)
+library(tsnet)
+library(mvtnorm)
+```
+
+
+
+# Revive the old functions
+```{r}
+postemp_distance <- function(post,
+                             emp,
+                             comp,
+                             mod){
+
+  # storage
+  dist_out <- list()
+
+
+
+  if(comp == "frob"){
+    normtype = "F"
+    frob_beta <- unlist(lapply(post[[mod]]$fit, function(x){
+      if(length(x) == 0 | !is.list(x))
+        {NA}
+      else
+        {norm(emp[[mod]]$beta_mu-x$beta_mu, type = normtype)}}))
+
+    frob_pcor <- unlist(lapply(post[[mod]]$fit, function(x){
+      if(length(x) == 0 | !is.list(x))
+        {NA}
+      else
+        {norm(emp[[mod]]$pcor_mu-x$pcor_mu, type = normtype)}}))
+
+    dist_out[["beta"]] <- frob_beta
+    dist_out[["pcor"]] <- frob_pcor
+
+    }  # end frob
+
+
+
+
+  if(comp == "maxdiff"){
+    maxdiff_beta <- unlist(lapply(post[[mod]]$fit, function(x){
+      if(length(x) == 0 | !is.list(x))
+        {NA}
+      else
+        {max(abs(emp[[mod]]$beta_mu-x$beta_mu))}}))
+
+    maxdiff_pcor <- unlist(lapply(post[[mod]]$fit, function(x){
+      if(length(x) == 0 | !is.list(x))
+        {NA}
+      else
+        {max(abs(emp[[mod]]$pcor_mu-x$pcor_mu))}}))
+
+    dist_out[["beta"]] <- maxdiff_beta
+    dist_out[["pcor"]] <- maxdiff_pcor
+
+    }  # end maxdiff
+
+
+
+  if(comp == "l1"){
+    l1_beta <-  unlist(lapply(post[[mod]]$fit, function(x){
+      if(length(x) == 0 | !is.list(x))
+        {NA}
+      else
+        {sum(abs(emp[[mod]]$beta_mu-x$beta_mu))}}))
+
+    l1_pcor <-  unlist(lapply(post[[mod]]$fit, function(x){
+      if(length(x) == 0 | !is.list(x))
+      {NA}
+      else
+      {sum(abs(emp[[mod]]$pcor_mu-x$pcor_mu))}}))
+
+      dist_out[["beta"]] <- l1_beta
+      dist_out[["pcor"]] <- l1_pcor
+
+
+    }  # end l1
+
+  if(comp == "pcmd"){
+    # only suitable for (partial) correlations
+    pcmd_pcor <-  unlist(lapply(post[[mod]]$fit, function(x){
+      if(length(x) == 0 | !is.list(x))
+      {NA}
+      else
+      {1 - (sum(diag(emp[[mod]]$pcor_mu %*% x$pcor_mu)) / (norm(emp[[mod]]$pcor_mu, type = "F") * norm(x$pcor_mu, type = "F")))}}))
+    # dist_out[["beta"]] <- NULL
+    dist_out[["pcor"]] <- pcmd_pcor
+
+
+  }
+
+
+  return(dist_out)
+}
+
+# Distance between posterior samples --------------------------------------
+# Write this anew to be able to compare between models
+# Why does this compare the beta_mu and pcor_mu? Why not the whole matrix?
+# mod_a seemingly reflects a posterior sample here, not a model
+post_distance_between <- function(fitobj_a,
+                                  fitobj_b,
+                                  comp,
+                                  burnin = 50, 
+                                  draws = 1000) {
+  #--- Storage
+  # browser()
+  dist_out <- list()
+  
+  # Helper to select upper triangle elements of matrix
+  ut <- function(x) {
+      matrix(x[upper.tri(x, diag = FALSE)])
+  }
+  
+
+  # for posteriors of empirical models
+  # define the distance function based on comp
+  # draw from all posterior samples
+
+    distance_fn_beta <- switch(comp,
+      frob = {
+        function(x, y, mod_one, mod_two) norm(x$fit$beta[, , mod_one] - y$fit$beta[, , mod_two], type = "F")
+      },
+      maxdiff = {
+        function(x, y, mod_one, mod_two) max(abs((x$fit$beta[, , mod_one] - y$fit$beta[, , mod_two])))
+      },
+      l1 = {
+        function(x, y, mod_one, mod_two) sum(abs((x$fit$beta[, , mod_one] - y$fit$beta[, , mod_two])))
+      }
+    )
+    distance_fn_pcor <- switch(comp,
+      frob = {
+        function(x, y, mod_one, mod_two) norm(ut(x$fit$pcors[, , mod_one]) - ut(y$fit$pcors[, , mod_two]), type = "F")
+      },
+      maxdiff = {
+        function(x, y, mod_one, mod_two) max(abs((ut(x$fit$pcors[, , mod_one]) - ut(y$fit$pcors[, , mod_two]))))
+      },
+      l1 = {
+        function(x, y, mod_one, mod_two) sum(abs((ut(x$fit$pcors[, , mod_one]) - ut(y$fit$pcors[, , mod_two]))))
+      }
+    )
+
+
+  
+
+
+  #--- Draw random samples from posterior
+  # Obtain number of posterior samples
+  # Assume that both models have the same number of samples
+  n_post_samples <- dim(fitobj_a$fit$beta)[3]
+  
+  # Draw pairs of samples 
+  sample_pairs <- replicate(draws, 
+                              cbind(sample((burnin+1):n_post_samples, 2, 
+                                           replace = TRUE)))
+  
+  # save the samples as an array
+  dim(sample_pairs) <- c(2, draws)
+  
+  
+  for (d in seq(draws)) {
+    # storage
+    dist_out[[d]] <- list()
+
+  if (!is.list(fitobj_a) | !is.list(fitobj_b)) {
+        beta_distance <- NA
+        pcor_distance <- NA
+
+        stop("Not a list.")
+      }
+      # if both elements are lists
+      else {
+        beta_distance <- distance_fn_beta(fitobj_a, fitobj_b, 
+                                          sample_pairs[1, d], sample_pairs[2, d])
+        pcor_distance <- distance_fn_pcor(fitobj_a, fitobj_b, 
+                                          sample_pairs[1, d], sample_pairs[2, d])
+      }
+    
+
+    # Store results
+    dist_out[[d]]$comp <- comp
+    dist_out[[d]]$beta <- beta_distance
+    dist_out[[d]]$pcor <- pcor_distance
+  } # end for loop
+  out <- do.call(rbind.data.frame, dist_out)
+
+
+  return(out)
+}
+
+
+# Between-compare with posterior distances ------------------------------------
+# This function compares within-posterior distances to between-posterior distances
+compare_gvar_between <- function(fit_a, 
+                                 fit_b, 
+                                 comp = "l1",
+                                 n_draws = 1000,
+                                 # Combine within-posterior uncertainty
+                                 combine_post = TRUE,
+                                 # sampling method for within-posterior comparison
+                                 sampling_method = "random",
+                                 burnin = 50
+                                 ){
+  
+  #--- Obtain within-posterior uncertainty
+  ref_a <- post_distance_within(fit_a,
+    comp = comp,
+    pred = FALSE,
+    draws = n_draws,
+    sampling_method = sampling_method
+  )
+  ref_b <- post_distance_within(fit_b,
+    comp = comp,
+    pred = FALSE,
+    draws = n_draws,
+    sampling_method = sampling_method
+  )
+  
+  # Combine into single distribution
+  if(isTRUE(combine_post)){
+    ref <- data.frame(
+      beta_ref = ref_a$beta[1:(n_draws/2)] + ref_b$beta[1:(n_draws/2)],
+      pcor_ref = ref_a$pcor[1:(n_draws/2)] + ref_b$pcor[1:(n_draws/2)]
+    )
+  }
+  
+  
+  
+  #--- Obtain between posterior distances
+  dist_between <- post_distance_between(fit_a, 
+                                        fit_b, 
+                                        burnin = burnin, 
+                                        comp = comp, 
+                                        draws = n_draws)
+  
+  #--- Return Results
+  # Combine into single data frame
+  out <- cbind(ref, dist_between)
+  
+  class(out) <- c("compare_gvar", class(out))
+
+  return(out)
+}
+
+
+
+
+```
+
+
+Create function to test the results: 
+```{r}
+test_between <- function(compare_res,
+                         # Compute Bayes Factor?
+                         bf = TRUE,
+                         # Hypothesis for BF testing
+                         bf_hyp = NULL
+                         ){
+  
+  
+  
+  #--- Test Beta
+  test_beta <- bain::t_test(
+         x = compare_res$beta_ref,
+         y = compare_res$beta, 
+         paired = FALSE,
+         var.equal = FALSE)
+  
+  
+  
+  #--- Test Pcor
+  test_pcor <- bain::t_test(
+         x = compare_res$pcor_ref,
+         y = compare_res$pcor, 
+         data = compare_res, 
+         paired = FALSE,
+         var.equal = FALSE)
+  
+  
+  #--- Bayes Factors
+  if(isTRUE(bf)){
+    if(is.null(bf_hyp)){
+      bf_hyp <- "x = y; x > y; x < y"
+    }
+    
+    
+    bf_beta <- bain::bain(test_beta,
+                          hypothesis = paste(bf_hyp))
+    bf_pcor <- bain::bain(test_pcor,
+                          hypothesis = paste(bf_hyp))
+  }
+  
+  
+  #--- Output
+  if(isTRUE(bf)){
+    out <- list(
+      beta = test_beta,
+      pcor = test_pcor,
+      bf_beta = bf_beta,
+      bf_pcor = bf_pcor
+    )
+  } else{
+    out <- list(
+      beta = test_beta,
+      pcor = test_pcor
+    )
+  }
+  return(out)
+  
+}
+
+
+```
+
+
+
+
+
+
+# Try them on an example
+Fit model as in the tsnet example: 
+```{r}
+# Load data of two individuals
+data <- BGGM::ifit
+data_1 <- subset(data, id == 1)
+data_3 <- subset(data, id == 3)
+data_6 <- subset(data, id == 6)
+
+# Estimate networks
+# (should perform detrending etc. in a real use case)
+net_1 <- BGGM::var_estimate(data_1[,-1],
+                            rho_sd = 0.25, 
+                            beta_sd = 0.5,
+                            iter = 50000)
+net_3 <- BGGM::var_estimate(data_3[,-1],
+                            rho_sd = 0.25, 
+                            beta_sd = 0.5,
+                            iter = 50000)
+
+
+# Use networks from simulation study
+l_changed_graphs <-readRDS(here("data/l_changed_graphs_0305.RDS"))
+
+# Simulate two datasets
+net_1 <- graphicalVAR::graphicalVARsim(200,
+                                       beta = l_changed_graphs$graph4$truegraph$beta,
+                                       kappa = l_changed_graphs$graph4$truegraph$kappa)
+net_3 <- graphicalVAR::graphicalVARsim(200,
+                                       beta = l_changed_graphs$graph4$const0.15$beta,
+                                       kappa = l_changed_graphs$graph4$const0.15$kappa)
+
+# Estimate networks
+# (should perform detrending etc. in a real use case)
+r_net_1 <- BGGM::var_estimate(as.data.frame(net_1),
+                            rho_sd = 0.25, 
+                            beta_sd = 0.5,
+                            iter = 50000)
+r_net_3 <- BGGM::var_estimate(as.data.frame(net_3),
+                            rho_sd = 0.25, 
+                            beta_sd = 0.5,
+                            iter = 50000)
+
+
+
+```
+
+Now do cross-comparison:
+```{r}
+test <- post_distance_between(r_net_1, r_net_3, 
+                              comp = "l1", 
+                              draws = 1000)
+test <- compare_gvar_between(r_net_1, r_net_3, 
+                              comp = "l1", 
+                              n_draws = 1000,
+                              combine_post = TRUE,
+                              sampling_method = "random",
+                              burnin = 50)
+
+
+plot(density(test$beta))
+plot(density(test$beta_ref))
+plot(density(test$pcor))
+```
+
+As a benchmark, sample from the prior?
+```{r}
+# Partial correlations
+p1_n1 <- BGGM::plot_prior(prior_sd = 0.25, iter = 10000 * 36)
+prior_pcors_n1 <- p1_n1$plot_env$prior_samp$pcors[1,2,]
+p1_n2 <- BGGM::plot_prior(prior_sd = 0.25, iter = 10000 * 36)
+prior_pcors_n2 <- p1_n2$plot_env$prior_samp$pcors[1,2,]
+
+# Betas
+# p1_n1_reg <- rnorm(n = 36*10000, mean = 0, sd = 0.5)
+# p1_n2_reg <- rnorm(n = 36*10000, mean = 0, sd = 0.5)
+
+
+
+prior_beta_n1 <- array(p1_n1_reg, dim = c(6, 6, 10000))
+prior_beta_n2 <- array(p1_n2_reg, dim = c(6, 6, 10000))
+# double check
+apply(prior_beta_n1, c(1,2), function(x) round(mean(x), digits = 2))
+apply(prior_beta_n1, c(1,2), function(x) round(sd(x), digits = 2))
+
+# Convert "prior_pcors_n1", a long numerical vector, to 10000 6x6 matrices
+# store these in an array
+prior_pcors_n1 <- array(prior_pcors_n1, dim = c(6, 6, 10000))
+prior_pcors_n2 <- array(prior_pcors_n2, dim = c(6, 6, 10000))
+# Set every matrix diagonal in this array to 0
+for(i in 1:10000){
+  diag(prior_pcors_n1[,,i]) <- 0
+  diag(prior_pcors_n2[,,i]) <- 0
+}
+
+
+# Compute frobenius norm between the two arrays
+frob_norm_pcor <- array(NA, dim = c(10000, 1))
+frob_norm_beta <- array(NA, dim = c(10000, 1))
+for(i in 1:10000){
+  frob_norm_pcor[i] <- norm(prior_pcors_n1[,,i] - prior_pcors_n2[,,i], type = "F")
+  frob_norm_beta[i] <- norm(prior_beta_n1[,,i] - prior_beta_n2[,,i], type = "F")
+}
+
+# Plot
+plot(density(frob_norm_pcor))
+plot(density(frob_norm_beta))
+
+```
+
+Compare the densities
+```{r}
+# Combine frob_norm and test$pcor into one dataframe
+# label the values of each vector differently
+# do it now
+# Plot
+plot(density(frob_norm_pcor), col = "red")
+lines(density(test$pcor), col = "blue")
+
+plot(density(frob_norm_beta), col = "red")
+lines(density(test$beta), col = "blue")
+
+
+
+
+```
+
+
+
+
+
+
