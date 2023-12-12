@@ -970,6 +970,164 @@ within_compare <- function(
   return(cc_res)
 }
 
+
+# -------------------------------------------------------------------------
+# Between posterior comparison
+# -------------------------------------------------------------------------
+# Write this anew to be able to compare between models
+# Why does this compare the beta_mu and pcor_mu? Why not the whole matrix?
+# mod_a seemingly reflects a posterior sample here, not a model
+post_distance_between <- function(fitobj_a,
+                                  fitobj_b,
+                                  comp,
+                                  burnin = 50, 
+                                  draws = 1000) {
+  #--- Storage
+  # browser()
+  dist_out <- list()
+  
+  # Helper to select upper triangle elements of matrix
+  ut <- function(x) {
+    matrix(x[upper.tri(x, diag = FALSE)])
+  }
+  
+  
+  # for posteriors of empirical models
+  # define the distance function based on comp
+  # draw from all posterior samples
+  
+  distance_fn_beta <- switch(comp,
+                             frob = {
+                               function(x, y, mod_one, mod_two) norm(x$fit$beta[, , mod_one] - y$fit$beta[, , mod_two], type = "F")
+                             },
+                             maxdiff = {
+                               function(x, y, mod_one, mod_two) max(abs((x$fit$beta[, , mod_one] - y$fit$beta[, , mod_two])))
+                             },
+                             l1 = {
+                               function(x, y, mod_one, mod_two) sum(abs((x$fit$beta[, , mod_one] - y$fit$beta[, , mod_two])))
+                             }
+  )
+  distance_fn_pcor <- switch(comp,
+                             frob = {
+                               function(x, y, mod_one, mod_two) norm(ut(x$fit$pcors[, , mod_one]) - ut(y$fit$pcors[, , mod_two]), type = "F")
+                             },
+                             maxdiff = {
+                               function(x, y, mod_one, mod_two) max(abs((ut(x$fit$pcors[, , mod_one]) - ut(y$fit$pcors[, , mod_two]))))
+                             },
+                             l1 = {
+                               function(x, y, mod_one, mod_two) sum(abs((ut(x$fit$pcors[, , mod_one]) - ut(y$fit$pcors[, , mod_two]))))
+                             }
+  )
+  
+  
+  
+  
+  
+  #--- Draw random samples from posterior
+  # Obtain number of posterior samples
+  # Assume that both models have the same number of samples
+  n_post_samples <- dim(fitobj_a$fit$beta)[3]
+  
+  # Draw pairs of samples 
+  sample_pairs <- replicate(draws, 
+                            cbind(sample((burnin+1):n_post_samples, 2, 
+                                         replace = TRUE)))
+  
+  # save the samples as an array
+  dim(sample_pairs) <- c(2, draws)
+  
+  
+  for (d in seq(draws)) {
+    # storage
+    dist_out[[d]] <- list()
+    
+    if (!is.list(fitobj_a) | !is.list(fitobj_b)) {
+      beta_distance <- NA
+      pcor_distance <- NA
+      
+      stop("Not a list.")
+    }
+    # if both elements are lists
+    else {
+      beta_distance <- distance_fn_beta(fitobj_a, fitobj_b, 
+                                        sample_pairs[1, d], sample_pairs[2, d])
+      pcor_distance <- distance_fn_pcor(fitobj_a, fitobj_b, 
+                                        sample_pairs[1, d], sample_pairs[2, d])
+    }
+    
+    
+    # Store results
+    dist_out[[d]]$comp <- comp
+    dist_out[[d]]$beta <- beta_distance
+    dist_out[[d]]$pcor <- pcor_distance
+  } # end for loop
+  out <- do.call(rbind.data.frame, dist_out)
+  
+  
+  return(out)
+}
+
+
+# Between-compare with posterior distances ------------------------------------
+# This function compares within-posterior distances to between-posterior distances
+compare_gvar_between <- function(fit_a, 
+                                 fit_b, 
+                                 comp = "l1",
+                                 n_draws = 1000,
+                                 # Combine within-posterior uncertainty
+                                 combine_post = TRUE,
+                                 # sampling method for within-posterior comparison
+                                 sampling_method = "random",
+                                 burnin = 50
+){
+  
+  #--- Obtain within-posterior uncertainty
+  ref_a <- tsnet::post_distance_within(fit_a,
+                                comp = comp,
+                                pred = FALSE,
+                                draws = n_draws,
+                                sampling_method = sampling_method
+  )
+  ref_b <- tsnet::post_distance_within(fit_b,
+                                comp = comp,
+                                pred = FALSE,
+                                draws = n_draws,
+                                sampling_method = sampling_method
+  )
+  
+  # Combine into single distribution
+  if(isTRUE(combine_post)){
+    ref <- data.frame(
+      beta_ref = ref_a$beta[1:(n_draws/2)] + ref_b$beta[1:(n_draws/2)],
+      pcor_ref = ref_a$pcor[1:(n_draws/2)] + ref_b$pcor[1:(n_draws/2)]
+    )
+  }
+  
+  
+  
+  #--- Obtain between posterior distances
+  dist_between <- post_distance_between(fit_a, 
+                                        fit_b, 
+                                        burnin = burnin, 
+                                        comp = comp, 
+                                        draws = n_draws)
+  
+  #--- Return Results
+  # Combine into single data frame
+  out <- cbind(ref, dist_between)
+  out <- out[,!colnames(out) %in% "comp"]
+  
+  # class(out) <- c("compare_gvar", class(out))
+  
+  return(out)
+}
+
+
+
+
+
+
+
 # Distance within posterior predictive samples ---------------------------------
 #' Calculates distances between pairs of fitted models using the posterior samples or posterior predictive draws
 #'
