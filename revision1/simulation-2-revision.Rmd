@@ -368,9 +368,9 @@ comp_grid <- comp_grid %>%
          comp_file = paste0("fit_", dgp, "_",change,"_",tp,".RDS"))
 
 
-############################# NOT MORE THAN 3!!!!!!!!!!!!
+############################# NOT MUCH MORE THAN 3!!!!!!!!!!!!
 before_comp <- Sys.time()
-ncores <- 5
+ncores <- 6
 cl <- makeCluster(ncores)
 clusterExport(cl, c("comp_grid",  "comp_grid_mod", "here", "compare_gvar_between", "post_distance_between"))
 clusterEvalQ(cl, library(tidyverse))
@@ -420,7 +420,7 @@ parLapply(cl = cl, 1:nrow(comp_grid), function(n){
                                         fit_b = l_comp[[mb]],
                                         comp = cmp, 
                                         n_draws = 1000,
-                                        combine_post = TRUE,
+                                        combine_post = FALSE,
                                         sampling_method = "random",
                                         burnin = 500
                                                   )
@@ -508,7 +508,7 @@ calculate_stats <- function(x) {
 file_list <- list.files(path = here::here("data/revision1/compare_sim_res"))
 
 time_before_within_eval <- Sys.time()
-ncores = 25
+ncores = 45
 cl = makeCluster(ncores)
 registerDoParallel(cl)
 l_comp_res <- list()
@@ -564,13 +564,14 @@ Read them in again and combine them:
 file_list_norms <- list.files(path = here::here("data/revision1/norm_distributions"))
 
 norm_files <- list()
-for(i in 1:length(file_list)){
+for(i in 1:length(file_list_norms)){
   norm_files[[i]] <- readRDS(here::here(paste0("data/revision1/norm_distributions/", file_list_norms[i])))
 }
 
+# df_norms_both contains both a and b (without combination)
 df_norms <- do.call(rbind, norm_files)
-# saveRDS(df_norms, file = here("data/revision1/norm_distributions/df_norms.RDS"))
-df_norms <- readRDS(here("data/revision1/norm_distributions/df_norms.RDS"))
+# saveRDS(df_norms, file = here("data/revision1/norm_distributions/df_norms_both.RDS"))
+df_norms <- readRDS(here("data/revision1/norm_distributions/df_norms_both.RDS"))
 ```
 
 ### Plot the empirical norms
@@ -620,22 +621,22 @@ df_norms %>%
   pivot_longer(cols = c(contains("mean"), contains("sd")), 
                names_to = "stat", values_to = "value") %>% 
   mutate(stat = case_when(
-    grepl("beta.mean", stat) ~ "beta_post.mean",
-    grepl("beta.sd", stat) ~ "beta_post.sd",
-    grepl("pcor.mean", stat) ~ "pcor_post.mean",
-    grepl("pcor.sd", stat) ~ "pcor_post.sd",
+    grepl("beta.mean", stat) ~ "beta_post_ab.mean",
+    grepl("beta.sd", stat) ~ "beta_post_ab.sd",
+    grepl("pcor.mean", stat) ~ "pcor_post_ab.mean",
+    grepl("pcor.sd", stat) ~ "pcor_post_ab.sd",
     .default = stat
   )) %>% 
   separate(stat, into = c("mat", "stat"), sep = c("\\.")) %>% 
-  separate(mat, into = c("mat", "type"), sep = c("_")) %>% 
-  group_by(dgp, change, tp, comp, mat, type) %>% 
-  pivot_wider(names_from = stat, values_from = value, values_fn = mean) %>% 
-  mutate(mean = round(mean, 3), 
-         sd = round(sd, 3)) %>%
-  pivot_wider(names_from = type, values_from = c(mean, sd)) %>% 
+  separate(mat, into = c("mat", "type", "net"), sep = c("_")) %>% 
+  select(!type) %>% 
+  group_by(dgp, change, tp, comp, mat) %>% 
+  pivot_wider(names_from = c(stat,net), values_from = value, values_fn = mean) %>% 
+  # round every column that contains "mean" or "sd" to three digits
+  mutate(across(matches("mean|sd"), ~round(., digits = 3))) %>%
   gt(groupname_col = "dgp") %>% 
   gt_theme_538() %>% 
-  gtsave(here::here("figures/revision1/empirical_norms_mean.html"))
+  gtsave(here::here("figures/revision1/empirical_norms_mean_ab.html"))
 
 
 ```
@@ -653,20 +654,21 @@ df_norms %>%
   pivot_longer(cols = c(contains("mean"), contains("sd")), 
                names_to = "stat", values_to = "value") %>% 
   mutate(stat = case_when(
-    grepl("beta.mean", stat) ~ "beta_post.mean",
-    grepl("beta.sd", stat) ~ "beta_post.sd",
-    grepl("pcor.mean", stat) ~ "pcor_post.mean",
-    grepl("pcor.sd", stat) ~ "pcor_post.sd",
+    grepl("beta.mean", stat) ~ "beta_post_ab.mean",
+    grepl("beta.sd", stat) ~ "beta_post_ab.sd",
+    grepl("pcor.mean", stat) ~ "pcor_post_ab.mean",
+    grepl("pcor.sd", stat) ~ "pcor_post_ab.sd",
     .default = stat
   )) %>% 
   separate(stat, into = c("mat", "stat"), sep = c("\\.")) %>% 
-  separate(mat, into = c("mat", "type"), sep = c("_")) %>% 
+  separate(mat, into = c("mat", "type", "net"), sep = c("_")) %>% 
   filter(stat == "mean") %>%
   select(!stat) %>% 
-  group_by(dgp, change, tp, comp, mat, type) %>% 
+  group_by(dgp, change, tp, comp, mat, type, net) %>% 
   mutate(id = row_number()) %>% 
-  pivot_wider(names_from = type, values_from = value) %>% 
-  mutate(diff = ifelse(post > ref, 1, 0)) %>% 
+  pivot_wider(names_from = c(type, net), values_from = value) %>%
+  rename(post = post_ab) %>% 
+  mutate(diff = ifelse(post > ref_a | post > ref_b , 1, 0)) %>% 
   group_by(dgp, change, tp, comp, mat) %>%
   summarize(pct_detect = mean(diff)) %>%
   pivot_wider(names_from = mat, values_from = pct_detect) %>% 
@@ -679,12 +681,226 @@ df_norms %>%
     columns = c(beta, pcor), 
     palette = c("#CC79A7", "#009E73"),
     domain = c(0, 1)
-  ) %>% 
-  gtsave(here::here("figures/revision1/empirical_norms_mean_diff_detect.html"))
+  ) %>%  
+  gtsave(here::here("figures/revision1/empirical_norms_mean_diff_detect_ab.html"))
   
 
 
 ```
+
+
+
+### Plot example norm distributions
+
+Large sample, same DGP, wide prior: 
+```{r}
+cgt <- readRDS("~/var-compare/data/revision1/compare_sim_res/comp_graph4_truegraph_1000_frob.RDS")
+
+posterior_df <- data.frame()
+for (i in 1:length(cgt)) {
+  element <- cgt[[i]]
+  
+  # Extract relevant vectors and create a data frame
+  element_df <- data.frame(
+    sample = rep(i, each = length(element$beta_ref_a)),
+    beta_ref_a = element$beta_ref_a,
+    beta_ref_b = element$beta_ref_b,
+    beta = element$beta
+  )
+  
+  # Append the data frame to the main data frame
+  posterior_df <- rbind(posterior_df, element_df)
+}
+posterior_long <- posterior_df %>%
+  pivot_longer(cols = c(beta_ref_a, beta_ref_b, beta), names_to = "parameter")
+
+example_elements <- sample(1:length(cgt), 10)
+example_data <- filter(posterior_long, sample %in% example_elements)
+
+ggplot(example_data, aes(x = value, fill = parameter)) +
+  geom_density(alpha = 0.5) +
+  facet_wrap(~ sample, scales = "free") +
+  theme_minimal() +
+  labs(title = "Density Plots of Posterior Distributions for same DGP")
+
+# Test what happens if I subtract the equivalence range
+p <- 6
+equiv_range <- 0.01 * (p * p)
+example_data %>% 
+  mutate(value = if_else(parameter == "beta", value - equiv_range, value)) %>% 
+  ggplot(aes(x = value, fill = parameter)) +
+  geom_density(alpha = 0.5) +
+  facet_wrap(~ sample, scales = "free") +
+  theme_minimal() +
+  labs(title = "Density Plots of Posterior Distributions for same DGP")
+
+posterior_df %>%
+  mutate(beta = beta - equiv_range) %>%
+  group_by(sample) %>%
+  summarize(overlap = as.numeric(bayestestR::overlap(beta_ref_a, beta)),
+            p_sup = as.numeric(effectsize::p_superiority(beta, beta_ref_a)$p_superiority))
+
+
+
+```
+
+Same DGP, low sample size: 
+```{r}
+cgt <- readRDS("~/var-compare/data/revision1/compare_sim_res/comp_graph4_truegraph_50_frob.RDS")
+
+posterior_df <- data.frame()
+for (i in 1:length(cgt)) {
+  element <- cgt[[i]]
+  
+  # Extract relevant vectors and create a data frame
+  element_df <- data.frame(
+    sample = rep(i, each = length(element$beta_ref_a)),
+    beta_ref_a = element$beta_ref_a,
+    beta_ref_b = element$beta_ref_b,
+    beta = element$beta
+  )
+  
+  # Append the data frame to the main data frame
+  posterior_df <- rbind(posterior_df, element_df)
+}
+posterior_long <- posterior_df %>%
+  pivot_longer(cols = c(beta_ref_a, beta_ref_b, beta), names_to = "parameter")
+
+example_elements <- sample(1:length(cgt), 10)
+example_data <- filter(posterior_long, sample %in% example_elements)
+
+ggplot(example_data, aes(x = value, fill = parameter)) +
+  geom_density(alpha = 0.5) +
+  facet_wrap(~ sample, scales = "free") +
+  theme_minimal() +
+  labs(title = "Density Plots of Posterior Distributions for same DGP")
+
+# Test what happens if I subtract the equivalence range
+p <- 6
+equiv_range <- 0.03 * (p * p)
+example_data %>% 
+  mutate(value = if_else(parameter == "beta", value - equiv_range, value)) %>% 
+  ggplot(aes(x = value, fill = parameter)) +
+  geom_density(alpha = 0.5) +
+  facet_wrap(~ sample, scales = "free") +
+  theme_minimal() +
+  labs(title = "Density Plots of Posterior Distributions for same DGP")
+
+
+# Quantify the overlap
+posterior_df %>%
+  mutate(beta = beta - equiv_range) %>%
+  group_by(sample) %>%
+  summarize(overlap = as.numeric(bayestestR::overlap(beta_ref_a, beta)),
+            p_sup = effectsize::p_superiority(beta, beta_ref_a)$p_superiority)
+```
+
+What happens for true differences?
+```{r}
+cgt <- readRDS("~/var-compare/data/revision1/compare_sim_res/comp_graph4_const0.15_1000_frob.RDS")
+
+posterior_df <- data.frame()
+for (i in 1:length(cgt)) {
+  element <- cgt[[i]]
+  
+  # Extract relevant vectors and create a data frame
+  element_df <- data.frame(
+    sample = rep(i, each = length(element$beta_ref_a)),
+    beta_ref_a = element$beta_ref_a,
+    beta_ref_b = element$beta_ref_b,
+    beta = element$beta
+  )
+  
+  # Append the data frame to the main data frame
+  posterior_df <- rbind(posterior_df, element_df)
+}
+posterior_long <- posterior_df %>%
+  pivot_longer(cols = c(beta_ref_a, beta_ref_b, beta), names_to = "parameter")
+
+example_elements <- sample(1:length(cgt), 10)
+example_data <- filter(posterior_long, sample %in% example_elements)
+
+ggplot(example_data, aes(x = value, fill = parameter)) +
+  geom_density(alpha = 0.5) +
+  facet_wrap(~ sample, scales = "free") +
+  theme_minimal() +
+  labs(title = "Density Plots of Posterior Distributions for same DGP")
+
+# Test what happens if I subtract the equivalence range
+p <- 6
+equiv_range <- 0.05 * (p * p)
+example_data %>% 
+  mutate(value = if_else(parameter == "beta", value - equiv_range, value)) %>% 
+  ggplot(aes(x = value, fill = parameter)) +
+  geom_density(alpha = 0.5) +
+  facet_wrap(~ sample, scales = "free") +
+  theme_minimal() +
+  labs(title = "Density Plots of Posterior Distributions for different DGP")
+
+
+# Quantify the overlap
+posterior_df %>%
+  mutate(beta = beta - equiv_range) %>%
+  group_by(sample) %>%
+  summarize(overlap = as.numeric(bayestestR::overlap(beta_ref_a, beta)),
+            p_sup = as.numeric(effectsize::p_superiority(beta, beta_ref_a)$p_superiority))
+```
+
+
+Write the comparison into a function: 
+```{r}
+overlap_posterior <- function(comp_obj, 
+                              equiv_range_beta = 0,
+                              equiv_range_pcor = 0,
+                              # Should within posterior uncertainty of A and B be combined?
+                              combine_posteriors = TRUE,
+                              nvar = 6) {
+  
+  # browser()
+  
+  overlap_df <- data.frame(beta = comp_obj$beta,
+                           pcor = comp_obj$pcor) 
+  n_samples <- length(comp_obj$beta_ref_a)
+  
+  if(isTRUE(combine_posteriors)){
+     overlap_df$beta_ref <- c(
+                          comp_obj$beta_ref_a[sample(1:n_samples, n_samples/2)], 
+                          comp_obj$beta_ref_b[sample(1:n_samples, n_samples/2)])
+     overlap_df$pcor_ref <- c(
+                          comp_obj$pcor_ref_a[sample(1:n_samples, n_samples/2)], 
+                          comp_obj$pcor_ref_b[sample(1:n_samples, n_samples/2)])
+     
+  } else {
+    stop("Comparing against two distributions is not implemented yet.")
+  }
+  
+  
+  # Quantify the overlap
+  erb <- equiv_range_beta * (nvar * nvar)
+  erp <- equiv_range_pcor * ((nvar * nvar)/2 - nvar/2)
+  
+  res_df <- overlap_df %>%
+    dplyr::mutate(
+           beta = beta - erb,
+           pcor = pcor - erp) %>%
+    dplyr::summarize(
+              overlap_beta = as.numeric(bayestestR::overlap(beta_ref, beta)),
+              sup_beta = as.numeric(effectsize::p_superiority(beta, 
+                                                              beta_ref, 
+                                                              parametric = FALSE)$p_superiority),
+              overlap_pcor = as.numeric(bayestestR::overlap(pcor_ref, pcor)),
+              sup_pcor = as.numeric(effectsize::p_superiority(pcor, 
+                                                              pcor_ref,
+                                                              parametric = FALSE)$p_superiority))
+  
+  return(res_df)
+  
+}
+
+```
+
+
+
 
 
 
@@ -696,12 +912,16 @@ file_list <- list.files(path = here::here("data/revision1/compare_sim_res"))
 time_before_within_eval <- Sys.time()
 # DONT GO TOO HIGH HERE!!! FILES BECOME TOO LARGE
 # (had to go with capslock because I forgot too often)
-ncores = 3
+ncores = 50
 cl = makeCluster(ncores)
 registerDoParallel(cl)
+clusterExport(cl, c("overlap_posterior"))
+clusterEvalQ(cl, library(tidyverse))
+clusterEvalQ(cl, library(effectsize))
+clusterEvalQ(cl, library(bayestestR))
 l_comp_res <- list()
 l_comp_res <- foreach(i = 1:length(file_list)) %dopar% {
-  comp_res <- readRDS(here::here(paste0("data/compare_sim_res_revision/",file_list[i])))
+  comp_res <- readRDS(here::here(paste0("data/revision1/compare_sim_res/",file_list[i])))
   
   ## Obtain information from filename
   file_str <- file_list[i]
@@ -730,9 +950,26 @@ l_comp_res <- foreach(i = 1:length(file_list)) %dopar% {
   eval_res <- list()
   eval_res <- lapply(comp_res, function(x){
     
-    # TODO add new testing function here
-    # res <- tryCatch({within_compare_eval(x, kappa = FALSE)}, error = function(e) NA)
-    res <- tryCatch({test_between(x)}, error = function(e) NA)
+    res00 <- overlap_posterior(x,
+                              equiv_range_beta = 0,
+                              equiv_range_pcor = 0,
+                              combine_posteriors = TRUE)
+    res00$equiv_range <- 0
+    
+    res01 <- overlap_posterior(x,
+                             equiv_range_beta = 0.01,
+                             equiv_range_pcor = 0.01,
+                             combine_posteriors = TRUE)   
+    res01$equiv_range <- 0.01
+    
+    res05 <- overlap_posterior(x,
+                             equiv_range_beta = 0.05,
+                             equiv_range_pcor = 0.05,
+                             combine_posteriors = TRUE)   
+    res05$equiv_range <- 0.05
+    
+    res <- rbind(res00, res01, res05)
+    
     res$dgp <- dgp_it
     res$change <- change_it
     res$tp <- tp_it
@@ -748,7 +985,7 @@ l_comp_res <- foreach(i = 1:length(file_list)) %dopar% {
   print(paste0("File ", i, " done!"))
   
   # Save output
-  saveRDS(df_eval_res, file = here::here(paste0("data/compare_sim_eval/eval_res_",dgp_it, "_",change_it,"_", tp_it, "_",comp_it, ".RDS")))
+  saveRDS(df_eval_res, file = here::here(paste0("data/revision1/overlap_res/overlap_res_",dgp_it, "_",change_it,"_", tp_it, "_",comp_it, ".RDS")))
   
 }
 stopCluster(cl)
@@ -760,12 +997,12 @@ time_after_within_eval <- Sys.time() - time_before_within_eval
 
 
 # Check which files are missing
-exist_files_res <- list.files(path = here::here("data/compare_sim_res"))
-exist_files_eval <- list.files(path = here::here("data/compare_sim_eval"))
-desired_files <- gsub("comp", "eval_res",exist_files_res)
-
-desired_files <- setdiff(desired_files, exist_files_eval)
-file_list <- gsub("eval_res", "comp",desired_files)
+# exist_files_res <- list.files(path = here::here("data/compare_sim_res"))
+# exist_files_eval <- list.files(path = here::here("data/compare_sim_eval"))
+# desired_files <- gsub("comp", "eval_res",exist_files_res)
+# 
+# desired_files <- setdiff(desired_files, exist_files_eval)
+# file_list <- gsub("eval_res", "comp",desired_files)
 
 # This then has to be passed back to the loop above
 # to_del <- list.files(path = here::here("data/compare_sim_eval/"), pattern = "narrow")
@@ -778,30 +1015,17 @@ file_list <- gsub("eval_res", "comp",desired_files)
 Read in results again, they were saved as individual files. 
 ```{r}
 # For wide priors
-# file_list <- list.files(path = "data/compare_sim_eval", full.names = TRUE)
-# file_list_w <- file_list[-grep("_narrow_", file_list)]
-# l_comp_res <- lapply(file_list_w, readRDS)
-# df_comp_res <- do.call(rbind, l_comp_res)
-# 
-# # Filter out redundant comparisons
-# df_comp_res <- df_comp_res %>% 
-#   dplyr::filter(mod_a < mod_b)
+file_list <- list.files(path = here("data/revision1/overlap_res"), full.names = TRUE)
+file_list_w <- file_list[-grep("_narrow_", file_list)]
+l_comp_res_w <- lapply(file_list_w, readRDS)
+df_comp_res_w <- do.call(rbind, l_comp_res_w)
 
-# write_rds(df_comp_res, here::here("data/df_comp_res_wide_1905.RDS"))
-df_comp_res_w <- readRDS(here::here("data/df_comp_res_wide_1905.RDS"))
 
 # For narrow priors
-# file_list <- list.files(path = "data/compare_sim_eval", full.names = TRUE)
-# file_list_n <- file_list[grep("_narrow_", file_list)]
-# l_comp_res_n <- lapply(file_list_n, readRDS)
-# df_comp_res_n <- do.call(rbind, l_comp_res_n)
-# 
-# # Filter out redundant comparisons
-# df_comp_res_n <- df_comp_res_n %>% 
-#   filter(mod_a < mod_b)
-
-# write_rds(df_comp_res_n, here::here("data/df_comp_res_narrow_1905.RDS"))
-df_comp_res_n <- readRDS(here::here("data/df_comp_res_narrow_1905.RDS"))
+file_list <- list.files(path = here("data/revision1/overlap_res"), full.names = TRUE)
+file_list_n <- file_list[grep("_narrow_", file_list)]
+l_comp_res_n <- lapply(file_list_n, readRDS)
+df_comp_res_n <- do.call(rbind, l_comp_res_n)
 
 
 # Combine both 
@@ -810,10 +1034,98 @@ df_comp_res_n$prior <- rep("narrow", nrow(df_comp_res_n))
 
 df_comp_res <- rbind(df_comp_res_w, df_comp_res_n)
 
-# write_rds(df_comp_res, here::here("output/df_comp_res.RDS"))
+# write_rds(df_comp_res, here::here("output/revision1/df_overlap_res.RDS"))
+df_overlap_res <- read_rds(here::here("output/revision1/df_overlap_res.RDS"))
 
 ```
 
+
+# Investigate Overlap metrics
+Prep
+```{r}
+change_names <- c("change1.4" = paste("Largest", "\u00D7", "1.4"),
+                  "change1.6" = paste("Largest", "\u00D7", "1.6"),
+                  "const0.05" = paste("All", "\u00b1", "0.05"),
+                  "const0.1" = paste("All", "\u00b1", "0.10"),
+                  "const0.15" = paste("All", "\u00b1", "0.15"),
+                  "permute" = "Permute",
+                  "truegraph" = "Same DGP"
+)
+
+graph_names <- c("Empirical\nSparse" = "graph3",
+                 "Simulated\nChain" = "graph4",
+                 "Simulated\nNonsparse" = "graph5")
+
+norm_names <- c("frob" = "Frobenius",
+                "l1" = "\u2113[1]",
+                "maxdiff" = "Maxdiff")
+
+tp_levels <- c("50" = "1", "100" = "2", "200" = "3", "400" = "4", "1000" = "5")
+
+# plotting linetypes
+cond_lty <- set_names(c(1,2),
+                      c("narrow", "wide"))
+```
+
+
+## Plot superiority
+Look at superiority
+```{r}
+plot_superiority <- df_overlap_res %>% 
+      mutate(tp = as.factor(tp)) %>% 
+      mutate(tp = forcats::fct_relevel(tp, "50", "100", "200", "400", "1000")) %>% 
+      dplyr::mutate(dgp = fct_recode(as_factor(as.character(dgp)), !!!graph_names)) %>% 
+      dplyr::mutate(change = case_match(
+            change,
+                  "change1.4" ~ paste("Largest", "\u00D7", "1.4"),
+                  "change1.6" ~ paste("Largest", "\u00D7", "1.6"),
+                  "const0.05" ~ paste("All", "\u00b1", "0.05"),
+                  "const0.1" ~ paste("All", "\u00b1", "0.10"),
+                  "const0.15" ~ paste("All", "\u00b1", "0.15"),
+                  "permute134256" ~ "Permute",
+                  "truegraph" ~ "Same DGP"
+          )) %>% 
+          dplyr::mutate(change = as.factor(change)) %>% 
+          dplyr::mutate(change = forcats::fct_relevel(change, 
+                                                      "Same DGP",
+                                                      "Largest × 1.4", 
+                                                      "Largest × 1.6",
+                                                      "All ± 0.05",
+                                                      "All ± 0.10",
+                                                      "All ± 0.15",
+                                                      "Permute")) %>% 
+
+  mutate(equiv_range = as.factor(equiv_range)) %>% 
+  pivot_longer(cols = c(overlap_beta, sup_beta, overlap_pcor, sup_pcor), 
+               names_to = "metric", values_to = "value") %>%
+  separate(metric, into = c("metric", "matrix"), sep = "_") %>% 
+    mutate(matrix = case_match(
+    matrix,
+    "beta" ~ "Temporal",
+    "pcor" ~ "Contemporaneous"
+  )) %>%
+  filter(prior == "wide") %>% 
+  filter(metric == "overlap") %>% 
+  filter(comp == "frob") %>% 
+  ggplot(aes(x = tp, y = value, color = equiv_range)) + 
+  geom_boxplot() + 
+  theme_compare()  + 
+  facet_nested(change ~ matrix + dgp) + 
+  ggokabeito::scale_color_okabe_ito(order = c(5, 1:8))+
+  geom_vline(colour = "#F3F4F5", xintercept = seq(1.5, length(tp_levels), 1))+
+  theme(panel.grid.major.x = element_blank())+
+  labs(caption = "Wide prior,  superiority.")
+  
+  
+
+ggsave(here::here("figures/revision1/plot_overlap_narrow_frob.pdf"), width = 15, height = 20)
+
+```
+
+
+
+
+# Old Code
 
 Investigate nonconvergence:
 ```{r}
@@ -839,7 +1151,8 @@ change_names <- c("change1.2" = paste("Largest", "\u00D7", "1.2"),
                   "const0.05" = paste("All", "\u00b1", "0.05"),
                   "const0.1" = paste("All", "\u00b1", "0.10"),
                   "const0.15" = paste("All", "\u00b1", "0.15"),
-                  "permute" = "Permute"
+                  "permute" = "Permute",
+                  "truegraph" = "Same DGP"
 )
 
 graph_names <- c("Empirical\nSparse" = "graph3",
