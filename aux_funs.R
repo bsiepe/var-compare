@@ -1098,10 +1098,16 @@ compare_gvar_between <- function(fit_a,
   # Combine into single distribution
   if(isTRUE(combine_post)){
     ref <- data.frame(
-      beta_ref = ref_a$beta[1:(n_draws/2)] + ref_b$beta[1:(n_draws/2)],
-      pcor_ref = ref_a$pcor[1:(n_draws/2)] + ref_b$pcor[1:(n_draws/2)]
+      beta_ref = c(ref_a$beta[1:(n_draws/2)], ref_b$beta[1:(n_draws/2)]),
+      pcor_ref = c(ref_a$pcor[1:(n_draws/2)], ref_b$pcor[1:(n_draws/2)])
     )
-  }
+  } else
+    ref <- data.frame(
+      beta_ref_a = ref_a$beta,
+      beta_ref_b =  ref_b$beta,
+      pcor_ref_a = ref_a$pcor,
+      pcor_ref_b = ref_b$pcor
+    )
   
   
   
