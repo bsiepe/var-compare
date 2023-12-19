@@ -1,0 +1,248 @@
+---
+title: "simulation-2-revision-diffpost"
+author: "Björn Siepe"
+date: "`r Sys.Date()`"
+output: html_document
+---
+# Prep
+Background: As an extension to the overlap simulation, we try to subtract the reference distribution from the posterior distance distribution.
+
+```{r}
+library(tidyverse)
+library(graphicalVAR)
+library(doParallel)
+library(doRNG)         
+library(mgm)
+library(mlVAR)
+library(BGGM)
+library(reshape2)      
+library(mvtnorm)       
+library(stats)     
+library(here)
+source(here("aux_funs.R"))
+library(ggokabeito)
+library(Matrix)
+library(rrapply)       
+library(ggh4x)
+library(gt)
+library(gtExtras)
+here::i_am("var-compare.Rproj")
+
+
+seed = 2022
+set.seed(seed)
+```
+
+Sim conditions
+```{r}
+# Simulation conditions
+n_ind <- 100 # number of individuals(so models to create) 
+n_tp <- c(50,100,200,400, 1000) # number of timepoints
+n_postds <- 120 # number of posterior datasets
+seed <- 2022
+dgp_names <- c("graph1", "graph2", "graph3", "graph4", "graph5")
+```
+
+
+# Implement comparison
+
+No equivalence range implemented yet. 
+```{r}
+compute_posterior_diff <- function(comp_obj, 
+                              # equiv_range_beta = 0,
+                              # equiv_range_pcor = 0,
+                              # Should within posterior uncertainty of A and B be combined?
+                              combine_posteriors = TRUE,
+                              nvar = 6) {
+  
+  # browser()
+  
+  overlap_df <- data.frame(beta = comp_obj$beta,
+                           pcor = comp_obj$pcor) 
+  n_samples <- length(comp_obj$beta_ref_a)
+  
+  if(isTRUE(combine_posteriors)){
+     overlap_df$beta_ref <- c(
+                          comp_obj$beta_ref_a[sample(1:n_samples, n_samples/2)], 
+                          comp_obj$beta_ref_b[sample(1:n_samples, n_samples/2)])
+     overlap_df$pcor_ref <- c(
+                          comp_obj$pcor_ref_a[sample(1:n_samples, n_samples/2)], 
+                          comp_obj$pcor_ref_b[sample(1:n_samples, n_samples/2)])
+     
+  } else {
+    stop("Comparing against two distributions is not implemented yet.")
+  }
+  
+  
+  # # Quantify the overlap
+  # erb <- equiv_range_beta * (nvar * nvar)
+  # erp <- equiv_range_pcor * ((nvar * nvar)/2 - nvar/2)
+  
+  res_df <- overlap_df %>%
+    dplyr::mutate(
+           beta_diff = beta - beta_ref,
+           pcor_diff = pcor - pcor_ref) %>%
+  
+  return(res_df)
+  
+}
+```
+
+
+
+## Analyze results on the server
+```{r}
+file_list <- list.files(path = here::here("data/revision1/compare_sim_res"))
+
+time_before_within_eval <- Sys.time()
+ncores = 50
+cl = makeCluster(ncores)
+registerDoParallel(cl)
+clusterExport(cl, c("compute_posterior_diff"))
+clusterEvalQ(cl, library(tidyverse))
+l_comp_res <- list()
+l_comp_res <- foreach(i = 1:length(file_list)) %dopar% {
+  comp_res <- readRDS(here::here(paste0("data/revision1/compare_sim_res/",file_list[i])))
+  
+  ## Obtain information from filename
+  file_str <- file_list[i]
+  file_str_split <- strsplit(file_str, split = "_")
+  # for non-narrow condition
+  if(length(file_str_split[[1]]) == 5){
+  dgp_it <- file_str_split[[1]][2]
+  change_it <- file_str_split[[1]][3]
+  tp_it <- file_str_split[[1]][4]
+  comp_it <- file_str_split[[1]][5]
+  # delete file ending 
+  comp_it <- gsub("\\..*", "", comp_it)
+  }
+  # for narrow condition
+  if(length(file_str_split[[1]]) == 6){
+  dgp_it <- paste(file_str_split[[1]][2], file_str_split[[1]][3], sep = "_")
+  change_it <- file_str_split[[1]][4]
+  tp_it <- file_str_split[[1]][5]
+  comp_it <- file_str_split[[1]][6]
+  # delete file ending 
+  comp_it <- gsub("\\..*", "", comp_it)
+  }
+
+  ## Evaluation
+  # Loop over all comparisons
+  eval_res <- list()
+  eval_res <- lapply(comp_res, function(x){
+    
+    res <- compute_posterior_diff(x, 
+                                  # equiv_range_beta = 0,
+                                  # equiv_range_pcor = 0,
+                                  combine_posteriors = TRUE,
+                                  nvar = 6)
+    
+    res$dgp <- dgp_it
+    res$change <- change_it
+    res$tp <- tp_it
+    res$comp <- comp_it
+
+    return(res)
+  })
+  
+  
+  ## Output
+  # Combine all results into dataframe
+  df_eval_res <- do.call(rbind.data.frame, eval_res)
+  print(paste0("File ", i, " done!"))
+  
+  # Save output
+  saveRDS(df_eval_res, file = here::here(paste0("data/revision1/postmean_res/postdiff_res_",dgp_it, "_",change_it,"_", tp_it, "_",comp_it, ".RDS")))
+  
+}
+stopCluster(cl)
+
+time_after_within_eval <- Sys.time() - time_before_within_eval
+
+```
+
+Read in results again, they were saved as individual files. 
+```{r}
+# For wide priors
+file_list <- list.files(path = here("data/revision1/postdiff_res"), full.names = TRUE)
+file_list_w <- file_list[-grep("_narrow_", file_list)]
+l_comp_res_w <- lapply(file_list_w, readRDS)
+df_comp_res_w <- do.call(rbind, l_comp_res_w)
+
+
+# For narrow priors
+file_list <- list.files(path = here("data/revision1/postdiff_res"), full.names = TRUE)
+file_list_n <- file_list[grep("_narrow_", file_list)]
+l_comp_res_n <- lapply(file_list_n, readRDS)
+df_comp_res_n <- do.call(rbind, l_comp_res_n)
+
+
+# Combine both 
+df_comp_res_w$prior <- rep("wide", nrow(df_comp_res_w))
+df_comp_res_n$prior <- rep("narrow", nrow(df_comp_res_n))
+
+df_comp_res <- rbind(df_comp_res_w, df_comp_res_n)
+
+# write_rds(df_comp_res, here::here("output/revision1/df_postdiff_res.RDS"))
+df_postmean_res <- read_rds(here::here("output/revision1/df_postdiff_res.RDS"))
+
+```
+
+
+# Analyze results
+
+## Proportions
+```{r}
+change_names <- c("change1.4" = paste("Largest", "\u00D7", "1.4"),
+                  "change1.6" = paste("Largest", "\u00D7", "1.6"),
+                  "const0.05" = paste("All", "\u00b1", "0.05"),
+                  "const0.1" = paste("All", "\u00b1", "0.10"),
+                  "const0.15" = paste("All", "\u00b1", "0.15"),
+                  "permute" = "Permute",
+                  "truegraph" = "Same DGP"
+)
+
+graph_names <- c("Empirical\nSparse" = "graph3",
+                 "Simulated\nChain" = "graph4",
+                 "Simulated\nNonsparse" = "graph5")
+
+norm_names <- c("frob" = "Frobenius",
+                "l1" = "\u2113[1]",
+                "maxdiff" = "Maxdiff")
+
+tp_levels <- c("50" = "1", "100" = "2", "200" = "3", "400" = "4", "1000" = "5")
+
+# plotting linetypes
+cond_lty <- set_names(c(1,2),
+                      c("narrow", "wide"))
+
+df_postmean <- df_postmean_res %>% 
+  mutate(tp = as.factor(tp)) %>% 
+      mutate(tp = forcats::fct_relevel(tp, "50", "100", "200", "400", "1000")) %>% 
+      mutate(dgp = gsub("narrow_", "", dgp)) %>%
+      dplyr::mutate(dgp = fct_recode(as_factor(as.character(dgp)), !!!graph_names)) %>% 
+      dplyr::mutate(change = case_match(
+            change,
+                  "change1.4" ~ paste("Largest", "\u00D7", "1.4"),
+                  "change1.6" ~ paste("Largest", "\u00D7", "1.6"),
+                  "const0.05" ~ paste("All", "\u00b1", "0.05"),
+                  "const0.1" ~ paste("All", "\u00b1", "0.10"),
+                  "const0.15" ~ paste("All", "\u00b1", "0.15"),
+                  "permute134256" ~ "Permute",
+                  "truegraph" ~ "Same DGP"
+          )) %>% 
+          dplyr::mutate(change = as.factor(change)) %>% 
+          dplyr::mutate(change = forcats::fct_relevel(change, 
+                                                      "Same DGP",
+                                                      "Largest × 1.4", 
+                                                      "Largest × 1.6",
+                                                      "All ± 0.05",
+                                                      "All ± 0.10",
+                                                      "All ± 0.15",
+                                                      "Permute")) %>% 
+  pivot_longer(cols = c(larger_beta, larger_pcor), 
+               names_to = "matrix", 
+               values_to = "larger") %>%
+  mutate(matrix = gsub("larger_", "", matrix))
+
+```
