@@ -1111,13 +1111,14 @@ df_overlap <- df_overlap_res %>%
 Look at superiority
 ```{r}
 plot_superiority <- df_overlap %>%
-  filter(prior == "wide") %>% 
-  filter(metric == "overlap") %>% 
+  # filter(prior == "wide") %>% 
+  filter(metric == "sup") %>% 
   filter(comp == "frob") %>% 
+  filter(matrix == "Temporal") %>% 
   ggplot(aes(x = tp, y = value, color = equiv_range)) + 
   geom_boxplot() + 
   theme_compare()  + 
-  facet_nested(change ~ matrix + dgp) + 
+  facet_nested(change ~ prior + dgp) + 
   ggokabeito::scale_color_okabe_ito(order = c(5, 1:8))+
   geom_vline(colour = "#F3F4F5", xintercept = seq(1.5, length(tp_levels), 1))+
   theme(panel.grid.major.x = element_blank())+
@@ -1125,12 +1126,12 @@ plot_superiority <- df_overlap %>%
   
   
 
-ggsave(here::here("figures/revision1/plot_overlap_narrow_frob.pdf"), width = 15, height = 20)
+ggsave(here::here("figures/revision1/plot_superiority_temporal_frob.pdf"), width = 15, height = 20)
 
 ```
 
 
-Only look at it within the partial correlations, where the method does not seem to work well. 
+Only look at it within the partial correlations, where the method does not seem to work well (due to an error, as we now know).
 ```{r}
 overlapsup_pcor <- df_overlap %>% 
   filter(matrix == "Contemporaneous") %>%
