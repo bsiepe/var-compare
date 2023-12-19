@@ -1,0 +1,237 @@
+---
+title: "many_networks_gif"
+author: "Björn Siepe"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+Just creating a .gif with many networks that "look" different as a visual starting point for discussing heterogeneity. 
+
+Simulate from the same DGP with low number of observations, then fit and plot resulting networks.
+
+```{r}
+library(graphicalVAR)
+library(qgraph)
+library(animation)
+library(foreach)
+library(parallel)
+library(doParallel)
+library(tidyverse)
+source("aux_funs.R")
+set.seed(35037)
+
+l_graphs <- readRDS(here::here("data/l_graphs.RDS"))
+dgp <- l_graphs[[5]]
+
+# create two larger edges
+dgp$beta[1,2] <- .4
+dgp$beta[5,3] <- -.4
+
+# make some negative
+dgp$beta[1,3] <- dgp$beta[1,3] * -1
+dgp$beta[5,4] <- dgp$beta[2,3] * -1
+dgp$beta[5,2] <- dgp$beta[2,3] * -1
+
+
+# Simulate
+ncores = 10
+cl = makeCluster(ncores)
+clusterExport(cl = cl, "fit_graphicalvar_parallel")
+registerDoParallel(cl)
+data_list <- sim_raw_parallel(dgp = dgp,
+                                    n = 50,      # 50 individuals
+                                    tp = 70,
+                                    seed = 35037,
+                                    means = 0,
+                                    standardize = TRUE)
+
+
+# Fit in parallel
+
+# res_list  <- fit_graphicalvar_parallel(data_list,
+#                                        seed = 35037,
+#                                                   n = 50,
+#                                                   gamma = 0,
+#                                                   nLambda = 50, 
+#                                                   pruneresults = FALSE)
+
+
+stopCluster(cl)
+
+# Save data for sharing
+sim_data <- lapply(data_list, function(x){
+  x$data
+})
+
+saveRDS(sim_data, here::here("data/gvar_sim_data.RDS"))
+```
+
+
+Visualize into gif
+
+```{r}
+
+animation::saveGIF({
+  for(i in 1:50){
+      par(mfrow = c(1,2))
+    qgraph(res_list[[i]]$PDC, 
+       title = "Temporal", 
+       title.cex = 1.9,
+       theme = "colorblind", 
+       layout = "circle", 
+       mar = c(4,4,4,4))
+    qgraph(res_list[[i]]$PCC, 
+       title.cex = 1.9,
+       title = paste("Contemporaneous     ID", i), 
+       theme = "colorblind", 
+       layout = "circle", 
+       mar = c(4,4,4,4))}
+  }, movie.name = "many_network_gif.gif", interval = .5,
+  ani.width = 800, ani.height = 600
+
+)
+
+
+```
+
+Individual images
+
+```{r}
+for(i in 1:20){
+  png(paste0("figures/gif/network_", i, ".png"), width = 960, height = 960, res = 150) 
+   par(mfrow = c(1,2))
+    qgraph(res_list[[i]]$PDC, 
+       title = "Temporal", 
+       title.cex = 1.2,
+       theme = "colorblind", 
+       layout = "circle", 
+       mar = c(4,4,4,4))
+    qgraph(res_list[[i]]$PCC, 
+       title.cex = 1.2,
+       title = paste("Contemporaneous          ID", i), 
+       theme = "colorblind", 
+       layout = "circle", 
+       mar = c(4,4,4,4))
+  dev.off()
+}
+
+```
+
+
+# Instead use GIMME indSEM
+This is for illustration what can go wrong if we use GIMME on a dataset that is from a single DGP. 
+
+```{r}
+gimme_list <- lapply(data_list, function(x){
+  x$data
+})
+
+gimme_res <- gimme::indSEM(data = sim_data)
+
+mean_paths <- Reduce("+", gimme_res$path_est_mats) / length(gimme_res$path_est_mats)
+mad_paths <- 
+  Reduce("+", lapply(gimme_res$path_est_mats, function(x){
+    abs(x - mean_paths)
+  })) / length(gimme_res$path_est_mats)
+
+which.max(mad_paths)
+```
+V1 -> V4
+```{r}
+gimme_res$path_se_est %>% 
+  filter(lhs == "V1" & rhs == "V4")
+```
+
+Look at a group-level effect
+```{r}
+meta_res <- gimme_res$path_se_est %>% 
+  filter(level == "group") %>% 
+  filter(lhs == "V1" & rhs == "V1lag")
+
+# Create a forest plot in ggplot
+library(ggplot2)
+
+for_plot <- meta_res %>% 
+  ggplot(aes(x = beta, y = file)) +
+  geom_vline(xintercept = 0.24, 
+             linetype = "dashed", 
+             color = "red",
+             size = .75)+
+  geom_point() +
+  geom_errorbarh(aes(xmin = beta - 1.96 * se, xmax = beta + 1.96 * se)) +
+  geom_vline(xintercept = 0)+
+  theme_compare()+
+  labs(x = "Example Autoregressive Effect", y = "ID",
+       title = "Data of 50 individuals with identical true effects")+
+  theme(axis.text.y = element_blank())+
+  scale_x_continuous(breaks = seq(-.5, 1.5, .5),
+                     limits = c(-.6, 2))
+
+ggsave(here::here("figures/forest_plot.pdf"), for_plot, width = 7, height = 7)
+
+```
+
+Put it in a meta-analysis
+```{r}
+library(metaBMA)
+library(meta)
+test_meta <- metaBMA::meta_bma(y = meta_res$beta, SE = meta_res$se,
+                        labels = meta_res$file, data = meta_res)
+
+meta_meta <- meta::metamean(n = rep(70, 50), 
+               mean = meta_res$beta, 
+               sd = meta_res$se)
+
+
+
+```
+
+
+
+# Without AR path
+
+```{r}
+gimme_no_ar <- gimme::indSEM(data = gimme_list, 
+                             ar = FALSE)
+
+gimme_no_ar$path_se_est %>% 
+  group_by(lhs, rhs) %>% 
+  count() %>% 
+  arrange(desc(n))
+
+
+# look at the effect that was estimated most often 
+res_no_ar <- gimme_no_ar$path_se_est %>% 
+  filter(lhs == "V5" & rhs == "V3lag")
+
+res_no_ar <- gimme_no_ar$path_se_est %>% 
+  filter(lhs == "V3" & rhs == "V1lag")
+
+# Compute effect with highest SD
+gimme_no_ar$path_se_est %>% 
+  group_by(lhs, rhs) %>% 
+  summarise(mad = mad(beta),
+            n = n()) %>% 
+  arrange(desc(n))
+
+res_no_ar <- gimme_no_ar$path_se_est %>% 
+  filter(lhs == "V2" & rhs == "V3")
+
+
+# Create a forest plot in ggplot
+library(ggplot2)
+res_no_ar %>% 
+  ggplot(aes(x = beta, y = file)) +
+  geom_point() +
+  geom_errorbarh(aes(xmin = beta - 1.96 * se, xmax = beta + 1.96 * se)) +
+  geom_vline(xintercept = 0)+
+  theme_minimal()+
+  labs(x = "Effect", y = "ID")+
+  geom_vline(xintercept = 0.095, linetype = "dashed", color = "red")
+
+
+
+
+```
+
+
