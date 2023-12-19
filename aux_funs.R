@@ -1082,13 +1082,13 @@ compare_gvar_between <- function(fit_a,
 ){
   
   #--- Obtain within-posterior uncertainty
-  ref_a <- tsnet::post_distance_within(fit_a,
+  ref_a <- post_distance_within_temp(fit_a,
                                 comp = comp,
                                 pred = FALSE,
                                 draws = n_draws,
                                 sampling_method = sampling_method
   )
-  ref_b <- tsnet::post_distance_within(fit_b,
+  ref_b <- post_distance_within_temp(fit_b,
                                 comp = comp,
                                 pred = FALSE,
                                 draws = n_draws,
@@ -1148,54 +1148,84 @@ compare_gvar_between <- function(fit_a,
 #'
 #'
 #' @export post_distance_within
-post_distance_within <- function(post, 
+
+
+# TEMPORARY FROM TSNET
+# ONLY USES UPPER.TRI for PCOR COMP
+post_distance_within_temp <- function(fitobj,
                                  comp,
-                                 pred,         # posterior predictive?
-                                 draws = 1000){
-  
+                                 pred, # posterior predictive?
+                                 draws = 1000,
+                                 sampling_method = "sequential") {
   # storage
   dist_out <- list()
   
+  # Helper to select upper triangle elements of matrix
+  ut <- function(x) {
+    matrix(x[upper.tri(x, diag = FALSE)])
+  }
   
   # for posterior predictive approach
-  if(isTRUE(pred)){
+  if (isTRUE(pred)) {
     # define the distance function based on comp
     distance_fn_beta <- switch(comp,
-                               frob =   {function(x, y, mod_one, mod_two) norm(x$fit[[mod_one]]$beta_mu-y$fit[[mod_two]]$beta_mu, type = "F")},
-                               maxdiff = {function(x, y, mod_one, mod_two) max(abs((x$fit[[mod_one]]$beta_mu-y$fit[[mod_two]]$beta_mu)))},
-                               l1 = {function(x, y, mod_one, mod_two) sum(abs((x$fit[[mod_one]]$beta_mu-y$fit[[mod_two]]$beta_mu)))}
+                               frob = {
+                                 function(x, y, mod_one, mod_two) norm(x$fit[[mod_one]]$beta_mu - y$fit[[mod_two]]$beta_mu, type = "F")
+                               },
+                               maxdiff = {
+                                 function(x, y, mod_one, mod_two) max(abs((x$fit[[mod_one]]$beta_mu - y$fit[[mod_two]]$beta_mu)))
+                               },
+                               l1 = {
+                                 function(x, y, mod_one, mod_two) sum(abs((x$fit[[mod_one]]$beta_mu - y$fit[[mod_two]]$beta_mu)))
+                               }
     )
     distance_fn_pcor <- switch(comp,
-                               frob = {function(x, y, mod_one, mod_two) norm(x$fit[[mod_one]]$pcor_mu-y$fit[[mod_two]]$pcor_mu, type = "F")},
-                               maxdiff = {function(x, y, mod_one, mod_two) max(abs((x$fit[[mod_one]]$pcor_mu-y$fit[[mod_two]]$pcor_mu)))},
-                               l1 = {function(x, y, mod_one, mod_two) sum(abs((x$fit[[mod_one]]$pcor_mu-y$fit[[mod_two]]$pcor_mu)))}
+                               frob = {
+                                 function(x, y, mod_one, mod_two) norm(ut(x$fit[[mod_one]]$pcor_mu) - ut(y$fit[[mod_two]]$pcor_mu), type = "F")
+                               },
+                               maxdiff = {
+                                 function(x, y, mod_one, mod_two) max(abs((ut(x$fit[[mod_one]]$pcor_mu) - ut(y$fit[[mod_two]]$pcor_mu))))
+                               },
+                               l1 = {
+                                 function(x, y, mod_one, mod_two) sum(abs((ut(x$fit[[mod_one]]$pcor_mu) - ut(y$fit[[mod_two]]$pcor_mu))))
+                               }
     )
     
     # Obtain number of models
-    n_mod <- length(post$fit)
-    
+    n_mod <- length(fitobj$fit)
   }
   
   
   # for posteriors of empirical models
-  if(isFALSE(pred)){
+  if (isFALSE(pred)) {
     # define the distance function based on comp
     # draw from all posterior samples
     
     distance_fn_beta <- switch(comp,
-                               frob =   {function(x, y, mod_one, mod_two) norm(x$fit$beta[,,mod_one]-y$fit$beta[,,mod_two], type = "F")},
-                               maxdiff = {function(x, y, mod_one, mod_two) max(abs((x$fit$beta[,,mod_one]-y$fit$beta[,,mod_two])))},
-                               l1 = {function(x, y, mod_one, mod_two) sum(abs((x$fit$beta[,,mod_one]-y$fit$beta[,,mod_two])))}
+                               frob = {
+                                 function(x, y, mod_one, mod_two) norm(x$fit$beta[, , mod_one] - y$fit$beta[, , mod_two], type = "F")
+                               },
+                               maxdiff = {
+                                 function(x, y, mod_one, mod_two) max(abs((x$fit$beta[, , mod_one] - y$fit$beta[, , mod_two])))
+                               },
+                               l1 = {
+                                 function(x, y, mod_one, mod_two) sum(abs((x$fit$beta[, , mod_one] - y$fit$beta[, , mod_two])))
+                               }
     )
     distance_fn_pcor <- switch(comp,
-                               frob = {function(x, y, mod_one, mod_two) norm(x$fit$pcors[,,mod_one]-y$fit$pcors[,,mod_two], type = "F")},
-                               maxdiff = {function(x, y, mod_one, mod_two) max(abs((x$fit$pcors[,,mod_one]-y$fit$pcors[,,mod_two])))},
-                               l1 = {function(x, y, mod_one, mod_two) sum(abs((x$fit$pcors[,,mod_one]-y$fit$pcors[,,mod_two])))}
+                               frob = {
+                                 function(x, y, mod_one, mod_two) norm(ut(x$fit$pcors[, , mod_one]) - ut(y$fit$pcors[, , mod_two], type = "F"))
+                               },
+                               maxdiff = {
+                                 function(x, y, mod_one, mod_two) max(abs((ut(x$fit$pcors[, , mod_one]) - ut(y$fit$pcors[, , mod_two]))))
+                               },
+                               l1 = {
+                                 function(x, y, mod_one, mod_two) sum(abs((ut(x$fit$pcors[, , mod_one]) - ut(y$fit$pcors[, , mod_two]))))
+                               }
     )
     
     # Obtain number of posterior samples
-    n_mod <- dim(post$fit$beta)[3]
-    
+    n_mod <- dim(fitobj$fit$beta)[3]
   }
   
   
@@ -1207,54 +1237,68 @@ post_distance_within <- function(post,
   # "model" is still a residue from posterior predictive approach
   # Draw models spaced apart so that we don't have autocorrelation from sampling
   mod_pairs <- array(NA, dim = c(2, draws))
-  # draw from first half of samples
-  mod_pairs[1,1:(draws)] <- seq(51, draws+50, by = 1)
   
-  # draw from second half of samples
-  mod_pairs[2,1:(draws)] <- seq((n_mod/2)+51, (n_mod/2)+50+(draws), by = 1)
   
-  for(i in seq(draws)){
+  if(sampling_method == "sequential"){
+    # draw from first half of samples
+    mod_pairs[1, 1:(draws)] <- seq(51, draws + 50, by = 1)
+    
+    # draw from second half of samples
+    mod_pairs[2, 1:(draws)] <- seq((n_mod / 2) + 51, (n_mod / 2) + 50 + (draws), by = 1)
+    
+  }
+  if(sampling_method == "random"){
+    # Determine the valid range of values for drawing pairs
+    # Leave out middle 100 to keep certain distance between halves
+    valid_range <- setdiff(1:n_mod, ((n_mod/2 - 50):(n_mod/2 + 49)))
+    
+    # Draw pairs randomly from the first half and second half
+    mod_pairs[1, 1:draws] <- sample(valid_range[1:(length(valid_range)/2)], draws)
+    mod_pairs[2, 1:draws] <- sample(valid_range[(length(valid_range)/2 + 1):length(valid_range)], draws)
+    
+    
+  }
+  
+  
+  
+  for (i in seq(draws)) {
     # storage
     dist_out[[i]] <- list()
-    mod_one <- mod_pairs[1,i]
-    mod_two <- mod_pairs[2,i]
+    mod_one <- mod_pairs[1, i]
+    mod_two <- mod_pairs[2, i]
     
     # if mod_one and mod_two are equal, redraw
-    if(mod_one == mod_two){
+    if (mod_one == mod_two) {
       mod_two <- sample(1:n_mod, size = 1)
     }
     
     ## Check if estimation worked
     # Should be unneccessary if non-converged attempts were deleted
-    if(isTRUE(pred)){
-      if(!is.list(post$fit[[mod_one]]) | !is.list(post$fit[[mod_two]])){
+    if (isTRUE(pred)) {
+      if (!is.list(fitobj$fit[[mod_one]]) | !is.list(fitobj$fit[[mod_two]])) {
         beta_distance <- NA
         pcor_distance <- NA
         stop("Not a list.")
-        
-        
-      } 
+      }
       # if both elements are lists
-      else{
-        beta_distance <- distance_fn_beta(post, post, mod_one, mod_two)
-        pcor_distance <- distance_fn_pcor(post, post, mod_one, mod_two)
-      }  
+      else {
+        beta_distance <- distance_fn_beta(fitobj, fitobj, mod_one, mod_two)
+        pcor_distance <- distance_fn_pcor(fitobj, fitobj, mod_one, mod_two)
+      }
     }
     
-    if(isFALSE(pred)){
-      if(!is.list(post) | !is.list(post)){
+    if (isFALSE(pred)) {
+      if (!is.list(fitobj) | !is.list(fitobj)) {
         beta_distance <- NA
         pcor_distance <- NA
         
         stop("Not a list.")
-        
-      } 
+      }
       # if both elements are lists
-      else{
-        beta_distance <- distance_fn_beta(post, post, mod_one, mod_two)
-        pcor_distance <- distance_fn_pcor(post, post, mod_one, mod_two)
-        
-      }  
+      else {
+        beta_distance <- distance_fn_beta(fitobj, fitobj, mod_one, mod_two)
+        pcor_distance <- distance_fn_pcor(fitobj, fitobj, mod_one, mod_two)
+      }
     }
     
     # Store results
@@ -1262,17 +1306,13 @@ post_distance_within <- function(post,
     dist_out[[i]]$mod_one <- mod_one
     dist_out[[i]]$mod_two <- mod_two
     dist_out[[i]]$beta <- beta_distance
-    dist_out[[i]]$pcor <- pcor_distance  
-    
-    
-  } # end for loop  
-  out <- do.call(rbind, dist_out)
-  out <- as.data.frame(out)
+    dist_out[[i]]$pcor <- pcor_distance
+  } # end for loop
+  out <- do.call(rbind.data.frame, dist_out)
   
   
   return(out)
 }
-
 
 
 
