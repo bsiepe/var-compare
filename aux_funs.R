@@ -1214,7 +1214,7 @@ post_distance_within_temp <- function(fitobj,
     )
     distance_fn_pcor <- switch(comp,
                                frob = {
-                                 function(x, y, mod_one, mod_two) norm(ut(x$fit$pcors[, , mod_one]) - ut(y$fit$pcors[, , mod_two], type = "F"))
+                                 function(x, y, mod_one, mod_two) norm(ut(x$fit$pcors[, , mod_one]) - ut(y$fit$pcors[, , mod_two]), type = "F")
                                },
                                maxdiff = {
                                  function(x, y, mod_one, mod_two) max(abs((ut(x$fit$pcors[, , mod_one]) - ut(y$fit$pcors[, , mod_two]))))
