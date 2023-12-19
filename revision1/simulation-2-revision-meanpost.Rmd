@@ -84,7 +84,7 @@ compare_posterior_mean <- function(comp_obj,
            pcor = pcor - erp) %>%
     dplyr::summarize(
       larger_beta = mean(beta > beta_ref),
-      larger_pcor = mean(pcor > pcor_ref),
+      larger_pcor = mean(pcor > pcor_ref)
     )
   
   return(res_df)
@@ -102,7 +102,7 @@ time_before_within_eval <- Sys.time()
 ncores = 50
 cl = makeCluster(ncores)
 registerDoParallel(cl)
-clusterExport(cl, c("overlap_posterior"))
+clusterExport(cl, c("compare_posterior_mean"))
 clusterEvalQ(cl, library(tidyverse))
 l_comp_res <- list()
 l_comp_res <- foreach(i = 1:length(file_list)) %dopar% {
@@ -187,9 +187,109 @@ df_comp_res_n$prior <- rep("narrow", nrow(df_comp_res_n))
 
 df_comp_res <- rbind(df_comp_res_w, df_comp_res_n)
 
-write_rds(df_comp_res, here::here("output/revision1/df_postmean_res.RDS"))
+# write_rds(df_comp_res, here::here("output/revision1/df_postmean_res.RDS"))
 df_postmean_res <- read_rds(here::here("output/revision1/df_postmean_res.RDS"))
 
 ```
+
+
+# Analyze results
+
+## Proportions
+```{r}
+change_names <- c("change1.4" = paste("Largest", "\u00D7", "1.4"),
+                  "change1.6" = paste("Largest", "\u00D7", "1.6"),
+                  "const0.05" = paste("All", "\u00b1", "0.05"),
+                  "const0.1" = paste("All", "\u00b1", "0.10"),
+                  "const0.15" = paste("All", "\u00b1", "0.15"),
+                  "permute" = "Permute",
+                  "truegraph" = "Same DGP"
+)
+
+graph_names <- c("Empirical\nSparse" = "graph3",
+                 "Simulated\nChain" = "graph4",
+                 "Simulated\nNonsparse" = "graph5")
+
+norm_names <- c("frob" = "Frobenius",
+                "l1" = "\u2113[1]",
+                "maxdiff" = "Maxdiff")
+
+tp_levels <- c("50" = "1", "100" = "2", "200" = "3", "400" = "4", "1000" = "5")
+
+# plotting linetypes
+cond_lty <- set_names(c(1,2),
+                      c("narrow", "wide"))
+
+df_postmean <- df_postmean_res %>% 
+  mutate(tp = as.factor(tp)) %>% 
+      mutate(tp = forcats::fct_relevel(tp, "50", "100", "200", "400", "1000")) %>% 
+      mutate(dgp = gsub("narrow_", "", dgp)) %>%
+      dplyr::mutate(dgp = fct_recode(as_factor(as.character(dgp)), !!!graph_names)) %>% 
+      dplyr::mutate(change = case_match(
+            change,
+                  "change1.4" ~ paste("Largest", "\u00D7", "1.4"),
+                  "change1.6" ~ paste("Largest", "\u00D7", "1.6"),
+                  "const0.05" ~ paste("All", "\u00b1", "0.05"),
+                  "const0.1" ~ paste("All", "\u00b1", "0.10"),
+                  "const0.15" ~ paste("All", "\u00b1", "0.15"),
+                  "permute134256" ~ "Permute",
+                  "truegraph" ~ "Same DGP"
+          )) %>% 
+          dplyr::mutate(change = as.factor(change)) %>% 
+          dplyr::mutate(change = forcats::fct_relevel(change, 
+                                                      "Same DGP",
+                                                      "Largest × 1.4", 
+                                                      "Largest × 1.6",
+                                                      "All ± 0.05",
+                                                      "All ± 0.10",
+                                                      "All ± 0.15",
+                                                      "Permute")) %>% 
+  pivot_longer(cols = c(larger_beta, larger_pcor), 
+               names_to = "matrix", 
+               values_to = "larger") %>%
+  mutate(matrix = gsub("larger_", "", matrix))
+
+```
+
+
+Visualize results
+```{r}
+plot_postmean_comp <- df_postmean %>% 
+  ggplot(aes(x = tp, y = larger, color = prior)) + 
+  geom_boxplot() + 
+  theme_compare()  +
+  facet_nested(comp + change ~ matrix + dgp) +
+  ggokabeito::scale_color_okabe_ito(order = c(5, 1:8))+
+  geom_vline(colour = "#F3F4F5", xintercept = seq(1.5, length(tp_levels), 1))+
+  theme(panel.grid.major.x = element_blank())
+
+ggsave(here::here("figures/revision1/plot_postmean_comp.pdf"), plot_postmean_comp, width = 20, height = 15)
+
+```
+
+
+## Decisions
+
+```{r}
+plot_postmean_dec99 <- df_postmean %>% 
+  mutate(dec95 = if_else(larger >= 0.95, 1, 0),
+         dec99 = if_else(larger >= 0.99, 1, 0)) %>% 
+  group_by(dgp, change, tp, comp, prior, matrix) %>%
+  summarize(dec95 = mean(dec95),
+            dec99 = mean(dec99)) %>%
+  ggplot(aes(x = tp, y = dec99, color = prior)) +
+  geom_point()+
+  theme_compare()  +
+  facet_nested(comp + change ~ matrix + dgp) +
+  ggokabeito::scale_color_okabe_ito(order = c(5, 1:8))+
+  geom_vline(colour = "#F3F4F5", xintercept = seq(1.5, length(tp_levels), 1))+
+  theme(panel.grid.major.x = element_blank())
+
+ggsave(here::here("figures/revision1/plot_postmean_dec99.pdf"), plot_postmean_dec99, width = 20, height = 15)
+  
+```
+
+
+
 
 
