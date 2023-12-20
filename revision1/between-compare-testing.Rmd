@@ -236,20 +236,22 @@ net_3 <- BGGM::var_estimate(data_3[,-1],
 # Use networks from simulation study
 l_changed_graphs <-readRDS(here("data/l_changed_graphs_0305.RDS"))
 
+n_tp <- 100
+
 # Simulate two datasets
-net_1a <- graphicalVAR::graphicalVARsim(200,
+net_1a <- graphicalVAR::graphicalVARsim(n_tp,
                                        beta = l_changed_graphs$graph4$truegraph$beta,
                                        kappa = l_changed_graphs$graph4$truegraph$kappa)
-net_1b <- graphicalVAR::graphicalVARsim(200,
+net_1b <- graphicalVAR::graphicalVARsim(n_tp,
                                        beta = l_changed_graphs$graph4$truegraph$beta,
                                        kappa = l_changed_graphs$graph4$truegraph$kappa)
 
-net_2 <- graphicalVAR::graphicalVARsim(200,
+net_2 <- graphicalVAR::graphicalVARsim(n_tp,
                                        beta = l_changed_graphs$graph4$const0.05$beta,
                                        kappa = l_changed_graphs$graph4$const0.05$kappa)
 
 
-net_3 <- graphicalVAR::graphicalVARsim(200,
+net_3 <- graphicalVAR::graphicalVARsim(n_tp,
                                        beta = l_changed_graphs$graph4$const0.15$beta,
                                        kappa = l_changed_graphs$graph4$const0.15$kappa)
 
@@ -418,6 +420,46 @@ lines(density(test$beta), col = "blue")
 
 
 
+# Test after subtractring a reference distribution
+
+Idea: Subtract the reference distribution from the posterior distance distribution, thereby accounting for the estimation uncertainty.
+
+```{r}
+cgb1ab <- compare_gvar_between(r_net_1a, r_net_1b,
+                     comp = "l1", 
+                     n_draws = 10000,
+                     combine_post = TRUE,
+                     sampling_method = "random",
+                     burnin = 500)
+
+cgb13 <- compare_gvar_between(r_net_1a, r_net_3,
+                     comp = "l1", 
+                     n_draws = 10000,
+                     combine_post = TRUE,
+                     sampling_method = "random",
+                     burnin = 500)
+
+```
+
+Plot the difference of disttributions
+```{r}
+plot_diff <- function(cgb_obj){
+  cgb_obj %>% 
+    mutate(beta = beta - beta_ref,
+           pcor = pcor - pcor_ref) %>% 
+    pivot_longer(c(beta, pcor), 
+                 names_to = "mat", 
+                 values_to = "diff") %>% 
+    ggplot(aes(x = diff, fill = mat)) +
+    geom_density() + 
+    theme_compare() + 
+    ggokabeito::scale_fill_okabe_ito(order = c(5, 1:8))
+}
+
+plot_diff(cgb1ab)
+plot_diff(cgb13)
+
+```
 
 
 
