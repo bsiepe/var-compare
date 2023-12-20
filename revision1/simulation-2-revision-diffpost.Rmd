@@ -49,8 +49,8 @@ dgp_names <- c("graph1", "graph2", "graph3", "graph4", "graph5")
 No equivalence range implemented yet. 
 ```{r}
 compute_posterior_diff <- function(comp_obj, 
-                              # equiv_range_beta = 0,
-                              # equiv_range_pcor = 0,
+                              equiv_range_beta = 0,
+                              equiv_range_pcor = 0,
                               # Should within posterior uncertainty of A and B be combined?
                               combine_posteriors = TRUE,
                               nvar = 6) {
@@ -74,14 +74,21 @@ compute_posterior_diff <- function(comp_obj,
   }
   
   
-  # # Quantify the overlap
-  # erb <- equiv_range_beta * (nvar * nvar)
-  # erp <- equiv_range_pcor * ((nvar * nvar)/2 - nvar/2)
+  # Quantify the overlap
+  erb <- equiv_range_beta * (nvar * nvar)
+  erp <- equiv_range_pcor * ((nvar * nvar)/2 - nvar/2)
   
   res_df <- overlap_df %>%
     dplyr::mutate(
-           beta_diff = beta - beta_ref,
-           pcor_diff = pcor - pcor_ref) %>%
+           beta_diff = beta - beta_ref - erb,
+           pcor_diff = pcor - pcor_ref - erp) %>% 
+    dplyr::summarize(
+           beta_mean = mean(beta_diff),
+           pcor_mean = mean(pcor_diff),
+           beta_larger = mean(beta_diff > 0),
+           pcor_larger = mean(pcor_diff > 0)
+           )
+
   
   return(res_df)
   
@@ -132,8 +139,8 @@ l_comp_res <- foreach(i = 1:length(file_list)) %dopar% {
   eval_res <- lapply(comp_res, function(x){
     
     res <- compute_posterior_diff(x, 
-                                  # equiv_range_beta = 0,
-                                  # equiv_range_pcor = 0,
+                                  equiv_range_beta = 0.005,
+                                  equiv_range_pcor = 0.005,
                                   combine_posteriors = TRUE,
                                   nvar = 6)
     
@@ -152,7 +159,7 @@ l_comp_res <- foreach(i = 1:length(file_list)) %dopar% {
   print(paste0("File ", i, " done!"))
   
   # Save output
-  saveRDS(df_eval_res, file = here::here(paste0("data/revision1/postmean_res/postdiff_res_",dgp_it, "_",change_it,"_", tp_it, "_",comp_it, ".RDS")))
+  saveRDS(df_eval_res, file = here::here(paste0("data/revision1/postdiff_res/postdiff_res_",dgp_it, "_",change_it,"_", tp_it, "_",comp_it, ".RDS")))
   
 }
 stopCluster(cl)
@@ -183,8 +190,13 @@ df_comp_res_n$prior <- rep("narrow", nrow(df_comp_res_n))
 
 df_comp_res <- rbind(df_comp_res_w, df_comp_res_n)
 
-# write_rds(df_comp_res, here::here("output/revision1/df_postdiff_res.RDS"))
-df_postmean_res <- read_rds(here::here("output/revision1/df_postdiff_res.RDS"))
+write_rds(df_comp_res, here::here("output/revision1/df_postdiff_res.RDS"))
+
+# for 0.01 equivalence range
+df_postdiff_res <- read_rds(here::here("output/revision1/df_postdiff_res.RDS"))
+
+# for no equivalence range: 
+df_postdiff_res <- read_rds(here::here("output/revision1/df_postdiff_res_noequiv.RDS"))
 
 ```
 
@@ -216,7 +228,7 @@ tp_levels <- c("50" = "1", "100" = "2", "200" = "3", "400" = "4", "1000" = "5")
 cond_lty <- set_names(c(1,2),
                       c("narrow", "wide"))
 
-df_postmean <- df_postmean_res %>% 
+df_postdiff <- df_postdiff_res %>% 
   mutate(tp = as.factor(tp)) %>% 
       mutate(tp = forcats::fct_relevel(tp, "50", "100", "200", "400", "1000")) %>% 
       mutate(dgp = gsub("narrow_", "", dgp)) %>%
@@ -239,10 +251,117 @@ df_postmean <- df_postmean_res %>%
                                                       "All ± 0.05",
                                                       "All ± 0.10",
                                                       "All ± 0.15",
-                                                      "Permute")) %>% 
-  pivot_longer(cols = c(larger_beta, larger_pcor), 
-               names_to = "matrix", 
-               values_to = "larger") %>%
-  mutate(matrix = gsub("larger_", "", matrix))
+                                                      "Permute"))
 
 ```
+
+
+## Proportions of correct decisions
+
+```{r}
+plot_postdiff1 <- df_postdiff %>% 
+  select(!c(beta_mean, pcor_mean)) %>% 
+  pivot_longer(c(beta_larger, pcor_larger),
+               names_to = "matrix",
+               values_to = "larger") %>% 
+  mutate(matrix = gsub("_larger", "", matrix)) %>% 
+  mutate(matrix = case_match(
+    matrix,
+    "beta" ~ "Temporal",
+    "pcor" ~ "Contemporaneous"
+  )) %>% 
+  mutate(matrix = as.factor(matrix)) %>% 
+  mutate(edr = if_else(larger > .95, 1, 0)) %>% 
+  group_by(dgp, change, tp, comp, prior, matrix) %>% 
+  summarize(mean_edr = mean(edr),
+            se_edr = sqrt(mean_edr * (1-mean_edr) / 1000)) %>%
+  ggplot(aes(x = tp, y = mean_edr, color = prior))+
+  geom_point()+
+  facet_nested(comp + change ~ matrix + dgp) +
+  ggokabeito::scale_color_okabe_ito(order = c(5, 1:8))+
+  theme_compare()+
+  geom_vline(colour = "#F3F4F5", xintercept = seq(1.5, length(tp_levels), 1))+
+  theme(panel.grid.major.x = element_blank())
+
+ggsave(here::here("figures/revision1/plot_postdiff_equiv005_95.pdf"), 
+       plot_postdiff1, width = 20, height = 25)
+
+
+```
+
+
+## Focus on l1 norm
+Looks the best for now
+
+```{r}
+plot_postdiff100_l1 <- df_postdiff %>% 
+  select(!c(beta_mean, pcor_mean)) %>% 
+  pivot_longer(c(beta_larger, pcor_larger),
+               names_to = "matrix",
+               values_to = "larger") %>% 
+  mutate(matrix = gsub("_larger", "", matrix)) %>% 
+  mutate(matrix = case_match(
+    matrix,
+    "beta" ~ "Temporal",
+    "pcor" ~ "Contemporaneous"
+  )) %>% 
+  filter(comp == "l1") %>%
+  mutate(matrix = as.factor(matrix)) %>% 
+  mutate(edr = if_else(larger == 1, 1, 0)) %>% 
+  group_by(dgp, change, tp, comp, prior, matrix) %>% 
+  summarize(mean_edr = mean(edr),
+            se_edr = sqrt(mean_edr * (1-mean_edr) / 100)) %>%
+  ggplot(aes(x = tp, y = mean_edr, color = prior))+
+  geom_errorbar(aes(ymin = mean_edr - 1 * se_edr, 
+                     ymax = mean_edr + 1 * se_edr),
+                 width = .8, 
+                 position = position_dodge(0.7))+
+  geom_point(size = 1.2, position = position_dodge(0.7))+
+  facet_nested(change ~ matrix + dgp) +
+  ggokabeito::scale_color_okabe_ito(order = c(5, 1:8))+
+  theme_compare()+
+  geom_vline(colour = "#F3F4F5", xintercept = seq(1.5, length(tp_levels), 1))+
+  theme(panel.grid.major.x = element_blank())
+
+ggsave(here::here("figures/revision1/plot_postdiff100_l1.pdf"), 
+       plot_postdiff100_l1, width = 16, height = 9)
+
+```
+
+Only look at false-positives:
+```{r}
+plot_postdiff99_l1_fp <- df_postdiff %>% 
+  select(!c(beta_mean, pcor_mean)) %>% 
+  pivot_longer(c(beta_larger, pcor_larger),
+               names_to = "matrix",
+               values_to = "larger") %>% 
+  mutate(matrix = gsub("_larger", "", matrix)) %>% 
+  mutate(matrix = case_match(
+    matrix,
+    "beta" ~ "Temporal",
+    "pcor" ~ "Contemporaneous"
+  )) %>% 
+  filter(comp == "l1") %>%
+  filter(change == "Same DGP") %>% 
+  mutate(matrix = as.factor(matrix)) %>% 
+  mutate(edr = if_else(larger > .99, 1, 0)) %>% 
+  group_by(dgp, change, tp, comp, prior, matrix) %>% 
+  summarize(mean_edr = mean(edr),
+            se_edr = sqrt(mean_edr * (1-mean_edr) / 100)) %>%
+  ggplot(aes(x = tp, y = mean_edr, color = prior))+
+  geom_errorbar(aes(ymin = mean_edr - 1 * se_edr, 
+                     ymax = mean_edr + 1 * se_edr),
+                 width = .8, 
+                 position = position_dodge(0.7))+
+  geom_point(size = 1.2, position = position_dodge(0.7))+
+  facet_nested(change ~ matrix + dgp) +
+  ggokabeito::scale_color_okabe_ito(order = c(5, 1:8))+
+  theme_compare()+
+  geom_vline(colour = "#F3F4F5", xintercept = seq(1.5, length(tp_levels), 1))+
+  theme(panel.grid.major.x = element_blank())
+
+ggsave(here::here("figures/revision1/plot_postdiff99_l1_fp.pdf"), 
+       plot_postdiff99_l1_fp, width = 16, height = 9)
+```
+
+
