@@ -6,7 +6,7 @@ plot_centrality <- function(obj,
                             # only accepts one for now
                             cis = 0.95){
   
-  
+  # TODO could add centrality difference
   
   
   if (!is.numeric(cis) || any(cis <= 0) || any(cis >= 1)) {
@@ -70,7 +70,7 @@ plot_centrality <- function(obj,
     
 
     #--- Plot
-    browser()
+    # browser()
     density_plot <- df_centrality %>% 
       tidyr::pivot_longer(cols = everything(),
                           names_to = "measure",

@@ -9,6 +9,10 @@
 get_centrality <- function(fitobj,
                            burnin = 500){
   
+  # TODO add check that the diagonal is zero
+  # TODO allow that we don't take absolute values?
+  # TODO ignore autoregressive effects???
+  
   
   #--- BGGM
   # Obtain samples
