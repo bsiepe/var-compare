@@ -364,4 +364,157 @@ ggsave(here::here("figures/revision1/plot_postdiff99_l1_fp.pdf"),
        plot_postdiff99_l1_fp, width = 16, height = 9)
 ```
 
+Look at amount of samples that are larger than 0
+
+```{r}
+plot_postdiff_larger_l1 <- df_postdiff %>% 
+  select(!c(beta_mean, pcor_mean)) %>% 
+  pivot_longer(c(beta_larger, pcor_larger),
+               names_to = "matrix",
+               values_to = "larger") %>% 
+  mutate(matrix = gsub("_larger", "", matrix)) %>% 
+  mutate(matrix = case_match(
+    matrix,
+    "beta" ~ "Temporal",
+    "pcor" ~ "Contemporaneous"
+  )) %>% 
+  filter(comp == "l1") %>%
+  mutate(matrix = as.factor(matrix)) %>% 
+  filter(prior == "narrow") %>% 
+  filter(matrix == "Temporal") %>% 
+  ggplot(aes(y = larger, x = tp)) +
+  ggdist::stat_slabinterval()+
+  facet_nested(change ~ matrix + dgp) +
+  ggokabeito::scale_color_okabe_ito(order = c(5, 1:8))+
+  theme_compare()+
+  geom_vline(colour = "#F3F4F5", xintercept = seq(1.5, length(tp_levels), 1))+
+  theme(panel.grid.major.x = element_blank())+
+  # extend scale_y to 1.1
+  scale_y_continuous(limits = c(0.5, 1.1), breaks = seq(0.5, 1.1, .1))
+
+ggsave(here::here("figures/revision1/plot_postdiff_larger_l1.pdf"), 
+       plot_postdiff_larger_l1, width = 16, height = 9)
+
+```
+
+Look at means: They become smaller under the H0.
+
+```{r}
+plot_postdiff_mean_l1 <- df_postdiff %>% 
+  select(!c(beta_larger, pcor_larger)) %>% 
+  pivot_longer(c(beta_mean, pcor_mean),
+               names_to = "matrix",
+               values_to = "mean") %>% 
+  mutate(matrix = gsub("_mean", "", matrix)) %>% 
+  mutate(matrix = case_match(
+    matrix,
+    "beta" ~ "Temporal",
+    "pcor" ~ "Contemporaneous"
+  )) %>% 
+  filter(comp == "l1") %>%
+  mutate(matrix = as.factor(matrix)) %>% 
+  filter(prior == "narrow") %>% 
+  filter(matrix == "Temporal") %>% 
+  ggplot(aes(y = mean, x = tp)) +
+  ggdist::stat_slabinterval()+
+  facet_nested(change ~ matrix + dgp) +
+  ggokabeito::scale_color_okabe_ito(order = c(5, 1:8))+
+  theme_compare()+
+  geom_vline(colour = "#F3F4F5", xintercept = seq(1.5, length(tp_levels), 1))+
+  theme(panel.grid.major.x = element_blank())
+
+ggsave(here::here("figures/revision1/plot_postdiff_mean_l1.pdf"), 
+       plot_postdiff_mean_l1, width = 16, height = 9)
+```
+
+
+Show test distribution under H0
+```{r}
+plot_postdiff_null_dist <- df_postdiff %>% 
+  select(!c(beta_mean, pcor_mean)) %>% 
+  pivot_longer(c(beta_larger, pcor_larger),
+               names_to = "matrix",
+               values_to = "larger") %>% 
+  mutate(matrix = gsub("_larger", "", matrix)) %>% 
+  mutate(matrix = case_match(
+    matrix,
+    "beta" ~ "Temporal",
+    "pcor" ~ "Contemporaneous"
+  )) %>% 
+  filter(comp == "l1") %>%
+  mutate(matrix = as.factor(matrix)) %>% 
+  filter(prior == "narrow") %>% 
+  filter(matrix == "Temporal") %>% 
+  filter(change == "Same DGP") %>%
+  ggplot(aes(y = larger, x = tp, fill = tp)) +
+  ggrain::geom_rain(show.legend = FALSE,
+                    point.args = list(alpha = .2, 
+                                      size = .7,
+                                      show.legend = FALSE))+
+  facet_nested(change ~ matrix + dgp) +
+  ggokabeito::scale_fill_okabe_ito(order = c(5, 1:8))+
+  theme_compare()+
+  geom_vline(colour = "#F3F4F5", xintercept = seq(1.5, length(tp_levels), 1))+
+  theme(panel.grid.major.x = element_blank())+
+  # extend scale_y to 1.1
+  scale_y_continuous(limits = c(0.5, 1.1), breaks = seq(0.5, 1.1, .1))+
+  labs(subtitle = "Test statistic under Null distribution, 
+       narrow prior, 
+       l1 norm, Temporal network")
+
+ggsave(here::here("figures/revision1/plot_postdiff_null_dist.pdf"), 
+       plot_postdiff_null_dist, width = 16, height = 9)
+
+
+```
+
+
+
+## Transofrmations of test statistic
+
+### Map to [0,1] Interval
+The test statistic currently is always 0.5 or larger. We can map it to the [0,1] interval by multiplying by 2 and subtracting 1. 
+
+```{r}
+df_postdiff %>% 
+  mutate(beta_larger = 2*beta_larger - 1,
+         pcor_larger = 2*pcor_larger - 1) %>% 
+  select(!c(beta_mean, pcor_mean)) %>% 
+  pivot_longer(c(beta_larger, pcor_larger),
+               names_to = "matrix",
+               values_to = "larger") %>% 
+  mutate(matrix = gsub("_larger", "", matrix)) %>% 
+  mutate(matrix = case_match(
+    matrix,
+    "beta" ~ "Temporal",
+    "pcor" ~ "Contemporaneous"
+  )) %>% 
+  filter(comp == "l1") %>%
+  mutate(matrix = as.factor(matrix)) %>% 
+  filter(prior == "narrow") %>% 
+  filter(matrix == "Temporal") %>% 
+  filter(change == "Same DGP") %>%
+  ggplot(aes(y = larger, x = tp, fill = tp)) +
+  ggrain::geom_rain(show.legend = FALSE,
+                    point.args = list(alpha = .2, 
+                                      size = .7,
+                                      show.legend = FALSE))+
+  facet_nested(change ~ matrix + dgp) +
+  ggokabeito::scale_fill_okabe_ito(order = c(5, 1:8))+
+  theme_compare()+
+  geom_vline(colour = "#F3F4F5", xintercept = seq(1.5, length(tp_levels), 1))+
+  theme(panel.grid.major.x = element_blank())+
+  # extend scale_y to 1.1
+  scale_y_continuous(limits = c(0.1, 1.1), breaks = seq(0.1, 1.1, .1))
+
+
+
+``` 
+
+
+### Compute similary effect size (Ulitzsch et al., 2023)
+
+```{r}
+
+```
 
