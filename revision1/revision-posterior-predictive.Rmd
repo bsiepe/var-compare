@@ -1,0 +1,150 @@
+---
+title: "posterior-predictive"
+author: "Björn Siepe"
+output: html_document
+---
+
+
+# Preparation
+Idea is to use a posterior predictive approach to create reference distributions.
+All of this does not work with the standard version of BGGM! I need to obtain the Kappas from the sampler. Hence, we use BGGMmod.
+```{r}
+library(BGGMmod)
+library(foreach)
+library(tidyverse)
+library(doParallel)
+library(here)
+```
+
+
+# Functions
+This is taken from an earlier approach
+```{r}
+# Sim from posterior ------------------------------------------------------
+#' Simulate from Posterior Samples
+#' This function simulates a specified number of datasets from the posterior
+#' of a given model. Uses the graphicalVARsim function from the graphicalVAR
+#' package to generate data. 
+#' @param fitobj BGGM fit object containing all posterior samples
+#' @param n_datasets Number of datasets to create
+#' @param n Number of individuals
+#' @param tp Number of timepoints
+#' @param iterations Number of iterations used in BGGM sampling
+#' @param means Mean vector
+#' @param convert_bggm DEPRECATED: Should results be converted to BGGM List format?
+#'
+#' @return List of datasets in dataframe format. 
+#' @export
+
+sim_from_post <- function(fitobj, 
+                                   n_datasets, 
+                                   tp,
+                                   iterations,
+                                   seed,
+                                   expected = FALSE,   # if TRUE, use expected values instead of samples
+                                   means = 0,
+                                   convert_bggm = FALSE){
+  # require(doParallel)
+  # require(doRNG)
+  # browser()
+  # Extract parameters from fitobject
+  # delete first 50 samples
+  l_params <- list()
+  
+  # If only one model was fitted, fitobj is not a list
+  beta <- fitobj$fit$beta[,,51:iterations]
+  kappa <- fitobj$fit$kappa[,,51:iterations]
+
+
+
+  if(isFALSE(expected)){
+  # get random posterior samples
+  smp <- sample(iterations, size = n_datasets)
+  dat <- lapply(seq(n_datasets), function(i) {
+  # Needs transposing of beta matrix!
+    try(as.data.frame(
+      graphicalVAR::graphicalVARsim(nTime = tp,
+                                  beta = t(beta[,,smp]),
+                                  kappa = kappa[,,smp],
+                                  mean = means))) 
+})
+  }
+  if(isTRUE(expected)){
+    # get kappa_mu
+    
+   dat <- lapply(seq(n_datasets), function(i) {
+      # get random posterior sample
+      # Needs transposing of beta matrix!
+      try(as.data.frame(
+        graphicalVAR::graphicalVARsim(nTime = tp,
+                                      beta = t(fitobj$beta_mu),
+                                      kappa = fitobj$kappa_mu,
+                                      mean = means)))
+    })
+  }
+
+    dat
+}
+```
+
+
+# Example
+
+Fit models on example data:
+```{r}
+# Use networks from simulation study
+l_changed_graphs <-readRDS(here("data/l_changed_graphs_0305.RDS"))
+
+n_tp <- 200
+
+# Simulate two datasets
+net_1a <- graphicalVAR::graphicalVARsim(n_tp,
+                                       beta = l_changed_graphs$graph4$truegraph$beta,
+                                       kappa = l_changed_graphs$graph4$truegraph$kappa)
+net_1b <- graphicalVAR::graphicalVARsim(n_tp,
+                                       beta = l_changed_graphs$graph4$truegraph$beta,
+                                       kappa = l_changed_graphs$graph4$truegraph$kappa)
+
+net_2 <- graphicalVAR::graphicalVARsim(n_tp,
+                                       beta = l_changed_graphs$graph4$const0.05$beta,
+                                       kappa = l_changed_graphs$graph4$const0.05$kappa)
+
+
+net_3 <- graphicalVAR::graphicalVARsim(n_tp,
+                                       beta = l_changed_graphs$graph4$const0.15$beta,
+                                       kappa = l_changed_graphs$graph4$const0.15$kappa)
+
+# Estimate networks
+r_net_1a <- BGGMmod::var_estimate(as.data.frame(net_1a),
+                            rho_sd = 0.25, 
+                            beta_sd = 0.5,
+                            iter = 50000)
+r_net_1b <- BGGMmod::var_estimate(as.data.frame(net_1b),
+                            rho_sd = 0.25, 
+                            beta_sd = 0.5,
+                            iter = 50000)
+r_net_2 <- BGGMmod::var_estimate(as.data.frame(net_2),
+                            rho_sd = 0.25, 
+                            beta_sd = 0.5,
+                            iter = 50000)
+
+r_net_3 <- BGGMmod::var_estimate(as.data.frame(net_3),
+                            rho_sd = 0.25, 
+                            beta_sd = 0.5,
+                            iter = 50000)
+```
+
+
+## Compute posterior predictives
+
+```{r}
+
+sim_1a <- sim_from_post(r_net_1a, 
+                                 100,
+                                 tp = n_tp, 
+                                 iterations = 50000, 
+                                 123)
+
+```
+
+
