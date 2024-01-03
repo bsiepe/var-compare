@@ -5,7 +5,7 @@ date: "`r Sys.Date()`"
 output: html_document
 ---
 # Prep
-Background: As an extension to the overlap simulation, we try to subtract the reference distribution from the posterior distance distribution. Here, we combine both reference distributions into one. 
+Background: As an extension to the overlap simulation, we try to subtract the reference distribution from the posterior distance distribution. Here, we compare to two reference distributions. 
 
 ```{r}
 library(tidyverse)
@@ -46,6 +46,7 @@ dgp_names <- c("graph1", "graph2", "graph3", "graph4", "graph5")
 
 # Implement comparison
 
+No equivalence range implemented yet. 
 ```{r}
 compute_posterior_diff <- function(comp_obj, 
                               equiv_range_beta = 0,
@@ -55,9 +56,6 @@ compute_posterior_diff <- function(comp_obj,
                               nvar = 6) {
   
   # browser()
-  
-  overlap_df <- data.frame(beta = comp_obj$beta,
-                           pcor = comp_obj$pcor) 
   n_samples <- length(comp_obj$beta_ref_a)
   
   # Compute equivalence range
@@ -65,6 +63,8 @@ compute_posterior_diff <- function(comp_obj,
   erp <- equiv_range_pcor * ((nvar * nvar)/2 - nvar/2)
   
   if(isTRUE(combine_posteriors)){
+     overlap_df <- data.frame(beta = comp_obj$beta,
+                           pcor = comp_obj$pcor) 
      overlap_df$beta_ref <- c(
                           comp_obj$beta_ref_a[sample(1:n_samples, n_samples/2)], 
                           comp_obj$beta_ref_b[sample(1:n_samples, n_samples/2)])
@@ -86,8 +86,8 @@ compute_posterior_diff <- function(comp_obj,
            )
      
   } else {
-    stop("Comparing against two distributions is not implemented yet.")
-      res_df <- overlap_df %>%
+    # stop("Comparing against two distributions is not implemented yet.")
+      res_df <- comp_obj %>%
     dplyr::mutate(
            beta_diff_a = beta - beta_ref_a - erb,
            beta_diff_b = beta - beta_ref_b - erb,
@@ -160,9 +160,9 @@ l_comp_res <- foreach(i = 1:length(file_list)) %dopar% {
   eval_res <- lapply(comp_res, function(x){
     
     res <- compute_posterior_diff(x, 
-                                  equiv_range_beta = 0.005,
-                                  equiv_range_pcor = 0.005,
-                                  combine_posteriors = TRUE,
+                                  equiv_range_beta = 0,
+                                  equiv_range_pcor = 0,
+                                  combine_posteriors = FALSE,
                                   nvar = 6)
     
     res$dgp <- dgp_it
@@ -180,7 +180,7 @@ l_comp_res <- foreach(i = 1:length(file_list)) %dopar% {
   print(paste0("File ", i, " done!"))
   
   # Save output
-  saveRDS(df_eval_res, file = here::here(paste0("data/revision1/postdiff_res/postdiff_res_",dgp_it, "_",change_it,"_", tp_it, "_",comp_it, ".RDS")))
+  saveRDS(df_eval_res, file = here::here(paste0("data/revision1/postdiff_res_both/postdiff_res_",dgp_it, "_",change_it,"_", tp_it, "_",comp_it, ".RDS")))
   
 }
 stopCluster(cl)
@@ -192,14 +192,14 @@ time_after_within_eval <- Sys.time() - time_before_within_eval
 Read in results again, they were saved as individual files. 
 ```{r}
 # For wide priors
-file_list <- list.files(path = here("data/revision1/postdiff_res"), full.names = TRUE)
+file_list <- list.files(path = here("data/revision1/postdiff_res_both"), full.names = TRUE)
 file_list_w <- file_list[-grep("_narrow_", file_list)]
 l_comp_res_w <- lapply(file_list_w, readRDS)
 df_comp_res_w <- do.call(rbind, l_comp_res_w)
 
 
 # For narrow priors
-file_list <- list.files(path = here("data/revision1/postdiff_res"), full.names = TRUE)
+file_list <- list.files(path = here("data/revision1/postdiff_res_both"), full.names = TRUE)
 file_list_n <- file_list[grep("_narrow_", file_list)]
 l_comp_res_n <- lapply(file_list_n, readRDS)
 df_comp_res_n <- do.call(rbind, l_comp_res_n)
@@ -211,13 +211,13 @@ df_comp_res_n$prior <- rep("narrow", nrow(df_comp_res_n))
 
 df_comp_res <- rbind(df_comp_res_w, df_comp_res_n)
 
-write_rds(df_comp_res, here::here("output/revision1/df_postdiff_res.RDS"))
+write_rds(df_comp_res, here::here("output/revision1/df_postdiff_res_both_noequiv.RDS"))
 
 # for 0.01 equivalence range
-df_postdiff_res <- read_rds(here::here("output/revision1/df_postdiff_res.RDS"))
+# df_postdiff_res <- read_rds(here::here("output/revision1/df_postdiff_res.RDS"))
 
 # for no equivalence range: 
-df_postdiff_res <- read_rds(here::here("output/revision1/df_postdiff_res_noequiv.RDS"))
+df_postdiff_res <- read_rds(here::here("output/revision1/df_postdiff_res_both_noequiv.RDS"))
 
 ```
 
@@ -281,18 +281,24 @@ df_postdiff <- df_postdiff_res %>%
 
 ```{r}
 plot_postdiff1 <- df_postdiff %>% 
-  select(!c(beta_mean, pcor_mean)) %>% 
-  pivot_longer(c(beta_larger, pcor_larger),
+  select(!c(beta_mean_a, beta_mean_b, 
+            pcor_mean_a, pcor_mean_b)) %>% 
+  mutate(edr_beta = if_else(beta_larger_a > .99 &
+                            beta_larger_b > .99, 
+                            1, 0),
+         edr_pcor = if_else(pcor_larger_a > .99 &
+                            pcor_larger_b > .99,
+                            1, 0)) %>%
+  pivot_longer(c(edr_beta, edr_pcor),
                names_to = "matrix",
-               values_to = "larger") %>% 
-  mutate(matrix = gsub("_larger", "", matrix)) %>% 
+               values_to = "edr") %>% 
+  mutate(matrix = gsub("edr_", "", matrix)) %>% 
   mutate(matrix = case_match(
     matrix,
     "beta" ~ "Temporal",
     "pcor" ~ "Contemporaneous"
   )) %>% 
   mutate(matrix = as.factor(matrix)) %>% 
-  mutate(edr = if_else(larger > .95, 1, 0)) %>% 
   group_by(dgp, change, tp, comp, prior, matrix) %>% 
   summarize(mean_edr = mean(edr),
             se_edr = sqrt(mean_edr * (1-mean_edr) / 1000)) %>%
@@ -304,7 +310,7 @@ plot_postdiff1 <- df_postdiff %>%
   geom_vline(colour = "#F3F4F5", xintercept = seq(1.5, length(tp_levels), 1))+
   theme(panel.grid.major.x = element_blank())
 
-ggsave(here::here("figures/revision1/plot_postdiff_equiv005_95.pdf"), 
+ggsave(here::here("figures/revision1/plot_postdiff_both_noequiv_99.pdf"), 
        plot_postdiff1, width = 20, height = 25)
 
 
