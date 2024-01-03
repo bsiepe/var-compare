@@ -14,6 +14,7 @@ library(foreach)
 library(tidyverse)
 library(doParallel)
 library(here)
+source("aux_funs.R")
 ```
 
 
@@ -41,21 +42,19 @@ sim_from_post <- function(fitobj,
                                    tp,
                                    iterations,
                                    seed,
-                                   expected = FALSE,   # if TRUE, use expected values instead of samples
+                                   burnin = 500, 
+                                   expected = FALSE, # expected values or samples   
                                    means = 0,
                                    convert_bggm = FALSE){
-  # require(doParallel)
-  # require(doRNG)
+
   # browser()
-  # Extract parameters from fitobject
-  # delete first 50 samples
-  l_params <- list()
   
   # If only one model was fitted, fitobj is not a list
-  beta <- fitobj$fit$beta[,,51:iterations]
-  kappa <- fitobj$fit$kappa[,,51:iterations]
-
-
+  beta <- fitobj$fit$beta[,,(burnin+1):iterations]
+  kappa <- array(
+    apply(fitobj$fit$Sigma[,,(burnin+1):iterations], 3, solve),
+    dim = dim(fitobj$fit$Sigma[,,(burnin+1):iterations]))
+  kappa_mu <- apply(kappa, c(1,2), mean)
 
   if(isFALSE(expected)){
   # get random posterior samples
@@ -64,8 +63,8 @@ sim_from_post <- function(fitobj,
   # Needs transposing of beta matrix!
     try(as.data.frame(
       graphicalVAR::graphicalVARsim(nTime = tp,
-                                  beta = t(beta[,,smp]),
-                                  kappa = kappa[,,smp],
+                                  beta = t(beta[,,smp[i]]),
+                                  kappa = kappa[,,smp[i]],
                                   mean = means))) 
 })
   }
@@ -78,7 +77,7 @@ sim_from_post <- function(fitobj,
       try(as.data.frame(
         graphicalVAR::graphicalVARsim(nTime = tp,
                                       beta = t(fitobj$beta_mu),
-                                      kappa = fitobj$kappa_mu,
+                                      kappa = kappa_mu,
                                       mean = means)))
     })
   }
@@ -132,19 +131,421 @@ r_net_3 <- BGGMmod::var_estimate(as.data.frame(net_3),
                             rho_sd = 0.25, 
                             beta_sd = 0.5,
                             iter = 50000)
+
+
+# Check if I can get the kappas
+# Invert covariance matrix of residuals to obtain precision matrix
+r_net_1a$fit$kappa <- array(apply(r_net_1a$fit$Sigma, 3, solve), 
+                                       dim = dim(r_net_1a$fit$Sigma))
+            
+# Calculate mean of kappa
+r_net_1a$kappa_mu <- apply(r_net_1a$fit$kappa, c(1,2), mean)
 ```
 
 
 ## Compute posterior predictives
 
 ```{r}
-
 sim_1a <- sim_from_post(r_net_1a, 
-                                 100,
+                        expected = TRUE,
+                                 10,
                                  tp = n_tp, 
                                  iterations = 50000, 
-                                 123)
+                                 seed = 123)
+sim_3 <- sim_from_post(r_net_3, 
+                                 10,
+                                 tp = n_tp, 
+                                 iterations = 50000, 
+                                 seed = 123)
+
 
 ```
+
+
+# Fit on posterior predictives
+
+Reuse the old function here: 
+```{r}
+fit_var_parallel_revision <- function(data, 
+                                     n,         # number of individuals
+                                     nds,       # number of datasets
+                                     rho_prior, 
+                                     beta_prior,
+                                     seed,
+                                     iterations,
+                                     get_kappa = FALSE,
+                                     posteriorsamples = FALSE,
+                                     multigroup = FALSE,
+                                     pruneresults = FALSE, 
+                                     summarize_post = TRUE, # summarize posterior samples into intervals 
+                                     cred_int = 0.95,       # credible interval for posterior summary
+                                     select = FALSE,       # apply selection based on CI, currently only supported for non single dataset fitting
+                                     save_files = FALSE,
+                                     dgp_name = NULL){     # option to return as .rds
+  
+  # browser()
+  
+  if(n != length(data)){
+    warning("The n provided does not match the number of available data frames")
+  }
+  require(doParallel)
+
+  # reproducible parallelization
+  doRNG::registerDoRNG(seed)
+  
+  
+  # Input checks
+  if(isTRUE(select) & isTRUE(pruneresults)){
+    stop("Using select and pruneresults at the same time is not supported.")
+  }
+  
+
+  if(isFALSE(posteriorsamples) & isFALSE(multigroup)){
+    print("Fitting to raw data")
+    fit <- foreach(i = seq(nds), .packages = "BGGMmod", .export = "sim_select") %dopar% {
+
+      fit_ind <- list()
+      if(is.list(data[[i]]$data) | is.numeric(data[[i]]$data)){
+        fit_ind <- tryCatch({BGGMmod::var_estimate(as.data.frame(data[[i]]$data),
+                                                rho_sd = rho_prior,
+                                                beta_sd = beta_prior,
+                                                iter = iterations,
+                                                progress = FALSE,
+                                                seed = seed)}, error = function(e) NULL)
+        
+        
+        # Delete irrelevant matrices
+        if(is.list(fit_ind)){
+          fit_ind$fit$fisher_z <- NULL
+        }
+        
+        
+        if(isTRUE(get_kappa)){
+          # check if fitting worked
+          if(is.list(fit_ind)){
+            # Invert covariance matrix of residuals to obtain precision matrix
+            fit_ind$fit$kappa <- array(apply(fit_ind$fit$Sigma, 3, solve), 
+                                       dim = dim(fit_ind$fit$Sigma))
+            
+            # Calculate mean of kappa
+            fit_ind$kappa_mu <- apply(fit_ind$fit$kappa, c(1,2), mean)
+            
+          }
+
+        }
+        
+        # prune results for comparison purposes
+        if(isTRUE(pruneresults) & is.list(fit_ind)){
+          # beta <- fit_ind$fit$beta
+          # kappa <- fit_ind$fit$kappa
+          beta_mu <- fit_ind$beta_mu 
+          pcor_mu <- fit_ind$pcor_mu
+          # kappa_mu <- fit_ind$kappa_mu
+          args <- data[[i]]$args
+          fit_ind <- list()
+          fit_ind$beta_mu <- beta_mu
+          fit_ind$pcor_mu <- pcor_mu
+          fit_ind$kappa_mu <- NA
+          fit_ind$args <- args
+          # fit_ind$fit$beta <- beta
+          # fit_ind$fit$kappa <- kappa
+
+        } # end if isTRUE 
+        
+        # Select option
+        if(isTRUE(select) & is.list(fit_ind)){
+          sel <- sim_select(fit_ind)
+          if(isTRUE(summarize_post)){
+            cred_interval <- summarize_post(fit_ind, cred = cred_int)
+          }
+          fit_ind <- list()
+          fit_ind <- stats::setNames(sel, names(sel))
+          fit_ind$args <- data[[i]]$args
+          if(isTRUE(summarize_post)){
+            fit_ind$cred_interval <- cred_interval
+          }
+          
+          
+        } # end isTRUE select
+        
+        if(isFALSE(select) & isTRUE(summarize_post) & is.list(fit_ind)){
+          beta_mu <- fit_ind$beta_mu 
+          pcor_mu <- fit_ind$pcor_mu
+          # kappa_mu <- fit_ind$kappa_mu
+          args <- data[[i]]$args
+          cred_interval <- summarize_post(fit_ind, cred = cred_int)
+          fit_ind <- list()
+          fit_ind$beta_mu <- beta_mu
+          fit_ind$pcor_mu <- pcor_mu
+          fit_ind$kappa_mu <- NA
+          fit_ind$cred_interval <- cred_interval
+          fit_ind$args <- args
+          
+        }
+        
+
+        
+      } # end if is.list
+      # else fit_ind <- NA
+      
+      return(fit_ind)  
+    } # end foreach
+    # Cut away nonconverged attempts
+    # only for non-select
+    # if(isFALSE(select)){
+    #   lapply(fit, function(x){
+    #     if(length(x$fit) == 0){
+    #       warning("Some models did not converge!")}
+    #   })
+    #   fit <- fit[!sapply(fit, function(x) length(x$fit) == 0)]
+    #   
+    #   
+    #   # Return list with desired length
+    #   fit <- fit[c(1:n)]
+    # }
+
+
+    
+    if(isFALSE(save_files)){
+      return(fit)
+      
+    }
+    # If outputs should be saved as RDS
+    if(isTRUE(save_files)){
+      saveRDS(fit, file = here::here(paste0("data/compare_sim_fits/fit_",dgp_name, "_", data[[1]]$args$dgp, "_", data[[1]]$args$tp,".RDS")))
+      
+    }
+    
+    
+  } # end isFALSE(posteriorsamples)
+  
+  
+  # if we fit the data on samples generated from the posterior
+  if(isTRUE(posteriorsamples)){
+    print("Fitting to posterior samples")
+    
+    # counter for converged models 
+    m <- list()
+    # counter for attempted models
+    c <- list()
+    
+    
+    # loop across individuals
+    fit <- foreach(i = seq(n), .packages = "BGGMmod") %dopar% {
+      # Counter for converged models
+      m[[i]] <- 0
+      # Counter for estimated models
+      c[[i]] <- 0
+      fit <- list()
+      # loop across datasets
+        if(m[[i]] >= 100){
+          break 
+        }
+        
+        fit_ind <- list()
+        if(is.list(data[[i]])){
+          fit_ind <- tryCatch({BGGMmod::var_estimate(data[[i]],
+                                                  rho_sd = rho_prior,
+                                                  beta_sd = beta_prior,
+                                                  iter = iterations,
+                                                  progress = FALSE,
+                                                  seed = seed)}, error = function(e) NULL)
+          # Add to counter for estimated models
+          c[[i]] <- c[[i]]+1
+          
+          # check if fitting worked
+          if(is.list(fit_ind)){
+            m[[i]] <- m[[i]]+1
+            # print(m[[i]])
+            
+            
+            if(isTRUE(get_kappa)){
+              # Invert covariance matrix of residuals to obtain precision matrix
+              fit_ind$fit$kappa <- array(apply(fit_ind$fit$Sigma, 3, solve), 
+                                         dim = dim(fit_ind$fit$Sigma))
+              # Calculate mean of kappa
+              fit_ind$kappa_mu <- apply(fit_ind$fit$kappa, c(1,2), mean)
+              
+            }
+            
+            
+            # prune results for comparison purposes
+            # When fitting to posterior data, we no longer need 
+            # raw kappa/beta matrizes
+            if(isTRUE(pruneresults)){
+              # kappa <- fit_ind$fit$kappa
+              # beta <- fit_ind$fit$beta
+              beta_mu <- fit_ind$beta_mu 
+              kappa_mu <- fit_ind$kappa_mu
+              pcor_mu <- fit_ind$pcor_mu
+              n_attempts <- c[[i]]
+              fit_ind <- list()
+              # fit_ind$fit <- list()
+              fit_ind$beta_mu <- beta_mu
+              fit_ind$kappa_mu <- kappa_mu
+              fit_ind$pcor_mu <- pcor_mu
+              fit_ind$n_attempts <- n_attempts
+              # fit_ind$fit$beta <- beta
+              # fit_ind$fit$kappa <- kappa
+              
+            } 
+            
+            
+          }    # end is.list(fit_ind)
+          
+          
+        } # end is.list(data[[i]])  
+        
+        
+      
+      return(fit_ind)
+      
+    }
+    return(fit)
+    
+  } # end isTRUE posteriorsamples
+  if(isTRUE(multigroup)){
+    print("Fitting to multigroup posterior samples")
+    
+    # counter for converged models 
+    m <- list()
+    # counter for attempted models
+    c <- list()
+    
+    fit <- list()
+    
+    # Progressbar
+    pb <- utils::txtProgressBar(0, nds, style = 3)
+    
+    # loop across samples
+    fit <- foreach(i = seq(nds), .packages = "BGGMmod") %dopar% {
+      utils:: setTxtProgressBar(pb, i)
+      
+      # TODO reimplement!
+      # # Counter for converged models
+      # m[[i]] <- 0
+      # # Counter for estimated models
+      # c[[i]] <- 0
+      fit_ind <- list()
+      # loop across groups
+      for(d in seq(n)) {
+        # if(m[[i]] >= 100){
+        #   break 
+        # }
+        
+        if(is.list(data[[i]])){
+          if(is.list(data[[i]][[d]])){
+            fit_ind[[d]] <- tryCatch({BGGMmod::var_estimate(as.data.frame(data[[i]][[d]]$data),
+                                                         rho_sd = rho_prior,
+                                                         beta_sd = beta_prior,
+                                                         iter = iterations,
+                                                         progress = FALSE,
+                                                         seed = seed)}, error = function(e) NA)
+            # # Add to counter for estimated models
+            # c[[i]] <- c[[i]]+1
+            
+            # check if fitting worked (length condition needed when first d iteration
+            # fails and list is empty)
+            if(length(fit_ind) > 0){
+              if(is.list(fit_ind[[d]])){
+                # m[[i]] <- m[[i]]+1
+                # print(m[[i]])
+                
+                
+                if(isTRUE(get_kappa)){
+                  # Invert covariance matrix of residuals to obtain precision matrix
+                  fit_ind[[d]]$fit$kappa <- array(apply(fit_ind[[d]]$fit$Sigma, 3, solve), 
+                                                  dim = dim(fit_ind[[d]]$fit$Sigma))
+                  # Calculate mean of kappa
+                  fit_ind[[d]]$kappa_mu <- apply(fit_ind[[d]]$fit$kappa, c(1,2), mean)
+                  
+                }
+                
+                
+                # prune results for comparison purposes
+                # When fitting to posterior data, we no longer need 
+                # raw kappa/beta matrizes
+                if(isTRUE(pruneresults)){
+                  # kappa <- fit_ind[[d]]$fit$kappa
+                  # beta <- fit_ind[[d]]$fit$beta
+                  beta_mu <- fit_ind[[d]]$beta_mu 
+                  kappa_mu <- fit_ind[[d]]$kappa_mu
+                  pcor_mu <- fit_ind[[d]]$pcor_mu
+                  # n_attempts <- c[[i]]
+                  fit_ind[[d]] <- list()
+                  # fit_ind[[d]]$fit <- list()
+                  fit_ind[[d]]$beta_mu <- beta_mu
+                  fit_ind[[d]]$kappa_mu <- kappa_mu
+                  fit_ind[[d]]$pcor_mu <- pcor_mu
+                  # fit_ind[[d]]$n_attempts <- n_attempts
+                  # fit_ind[[d]]$fit$beta <- beta
+                  # fit_ind[[d]]$fit$kappa <- kappa
+                  
+                } # end isTRUE(pruneresults)
+                
+                
+              }    # end is.list(fit_ind)
+            }
+            
+            
+            
+          } # end is.list(data[[i]])  
+        }
+        
+        
+        
+      } # end loop across groups 
+      
+      return(fit_ind)
+      
+    } # end foreach 
+    return(fit)
+    
+  } # end isTRUE multigroup
+  
+  
+
+  
+}  
+```
+
+
+
+```{r}
+ncores = 8
+cl = makeCluster(ncores)
+clusterExport(cl = cl, "summarize_post")
+registerDoParallel(cl)
+# Fit models on posterior predictives
+post_pred_fit <- fit_var_parallel_revision(sim_3,
+                          rho_prior = 0.25,
+                          beta_prior = 0.5,
+                          iterations = 50000,
+                          n = 10,
+                          nds = 1,
+                          seed = 35037,
+                          get_kappa = FALSE, 
+                          posteriorsamples = TRUE,
+                          summarize_post = FALSE,
+                          pruneresults = FALSE,
+                          save_files = FALSE,
+                          multigroup = FALSE,
+                          select = FALSE)
+
+stopCluster(cl)
+```
+
+
+
+# Compute reference distribution from posterior predictive fits
+Now we can compute a reference distribution from these 100 fits. To do so, we create comparison distributions between a random sample of 100 pairs. 
+```{r}
+compare_gvar_between(post_pred_fit[[1]],
+                     post_pred_fit[[2]])
+
+
+
+```
+
 
 
