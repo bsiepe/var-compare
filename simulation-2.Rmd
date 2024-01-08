@@ -649,7 +649,7 @@ df_comp_res <- df_comp_res %>%
 n_comp <- 4950
 
 # significance cutoff
-sig_cut <- 0.05
+sig_cut <- 0.01
 
 # number of posterior draws
 n_draw <- 1000
@@ -815,7 +815,7 @@ plot_dec_rule_se <- df_comp_res %>%
                   axis.title.y = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3)))
 
 plot_dec_rule_se
-ggsave(filename = "plot_dec_rule_se.svg",plot_dec_rule_se, device = "svg", path = here::here("figures/"), width = 14, height = 12)
+ggsave(filename = "plot_dec_rule_se_99.svg",plot_dec_rule_se, device = "svg", path = here::here("figures/"), width = 14, height = 12)
 
 ```
 
