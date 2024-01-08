@@ -1380,6 +1380,60 @@ within_compare_eval <- function(l_res,
 
 
 
+# Within Compare Eval Revision --------------------------------------------
+# Change: Allow combination of posteriors 
+within_compare_eval_rev <- function(l_res,
+                                pcor = TRUE,){
+  
+  # if input is not a list, i.e. did not converge
+  if(!is.list(l_res)){
+    wcompres <- list(beta = NA,
+                     pcor = NA,
+                     mod_a = NA, 
+                     mod_b = NA,
+                     comp = NA)
+    return(wcompres)
+  }
+  
+  ### Betas
+  df_res <- as.data.frame(l_res)
+  df_res_beta <- subset(df_res, mat == "beta")
+  
+  # Obtain model indexes
+  model_ind_a <- unique(df_res_beta$model_ind)[1]
+  model_ind_b <- unique(df_res_beta$model_ind)[2]
+  
+  # if both indexes are the same, there is only one unique element
+  if(length(unique(df_res_beta$model_ind)) == 1){
+    model_ind_b <- unique(df_res_beta$model_ind)[1]
+  }
+  
+  # Number of posterior difference > empirical difference
+  teststat_beta <- sum(df_res_beta$null > df_res_beta$emp, na.rm = TRUE)
+  
+  
+  if(isTRUE(pcor)){
+    ### Pcor
+    df_res_pcor <- subset(df_res, mat == "pcor")
+    
+    # Number of posterior difference > empirical difference
+    teststat_pcor <- sum(df_res_pcor$null > df_res_pcor$emp, na.rm = TRUE)
+    
+  }
+  
+  
+  
+  wcompres <- list(beta = teststat_beta,
+                   pcor_a = teststat_pcor,
+                   mod_a = model_ind_a, 
+                   mod_b = model_ind_b,
+                   comp = df_res_beta$comp[[1]]) # get type of comparison
+  
+  wcompres
+}
+
+
+
 # Compare to DGP ----------------------------------------------------------
 # This function compares the BGGM VAR estimates to the true data-generating process
 # Not used for manuscript, can just be helpful for some checks

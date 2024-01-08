@@ -1181,9 +1181,331 @@ ggsave(here::here("figures/revision1/plot_dec_rule_overlap.pdf"), width = 15, he
 
 
 
-############
-# Old Code
-############
+# Old Code Revised: Rerun Simulation 2 with some changes
+
+
+Compare all models: TODO this has to change if we rerun the sim again, too many unneccessary comparisons. 
+```{r}
+# Setup list of conditions
+# All possible model combinations
+comp_combinations <- expand_grid_unique(mod_a = seq(1, n_ind, 1),
+                                 mod_b = seq(1, n_ind, 1))
+# number of data-generating processes
+n_dgp <- 5
+# Number of comparison types
+n_c_types <- 3
+
+# Number of different graph structures
+n_g_types <- 9
+
+# Number of different tp conditions
+n_t_types <- 5
+
+dgp_names <- c("graph1", "graph2", "graph3", "graph4", "graph5")
+dgp_names <- c("narrow_graph3", "narrow_graph4", "narrow_graph5")
+dgp_names <- c("graph3", "graph4", "graph5")
+
+change_names <- c("noise0.2", "const0.05", "const0.1", "const0.15")
+change_names <- c("truegraph", "change1.4", "change1.6",
+                  "noise0.1", "noise0.2", "noise0.3", 
+                  "const0.05", "const0.1", "const0.15",
+                  "permute134256")
+
+comp_names <- c("frob","maxdiff", "l1")
+
+comp_grid_mod <- expand.grid(mod_a = seq(1, n_ind, 1),
+            mod_b = seq(1, n_ind, 1),
+            dgp = dgp_names, 
+            change = change_names,
+            tp = n_tp,
+            comp = comp_names)
+
+# Filter redundant comparisons within truegraph
+comp_grid_mod <- comp_grid_mod %>% 
+  filter(!c(mod_a == mod_b & change == "truegraph")) 
+
+# Number of comparison combinations
+n_c_comb <- nrow(comp_grid_mod)
+
+```
+
+
+## Compare models 
+Previous model objects became too large, now we read them in instead of keeping them in memory.
+```{r}
+comp_grid <- expand.grid(dgp = dgp_names, 
+                         change = change_names, 
+                         comp = comp_names,
+                         tp = n_tp)
+  
+# Add filenames
+comp_grid <- comp_grid %>% 
+  mutate(ref_file = paste0("fit_", dgp, "_","truegraph","_",tp,".RDS"),
+         comp_file = paste0("fit_", dgp, "_",change,"_",tp,".RDS"))
+
+
+# Add filenames
+comp_grid <- comp_grid %>% 
+  mutate(ref_file = paste0("fit_", dgp, "_","truegraph","_",tp,".RDS"),
+         comp_file = paste0("fit_", dgp, "_",change,"_",tp,".RDS"))
+
+
+############################# NOT MORE THAN 3!!!!!!!!!!!!
+before_comp <- Sys.time()
+ncores <- 3
+cl <- makeCluster(ncores)
+clusterExport(cl, c("comp_grid",  "comp_grid_mod", "within_compare", "within_compare_eval", "post_distance_within", "here", "todo_files_num"))
+clusterEvalQ(cl, library(tidyverse))
+
+# todo change back to 1:nrow(comp_grid)
+parLapply(cl = cl, todo_files_num, function(n){
+  ## Get filter args
+  dgp_it <- as.character(comp_grid$dgp[n])
+  change_it <- as.character(comp_grid$change[n])
+  tp_it <- as.numeric(as.character(comp_grid$tp[n]))
+  comp_it <- as.character(comp_grid$comp[n])
+  
+  
+  
+  ## Read files
+    l_ref <- readRDS(file = here::here(paste0("data/compare_sim_fits/", comp_grid$ref_file[n])))
+    l_comp <- readRDS(file = here::here(paste0("data/compare_sim_fits/", comp_grid$comp_file[n])))
+    
+    
+
+
+  ## Perform comparison 
+  # Loop over all possible model combinations
+  comp_ind <- comp_grid_mod %>% 
+    mutate(dgp = as.character(dgp),
+           change = as.character(change),
+           tp = as.numeric(as.character(tp)),
+           comp = as.character(comp)) %>% 
+    filter(dgp == dgp_it &
+           change == change_it &
+           tp == tp_it &
+           comp == comp_it)
+  
+
+  wc_res <- list()
+  wc_res  <- lapply(c(1:nrow(comp_ind)), function(x){
+    
+    ## Get fitting args
+    ma <- as.numeric(as.character(comp_ind$mod_a[x]))
+    mb <- as.numeric(as.character(comp_ind$mod_b[x]))
+    cmp <- as.character(comp_ind$comp[x])
+    
+    wc_res[[x]] <- list()
+    wc_res[[x]] <- tryCatch({within_compare(mod_a = ma,
+                      mod_b = mb,
+                      fitpost_a = l_ref,
+                      fitpost_b = l_comp,
+                      fitemp_a = l_ref,
+                      fitemp_b = l_comp,
+                      n_datasets = 100,
+                      n_draws = 1000,
+                      comparison = cmp,
+                      postpred = FALSE)}, error = function(e) NA)
+  })
+  
+  # Save output
+  saveRDS(wc_res, file = here::here(paste0("data/compare_sim_res/comp_",dgp_it, "_",change_it,"_", tp_it, "_",comp_it, ".RDS")))
+  # print(paste0("Just finished row", n))
+  
+})
+
+stopCluster(cl)
+after_comp <- Sys.time()-before_comp
+
+
+
+# check if all relevant files are present
+exist_files <- list.files(path = here::here("data/compare_sim_res"))
+
+desired_files <- vector(length = nrow(comp_grid))
+desired_files <- data.frame(filename = rep(NA, nrow(comp_grid)),
+                            rownum = seq(1,nrow(comp_grid), by = 1))
+# desired_files <- list()
+for(n in 1:nrow(comp_grid)){
+
+  dgp_it <- as.character(comp_grid$dgp[n])
+  change_it <- as.character(comp_grid$change[n])
+  tp_it <- as.numeric(as.character(comp_grid$tp[n]))
+  comp_it <- as.character(comp_grid$comp[n])
+  
+  desired_files[n,1]<- paste0("comp_", dgp_it, "_",change_it,"_", tp_it, "_",comp_it, ".RDS")
+}
+# Find files that were not created yet
+todo_files <- setdiff(desired_files$filename, exist_files)
+todo_files_num <- desired_files %>% 
+  filter(!filename %in% exist_files) %>% 
+  pull(rownum)
+todo_files_num
+# This then has to be passed back to the loop above
+
+# Delete graph4 change1.2 
+todo_files <- todo_files[-grep("graph1", todo_files)]
+
+todo_files_num <- desired_files %>% 
+  filter(!filename %in% exist_files) %>% 
+  filter(!grepl("graph5_noise0.2", filename)) %>% 
+  pull(rownum)
+
+todo_files <- todo_files[grep("graph5", todo_files)]
+todo_files_num <- desired_files %>% 
+  filter(!filename %in% exist_files) %>% 
+  filter(grepl("graph5", filename)) %>% 
+  pull(rownum)
+
+```
+
+
+For server: Moving files to HDD
+```{r}
+l_copy <- list.files(path = here::here("data/compare_sim_res"), pattern = "comp_graph5")
+file.copy(from = paste0(here::here("data/compare_sim_res/"), l_copy),
+          to = paste0("/home/bjoern/HDD/var-compare/data/compare_sim_res/", l_copy))
+
+file.remove(from = paste0(here::here("data/compare_sim_res/"), l_copy))
+
+```
+
+
+Reading the files in again and extracting summary information for each
+```{r}
+file_list <- list.files(path = here::here("data/compare_sim_res"))
+
+time_before_within_eval <- Sys.time()
+# DONT GO TOO HIGH HERE!!! FILES BECOME TOO LARGE
+# (had to go with capslock because I forgot too often)
+ncores = 3
+cl = makeCluster(ncores)
+registerDoParallel(cl)
+l_comp_res <- list()
+l_comp_res <- foreach(i = 1:length(file_list)) %dopar% {
+  comp_res <- readRDS(here::here(paste0("data/compare_sim_res/",file_list[i])))
+  
+  ## Obtain information from filename
+  file_str <- file_list[i]
+  file_str_split <- strsplit(file_str, split = "_")
+  # for non-narrow condition
+  if(length(file_str_split[[1]]) == 5){
+  dgp_it <- file_str_split[[1]][2]
+  change_it <- file_str_split[[1]][3]
+  tp_it <- file_str_split[[1]][4]
+  comp_it <- file_str_split[[1]][5]
+  # delete file ending 
+  comp_it <- gsub("\\..*", "", comp_it)
+  }
+  # for narrow condition
+  if(length(file_str_split[[1]]) == 6){
+  dgp_it <- paste(file_str_split[[1]][2], file_str_split[[1]][3], sep = "_")
+  change_it <- file_str_split[[1]][4]
+  tp_it <- file_str_split[[1]][5]
+  comp_it <- file_str_split[[1]][6]
+  # delete file ending 
+  comp_it <- gsub("\\..*", "", comp_it)
+  }
+
+  ## Evaluation
+  # Loop over all comparisons
+  eval_res <- list()
+  eval_res <- lapply(comp_res, function(x){
+    
+    res <- tryCatch({within_compare_eval_rev(x)}, error = function(e) NA)
+    res$dgp <- dgp_it
+    res$change <- change_it
+    res$tp <- tp_it
+    res$comp <- comp_it
+    if(is.list(x)){
+      res$emp <-  x$emp[1]
+    } else{
+      res$emp <- NA
+    }
+    return(res)
+  })
+  
+  
+  ## Output
+  # Combine all results into dataframe
+  df_eval_res <- do.call(rbind.data.frame, eval_res)
+  print(paste0("File ", i, " done!"))
+  
+  # Save output
+  saveRDS(df_eval_res, file = here::here(paste0("data/compare_sim_eval/eval_res_",dgp_it, "_",change_it,"_", tp_it, "_",comp_it, ".RDS")))
+  
+}
+stopCluster(cl)
+
+time_after_within_eval <- Sys.time() - time_before_within_eval  
+
+# df_comp_res <- do.call(rbind, l_comp_res)
+# write_rds(df_comp_res, "df_comp_res.RDS")
+
+
+# Check which files are missing
+exist_files_res <- list.files(path = here::here("data/compare_sim_res"))
+exist_files_eval <- list.files(path = here::here("data/compare_sim_eval"))
+desired_files <- gsub("comp", "eval_res",exist_files_res)
+
+desired_files <- setdiff(desired_files, exist_files_eval)
+file_list <- gsub("eval_res", "comp",desired_files)
+
+# This then has to be passed back to the loop above
+# to_del <- list.files(path = here::here("data/compare_sim_eval/"), pattern = "narrow")
+# file.remove(from = paste0(here::here("data/compare_sim_eval/"), to_del))
+
+
+```
+
+
+Read in results again, they were saved as individual files. 
+```{r}
+# For wide priors
+# file_list <- list.files(path = "data/compare_sim_eval", full.names = TRUE)
+# file_list_w <- file_list[-grep("_narrow_", file_list)]
+# l_comp_res <- lapply(file_list_w, readRDS)
+# df_comp_res <- do.call(rbind, l_comp_res)
+# 
+# # Filter out redundant comparisons
+# df_comp_res <- df_comp_res %>% 
+#   dplyr::filter(mod_a < mod_b)
+
+# write_rds(df_comp_res, here::here("data/df_comp_res_wide_1905.RDS"))
+df_comp_res_w <- readRDS(here::here("data/df_comp_res_wide_1905.RDS"))
+
+# For narrow priors
+# file_list <- list.files(path = "data/compare_sim_eval", full.names = TRUE)
+# file_list_n <- file_list[grep("_narrow_", file_list)]
+# l_comp_res_n <- lapply(file_list_n, readRDS)
+# df_comp_res_n <- do.call(rbind, l_comp_res_n)
+# 
+# # Filter out redundant comparisons
+# df_comp_res_n <- df_comp_res_n %>% 
+#   filter(mod_a < mod_b)
+
+# write_rds(df_comp_res_n, here::here("data/df_comp_res_narrow_1905.RDS"))
+df_comp_res_n <- readRDS(here::here("data/df_comp_res_narrow_1905.RDS"))
+
+
+# Combine both 
+df_comp_res_w$prior <- rep("wide", nrow(df_comp_res_w))
+df_comp_res_n$prior <- rep("narrow", nrow(df_comp_res_n))
+
+df_comp_res <- rbind(df_comp_res_w, df_comp_res_n)
+
+# write_rds(df_comp_res, here::here("output/df_comp_res.RDS"))
+
+```
+
+
+
+What do we change: 
+- look at different cutoff for significance
+- combine reference distributions for evaluation
+- change PCOR to only look at upper.tri
+
+
 Investigate nonconvergence:
 ```{r}
 df_comp_res %>% 
