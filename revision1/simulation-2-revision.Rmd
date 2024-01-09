@@ -1187,9 +1187,6 @@ ggsave(here::here("figures/revision1/plot_dec_rule_overlap.pdf"), width = 15, he
 Compare all models: TODO this has to change if we rerun the sim again, too many unneccessary comparisons. 
 ```{r}
 # Setup list of conditions
-# All possible model combinations
-comp_combinations <- expand_grid_unique(mod_a = seq(1, n_ind, 1),
-                                 mod_b = seq(1, n_ind, 1))
 # number of data-generating processes
 n_dgp <- 5
 # Number of comparison types
@@ -1213,19 +1210,34 @@ change_names <- c("truegraph", "change1.4", "change1.6",
 
 comp_names <- c("frob","maxdiff", "l1")
 
-comp_grid_mod <- expand.grid(mod_a = seq(1, n_ind, 1),
-            mod_b = seq(1, n_ind, 1),
+# New way of creating models to be compared:
+model_combs <- data.frame(
+  mod_a = seq(1, n_ind, 1),
+  mod_b = sample(100, 100, replace = FALSE)
+)
+
+comp_grid_prep <- expand.grid(
             dgp = dgp_names, 
             change = change_names,
             tp = n_tp,
             comp = comp_names)
 
-# Filter redundant comparisons within truegraph
-comp_grid_mod <- comp_grid_mod %>% 
-  filter(!c(mod_a == mod_b & change == "truegraph")) 
+comp_grid_mod <- merge(model_combs, comp_grid_prep)
 
-# Number of comparison combinations
-n_c_comb <- nrow(comp_grid_mod)
+# Filter redundant comparisons within truegraph
+# comp_grid_mod <- comp_grid_mod %>% 
+#   filter(!c(mod_a == mod_b & change == "truegraph")) 
+
+
+# Mutate to correct format
+comp_grid_mod <- comp_grid_mod %>% 
+        mutate(dgp = as.character(dgp),
+           change = as.character(change),
+           tp = as.numeric(as.character(tp)),
+           comp = as.character(comp))
+
+# Number of comparisons
+nrow(comp_grid_mod)
 
 ```
 
@@ -1244,21 +1256,17 @@ comp_grid <- comp_grid %>%
          comp_file = paste0("fit_", dgp, "_",change,"_",tp,".RDS"))
 
 
-# Add filenames
-comp_grid <- comp_grid %>% 
-  mutate(ref_file = paste0("fit_", dgp, "_","truegraph","_",tp,".RDS"),
-         comp_file = paste0("fit_", dgp, "_",change,"_",tp,".RDS"))
 
 
 ############################# NOT MORE THAN 3!!!!!!!!!!!!
 before_comp <- Sys.time()
 ncores <- 3
 cl <- makeCluster(ncores)
-clusterExport(cl, c("comp_grid",  "comp_grid_mod", "within_compare", "within_compare_eval", "post_distance_within", "here", "todo_files_num"))
+clusterExport(cl, c("comp_grid",  "comp_grid_mod", "within_compare", "post_distance_within", "here", "todo_files_num"))
 clusterEvalQ(cl, library(tidyverse))
 
 # todo change back to 1:nrow(comp_grid)
-parLapply(cl = cl, todo_files_num, function(n){
+parLapply(cl = cl, 1:nrow(comp_grid), function(n){
   ## Get filter args
   dgp_it <- as.character(comp_grid$dgp[n])
   change_it <- as.character(comp_grid$change[n])
@@ -1302,14 +1310,13 @@ parLapply(cl = cl, todo_files_num, function(n){
                       fitpost_b = l_comp,
                       fitemp_a = l_ref,
                       fitemp_b = l_comp,
-                      n_datasets = 100,
                       n_draws = 1000,
                       comparison = cmp,
                       postpred = FALSE)}, error = function(e) NA)
   })
   
   # Save output
-  saveRDS(wc_res, file = here::here(paste0("data/compare_sim_res/comp_",dgp_it, "_",change_it,"_", tp_it, "_",comp_it, ".RDS")))
+  saveRDS(wc_res, file = here::here(paste0("data/revision1/compare_sim_res_old_idea/comp_",dgp_it, "_",change_it,"_", tp_it, "_",comp_it, ".RDS")))
   # print(paste0("Just finished row", n))
   
 })
@@ -1320,7 +1327,7 @@ after_comp <- Sys.time()-before_comp
 
 
 # check if all relevant files are present
-exist_files <- list.files(path = here::here("data/compare_sim_res"))
+exist_files <- list.files(path = here::here("data/revision1/compare_sim_res_old_idea"))
 
 desired_files <- vector(length = nrow(comp_grid))
 desired_files <- data.frame(filename = rep(NA, nrow(comp_grid)),
@@ -1432,7 +1439,7 @@ l_comp_res <- foreach(i = 1:length(file_list)) %dopar% {
   print(paste0("File ", i, " done!"))
   
   # Save output
-  saveRDS(df_eval_res, file = here::here(paste0("data/compare_sim_eval/eval_res_",dgp_it, "_",change_it,"_", tp_it, "_",comp_it, ".RDS")))
+  saveRDS(df_eval_res, file = here::here(paste0("data/revision1/compare_sim_eval/eval_res_",dgp_it, "_",change_it,"_", tp_it, "_",comp_it, ".RDS")))
   
 }
 stopCluster(cl)
@@ -1445,7 +1452,7 @@ time_after_within_eval <- Sys.time() - time_before_within_eval
 
 # Check which files are missing
 exist_files_res <- list.files(path = here::here("data/compare_sim_res"))
-exist_files_eval <- list.files(path = here::here("data/compare_sim_eval"))
+exist_files_eval <- list.files(path = here::here("data/revision1/compare_sim_eval"))
 desired_files <- gsub("comp", "eval_res",exist_files_res)
 
 desired_files <- setdiff(desired_files, exist_files_eval)
@@ -1462,30 +1469,30 @@ file_list <- gsub("eval_res", "comp",desired_files)
 Read in results again, they were saved as individual files. 
 ```{r}
 # For wide priors
-# file_list <- list.files(path = "data/compare_sim_eval", full.names = TRUE)
-# file_list_w <- file_list[-grep("_narrow_", file_list)]
-# l_comp_res <- lapply(file_list_w, readRDS)
-# df_comp_res <- do.call(rbind, l_comp_res)
-# 
+file_list <- list.files(path = here("data/revision1/compare_sim_eval"), full.names = TRUE)
+file_list_w <- file_list[-grep("_narrow_", file_list)]
+l_comp_res <- lapply(file_list_w, readRDS)
+df_comp_res <- do.call(rbind, l_comp_res)
+#
 # # Filter out redundant comparisons
-# df_comp_res <- df_comp_res %>% 
-#   dplyr::filter(mod_a < mod_b)
+df_comp_res <- df_comp_res %>%
+  dplyr::filter(mod_a < mod_b)
 
-# write_rds(df_comp_res, here::here("data/df_comp_res_wide_1905.RDS"))
-df_comp_res_w <- readRDS(here::here("data/df_comp_res_wide_1905.RDS"))
+write_rds(df_comp_res, here::here("data/revision1/df_comp_res_wide_rev1.RDS"))
+df_comp_res_w <- readRDS(here::here("data/revision1/df_comp_res_wide_rev1.RDS"))
 
 # For narrow priors
-# file_list <- list.files(path = "data/compare_sim_eval", full.names = TRUE)
-# file_list_n <- file_list[grep("_narrow_", file_list)]
-# l_comp_res_n <- lapply(file_list_n, readRDS)
-# df_comp_res_n <- do.call(rbind, l_comp_res_n)
+file_list <- list.files(path = here("data/revision1/compare_sim_eval"), full.names = TRUE)
+file_list_n <- file_list[grep("_narrow_", file_list)]
+l_comp_res_n <- lapply(file_list_n, readRDS)
+df_comp_res_n <- do.call(rbind, l_comp_res_n)
 # 
 # # Filter out redundant comparisons
-# df_comp_res_n <- df_comp_res_n %>% 
-#   filter(mod_a < mod_b)
+df_comp_res_n <- df_comp_res_n %>%
+  filter(mod_a < mod_b)
 
-# write_rds(df_comp_res_n, here::here("data/df_comp_res_narrow_1905.RDS"))
-df_comp_res_n <- readRDS(here::here("data/df_comp_res_narrow_1905.RDS"))
+write_rds(df_comp_res_n, here::here("data/revision1/df_comp_res_narrow_rev1.RDS"))
+df_comp_res_n <- readRDS(here::here("data/revision1/df_comp_res_narrow_rev1.RDS"))
 
 
 # Combine both 
@@ -1494,7 +1501,9 @@ df_comp_res_n$prior <- rep("narrow", nrow(df_comp_res_n))
 
 df_comp_res <- rbind(df_comp_res_w, df_comp_res_n)
 
-# write_rds(df_comp_res, here::here("output/df_comp_res.RDS"))
+# write_rds(df_comp_res, here::here("output/revision1/df_comp_res_rev1.RDS"))
+df_comp_res <- readRDS(here::here("output/revision1/df_comp_res_rev1.RDS"))
+
 
 ```
 
@@ -1503,7 +1512,9 @@ df_comp_res <- rbind(df_comp_res_w, df_comp_res_n)
 What do we change: 
 - look at different cutoff for significance
 - combine reference distributions for evaluation
-- change PCOR to only look at upper.tri
+  - we also have 2000 reference samples instead of 1000 now because we combine reference distributions!
+- change PCOR to only look at upper.tri (not done yet)
+  
 
 
 Investigate nonconvergence:
@@ -1572,7 +1583,7 @@ n_comp <- 4950
 sig_cut <- 0.05
 
 # number of posterior draws
-n_draw <- 1000
+n_draw <- 2000
 
 ```
 
@@ -1639,13 +1650,11 @@ ggsave(filename = "plot_test_null_dist_narrow.svg",plot_test_null_dist, device =
 
 ### Decision Rule
 What happens to power/false positives if we implement the following decision rule:
-If either A or B are "significant", we have evidence for a difference in the networks.
+We combine the reference distribution, and look at the cutoff.
 
 
 With uncertainty in the form of standard errors. 
 ```{r}
-
-
 plot_dec_rule_se <- df_comp_res %>% 
           dplyr::filter(dgp %in% c("graph3", "graph4", "graph5")) %>% 
           dplyr::filter(change != "change1.2") %>% 
@@ -1673,11 +1682,9 @@ plot_dec_rule_se <- df_comp_res %>%
           # mutate(change = fct_recode(as_factor(as.character(change)), !!!change_names)) %>% 
           # setup decision rule
           dplyr::mutate(
-                 sig_beta05 = ifelse(beta_a < sig_cut*n_draw |
-                                       beta_b < sig_cut*n_draw, 
+                 sig_beta05 = ifelse(beta < sig_cut*n_draw, 
                                      1, 0),
-                 sig_pcor05 = ifelse(pcor_a < sig_cut*n_draw |
-                                       pcor_b < sig_cut*n_draw, 
+                 sig_pcor05 = ifelse(pcor < sig_cut*n_draw, 
                                      1, 0)) %>% 
           dplyr::group_by(dgp, comp, tp, change, prior) %>% 
           dplyr::summarize(
@@ -1735,7 +1742,7 @@ plot_dec_rule_se <- df_comp_res %>%
                   axis.title.y = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3)))
 
 plot_dec_rule_se
-ggsave(filename = "plot_dec_rule_se.svg",plot_dec_rule_se, device = "svg", path = here::here("figures/"), width = 14, height = 12)
+ggsave(filename = "plot_dec_rule_se_rev1.svg",plot_dec_rule_se, device = "svg", path = here::here("figures/revision1/"), width = 14, height = 12)
 
 ```
 
