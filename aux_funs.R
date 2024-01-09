@@ -874,7 +874,6 @@ within_compare <- function(
     fitemp_b = l_res,
     mod_a = 1, 
     mod_b = 2,
-    n_datasets = 100,
     comparison = "frob",
     n_draws = 1000,
     postpred = FALSE,          # do we use the posterior predictive approach?
@@ -905,11 +904,13 @@ within_compare <- function(
   null_a <- post_distance_within(post = fitpost_a[[mod_a]], 
                                  comp = comparison, 
                                  draws = n_draws,
-                                 pred = postpred)
+                                 pred = postpred,
+                                 sampling_method = "random")
   null_b <- post_distance_within(post = fitpost_b[[mod_b]], 
                                  comp = comparison, 
                                  draws = n_draws,
-                                 pred = postpred)
+                                 pred = postpred, 
+                                 sampling_method = "random")
   
   
   
@@ -1082,13 +1083,13 @@ compare_gvar_between <- function(fit_a,
 ){
   
   #--- Obtain within-posterior uncertainty
-  ref_a <- post_distance_within_temp(fit_a,
+  ref_a <- post_distance_within(fit_a,
                                 comp = comp,
                                 pred = FALSE,
                                 draws = n_draws,
                                 sampling_method = sampling_method
   )
-  ref_b <- post_distance_within_temp(fit_b,
+  ref_b <- post_distance_within(fit_b,
                                 comp = comp,
                                 pred = FALSE,
                                 draws = n_draws,
@@ -1152,11 +1153,11 @@ compare_gvar_between <- function(fit_a,
 
 # TEMPORARY FROM TSNET
 # ONLY USES UPPER.TRI for PCOR COMP
-post_distance_within_temp <- function(fitobj,
+post_distance_within <- function(fitobj,
                                  comp,
                                  pred, # posterior predictive?
                                  draws = 1000,
-                                 sampling_method = "sequential") {
+                                 sampling_method = "random") {
   # storage
   dist_out <- list()
   
@@ -1383,7 +1384,7 @@ within_compare_eval <- function(l_res,
 # Within Compare Eval Revision --------------------------------------------
 # Change: Allow combination of posteriors 
 within_compare_eval_rev <- function(l_res,
-                                pcor = TRUE,){
+                                pcor = TRUE){
   
   # if input is not a list, i.e. did not converge
   if(!is.list(l_res)){
@@ -1424,7 +1425,7 @@ within_compare_eval_rev <- function(l_res,
   
   
   wcompres <- list(beta = teststat_beta,
-                   pcor_a = teststat_pcor,
+                   pcor = teststat_pcor,
                    mod_a = model_ind_a, 
                    mod_b = model_ind_b,
                    comp = df_res_beta$comp[[1]]) # get type of comparison
