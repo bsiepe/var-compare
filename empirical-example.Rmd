@@ -25,26 +25,29 @@ source("aux_funs.R")
 # Example prior distributions
 Draw 5000 observations for temporal and contemporaneous priors. 
 ```{r}
+set.seed(35037)
+prior_samples <- 50000
+
 ## Temporal
 # Simply sample from normal distribution
-wide_beta <- rnorm(n = 5000, mean = 0, sd = 1)
-narrow_beta <- rnorm(n = 5000, mean = 0, sd = 0.5)
+wide_beta <- rnorm(n = prior_samples, mean = 0, sd = 1)
+narrow_beta <- rnorm(n = prior_samples, mean = 0, sd = 0.5)
 
 ## Contemporaneous
 # Wide prior
-wide_pcor <- BGGM::plot_prior(prior_sd = 0.5, iter = 5000)
+wide_pcor <- BGGM::plot_prior(prior_sd = 0.5, iter = prior_samples)
 wide_pcor <- wide_pcor$plot_env$prior_samp$pcors[1,2,]
 
 # Narrow prior
-narrow_pcor <- BGGM::plot_prior(prior_sd = 0.25, iter = 5000)
+narrow_pcor <- BGGM::plot_prior(prior_sd = 0.25, iter = prior_samples)
 narrow_pcor <- narrow_pcor$plot_env$prior_samp$pcors[1,2,]
 
 # Create dataframe
 df_prior <- data.frame(
   value = c(wide_beta, narrow_beta, wide_pcor, narrow_pcor),
-  mat = c(rep("Temporal",2*5000), rep("Contemporaneous", 2*5000)),
-  prior = rep(c(rep("wide", 5000), rep("narrow", 5000)),2),
-  label = c(rep("1", 5000), rep("0.5", 5000), rep("0.5", 5000), rep("0.25", 5000))
+  mat = c(rep("Temporal",2*prior_samples), rep("Contemporaneous", 2*prior_samples)),
+  prior = rep(c(rep("wide", prior_samples), rep("narrow", prior_samples)),2),
+  label = c(rep("1", prior_samples), rep("0.5", prior_samples), rep("0.5", prior_samples), rep("0.25", prior_samples))
 )
 
 # Expressions
@@ -63,9 +66,10 @@ df_prior <- df_prior %>%
 # Create grid plot
 prior_example <- df_prior %>% 
   ggplot(aes(x = value))+
-  geom_histogram(fill = ggokabeito::palette_okabe_ito()[2],
-                 col = "black",
-                 bins = 50)+
+  geom_density(fill = ggokabeito::palette_okabe_ito()[2],
+               col = "black",
+                 # bins = 50
+               )+
   theme_compare()+
   # facet_grid(prior~mat, 
   #            scales = "free_x",
@@ -90,7 +94,7 @@ prior_example <- df_prior %>%
         panel.spacing.x = ggplot2::unit(2.5, "lines"))
 
 prior_example
-ggsave("prior_example.svg", prior_example, path = here::here("figures/") ,device = "svg", width = 10, height = 8)
+ggsave("prior_example_dens.svg", prior_example, path = here::here("figures/revision1") ,device = "svg", width = 10, height = 8)
 
 
 ```
