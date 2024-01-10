@@ -861,4 +861,90 @@ df_comps_match %>%
 ``` 
 
 
+# Example Visualizations for the revision
+
+We use individual 12 here to give some example visualizations/calculations. These visualizations are also available in the package `tsnet`. 
+
+## Centrality Uncertainty
+```{r}
+source(here::here("revision1/get_centrality.R"))
+source(here::here("revision1/plot_centrality.R"))
+
+cent_12 <- get_centrality(fit_12)
+postcent_12 <- plot_centrality(cent_12, plot_type = "density")
+
+```
+
+Combine with an edge uncertainty plot from tsnet: 
+```{r}
+postmat_12 <- tsnet::posterior_plot(fit_12)
+```
+
+Combine plots into one: 
+```{r}
+# obtain legend
+leg12 <- cowplot::get_legend(postcent_12)
+
+
+postplot_12 <- cowplot::plot_grid(postmat_12 + theme(legend.position = "none"), 
+                                  postcent_12 + theme(legend.position = "none"),
+                                  leg12,
+                                  labels = c("A", "B", ""),
+                                  rel_widths = c(1, 1, 0.2),
+                                  nrow = 1)
+postplot_12
+ggsave("postplot_12.svg", postplot_12, device = "svg", path = here::here("figures/revision1"), width = 16, height = 8)
+
+```
+
+
+
+
+
+## Bayes Factor for single edge
+We now compute the Bayes factor for connection between lagged "positive" and "enthusiastic", with a point estimate of 0.312.
+```{r}
+# 500 burn-in
+b41_post <- fit_12$fit$beta[4,1,500:50000]
+
+# Calculate quantiles
+b41_post_q <- quantile(b41_post, c(0.025, 0.975))
+
+# Samples from prior
+b41_prior <- rnorm(length(b41_post), 0, 0.5)
+
+# Compute Bayes Factor against 0
+bf_41 <- bayestestR::bayesfactor_pointnull(b41_post, b41_prior, null = 0)
+```
+
+
+Investigate prior sensitivity of the Bayes Factor: 
+```{r}
+# Narrow prior
+fit_12_narrow <- l_fits_c[[1]][[12]]
+
+# Wide prior
+fit_12_wide <- l_fits_c[[3]][[12]]
+```
+
+Compute Bayes Factors for both priors: 
+```{r}
+# 500 burn-in
+b41_post_narrow <- fit_12_narrow$fit$beta[4,1,500:50000]
+b41_post_wide <- fit_12_wide$fit$beta[4,1,500:50000]
+
+# Calculate quantiles
+b41_post_q_narrow <- quantile(b41_post_narrow, c(0.025, 0.975))
+b41_post_q_wide <- quantile(b41_post_wide, c(0.025, 0.975))
+
+# Samples from prior
+b41_prior_narrow <- rnorm(length(b41_post_narrow), 0, 0.25)
+b41_prior_wide <- rnorm(length(b41_post_wide), 0, 1)
+
+# Compute Bayes Factor against 0
+bf_41_narrow <- bayestestR::bayesfactor_pointnull(b41_post_narrow, b41_prior_narrow, null = 0)
+bf_41_wide <- bayestestR::bayesfactor_pointnull(b41_post_wide, b41_prior_wide, null = 0)
+``` 
+
+
 
