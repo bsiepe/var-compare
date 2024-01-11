@@ -33,9 +33,9 @@ plot_centrality <- function(obj,
     return(df)
   }
 
-  instrength <- create_centrality_df(obj$instrength, "instrength")
-  outstrength <- create_centrality_df(obj$outstrength, "outstrength")
-  strength <- create_centrality_df(obj$strength, "strength")
+  instrength <- create_centrality_df(obj$instrength, "Instrength")
+  outstrength <- create_centrality_df(obj$outstrength, "Outstrength")
+  strength <- create_centrality_df(obj$strength, "Strength")
 
 
   df_centrality <- cbind(
@@ -134,3 +134,4 @@ plot_centrality <- function(obj,
     return(density_plot)
   }
 }
+
