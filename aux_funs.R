@@ -907,12 +907,12 @@ within_compare <- function(
   }
   
   
-  null_a <- post_distance_within(post = fitpost_a[[mod_a]], 
+  null_a <- post_distance_within(fitpost_a[[mod_a]], 
                                  comp = comparison, 
                                  draws = n_draws,
                                  pred = postpred,
                                  sampling_method = "random")
-  null_b <- post_distance_within(post = fitpost_b[[mod_b]], 
+  null_b <- post_distance_within(fitpost_b[[mod_b]], 
                                  comp = comparison, 
                                  draws = n_draws,
                                  pred = postpred, 
