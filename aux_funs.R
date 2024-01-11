@@ -901,6 +901,12 @@ within_compare <- function(
     normtype = "F"
   }
   
+  # Helper to select upper triangle elements of matrix
+  ut <- function(x) {
+    matrix(x[upper.tri(x, diag = FALSE)])
+  }
+  
+  
   null_a <- post_distance_within(post = fitpost_a[[mod_a]], 
                                  comp = comparison, 
                                  draws = n_draws,
@@ -920,7 +926,7 @@ within_compare <- function(
     emp_beta <- tryCatch(norm(fitemp_a[[mod_a]]$beta_mu - fitemp_b[[mod_b]]$beta_mu, type = normtype), error = function(e) {NA})
     
     # Compute Distance of empirical pcors between a and b
-    emp_pcor <- tryCatch(norm(fitemp_a[[mod_a]]$pcor_mu - fitemp_b[[mod_b]]$pcor_mu, type = normtype), error = function(e) {NA})
+    emp_pcor <- tryCatch(norm(ut(fitemp_a[[mod_a]]$pcor_mu) - ut(fitemp_b[[mod_b]]$pcor_mu), type = normtype), error = function(e) {NA})
     
     
   }
@@ -930,7 +936,7 @@ within_compare <- function(
     emp_beta <- tryCatch(max(abs(fitemp_a[[mod_a]]$beta_mu - fitemp_b[[mod_b]]$beta_mu)), error = function(e) {NA})
     
     # Compute maxdiff of empirical pcors between a and b
-    emp_pcor <- tryCatch(max(abs(fitemp_a[[mod_a]]$pcor_mu - fitemp_b[[mod_b]]$pcor_mu)), error = function(e) {NA})
+    emp_pcor <- tryCatch(max(abs(ut(fitemp_a[[mod_a]]$pcor_mu) - ut(fitemp_b[[mod_b]]$pcor_mu))), error = function(e) {NA})
     
   }
   
@@ -939,7 +945,7 @@ within_compare <- function(
     emp_beta <- tryCatch(sum(abs(fitemp_a[[mod_a]]$beta_mu - fitemp_b[[mod_b]]$beta_mu)), error = function(e) {NA})
     
     # Compute l1 of empirical pcors between a and b
-    emp_pcor <- tryCatch(sum(abs(fitemp_a[[mod_a]]$pcor_mu - fitemp_b[[mod_b]]$pcor_mu)), error = function(e) {NA})
+    emp_pcor <- tryCatch(sum(abs(ut(fitemp_a[[mod_a]]$pcor_mu) - ut(fitemp_b[[mod_b]]$pcor_mu))), error = function(e) {NA})
     
     
   }
