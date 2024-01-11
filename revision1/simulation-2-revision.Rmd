@@ -1184,7 +1184,6 @@ ggsave(here::here("figures/revision1/plot_dec_rule_overlap.pdf"), width = 15, he
 # Old Code Revised: Rerun Simulation 2 with some changes
 
 
-Compare all models: TODO this has to change if we rerun the sim again, too many unneccessary comparisons. 
 ```{r}
 # Setup list of conditions
 # number of data-generating processes
@@ -1199,12 +1198,15 @@ n_g_types <- 9
 n_t_types <- 5
 
 dgp_names <- c("graph1", "graph2", "graph3", "graph4", "graph5")
+
+
+# Switch between these for narrow vs. wide prior
 dgp_names <- c("narrow_graph3", "narrow_graph4", "narrow_graph5")
-dgp_names <- c("graph3", "graph4", "graph5")
+# dgp_names <- c("graph3", "graph4", "graph5")
 
 change_names <- c("noise0.2", "const0.05", "const0.1", "const0.15")
 change_names <- c("truegraph", "change1.4", "change1.6",
-                  "noise0.1", "noise0.2", "noise0.3", 
+                  "noise0.1", "noise0.2", "noise0.3",
                   "const0.05", "const0.1", "const0.15",
                   "permute134256")
 
@@ -1258,11 +1260,11 @@ comp_grid <- comp_grid %>%
 
 
 
-############################# NOT MORE THAN 3!!!!!!!!!!!!
+############################# NOT MORE THAN 5!!!!!!!!!!!!
 before_comp <- Sys.time()
-ncores <- 3
+ncores <- 5
 cl <- makeCluster(ncores)
-clusterExport(cl, c("comp_grid",  "comp_grid_mod", "within_compare", "post_distance_within", "here", "todo_files_num"))
+clusterExport(cl, c("comp_grid",  "comp_grid_mod", "within_compare", "post_distance_within", "here"))
 clusterEvalQ(cl, library(tidyverse))
 
 # todo change back to 1:nrow(comp_grid)
@@ -1276,8 +1278,18 @@ parLapply(cl = cl, 1:nrow(comp_grid), function(n){
   
   
   ## Read files
-    l_ref <- readRDS(file = here::here(paste0("data/compare_sim_fits/", comp_grid$ref_file[n])))
-    l_comp <- readRDS(file = here::here(paste0("data/compare_sim_fits/", comp_grid$comp_file[n])))
+  l_ref <- readRDS(file = paste0("~/HDD/var-compare/data/", comp_grid$ref_file[n]))
+  l_ref <- l_ref[c(1:100)]
+  l_ref <- lapply(l_ref, function(x){
+    x$fit$fisher_z <- NULL
+    return(x)
+  })
+  l_comp <- readRDS(file = paste0("~/HDD/var-compare/data/", comp_grid$comp_file[n]))
+  l_comp <- l_comp[c(1:100)]
+  l_comp <- lapply(l_comp, function(x){
+    x$fit$fisher_z <- NULL
+    return(x)
+  })
     
     
 
@@ -1380,17 +1392,15 @@ file.remove(from = paste0(here::here("data/compare_sim_res/"), l_copy))
 
 Reading the files in again and extracting summary information for each
 ```{r}
-file_list <- list.files(path = here::here("data/compare_sim_res"))
+file_list <- list.files(path = here::here("data/revision1/compare_sim_res_old_idea"))
 
 time_before_within_eval <- Sys.time()
-# DONT GO TOO HIGH HERE!!! FILES BECOME TOO LARGE
-# (had to go with capslock because I forgot too often)
-ncores = 3
+ncores = 15
 cl = makeCluster(ncores)
 registerDoParallel(cl)
-l_comp_res <- list()
+clusterExport(cl, c("file_list", "within_compare_eval_rev", "post_distance_within", "here"))
 l_comp_res <- foreach(i = 1:length(file_list)) %dopar% {
-  comp_res <- readRDS(here::here(paste0("data/compare_sim_res/",file_list[i])))
+  comp_res <- readRDS(here::here(paste0("data/revision1/compare_sim_res_old_idea/",file_list[i])))
   
   ## Obtain information from filename
   file_str <- file_list[i]
@@ -1439,7 +1449,7 @@ l_comp_res <- foreach(i = 1:length(file_list)) %dopar% {
   print(paste0("File ", i, " done!"))
   
   # Save output
-  saveRDS(df_eval_res, file = here::here(paste0("data/revision1/compare_sim_eval/eval_res_",dgp_it, "_",change_it,"_", tp_it, "_",comp_it, ".RDS")))
+  saveRDS(df_eval_res, file = here::here(paste0("data/revision1/compare_sim_eval_old_idea/eval_res_",dgp_it, "_",change_it,"_", tp_it, "_",comp_it, ".RDS")))
   
 }
 stopCluster(cl)
@@ -1469,20 +1479,17 @@ file_list <- gsub("eval_res", "comp",desired_files)
 Read in results again, they were saved as individual files. 
 ```{r}
 # For wide priors
-file_list <- list.files(path = here("data/revision1/compare_sim_eval"), full.names = TRUE)
+file_list <- list.files(path = here("data/revision1/compare_sim_eval_old_idea"), full.names = TRUE)
 file_list_w <- file_list[-grep("_narrow_", file_list)]
 l_comp_res <- lapply(file_list_w, readRDS)
 df_comp_res <- do.call(rbind, l_comp_res)
 #
-# # Filter out redundant comparisons
-df_comp_res <- df_comp_res %>%
-  dplyr::filter(mod_a < mod_b)
 
-write_rds(df_comp_res, here::here("data/revision1/df_comp_res_wide_rev1.RDS"))
-df_comp_res_w <- readRDS(here::here("data/revision1/df_comp_res_wide_rev1.RDS"))
+write_rds(df_comp_res, here::here("data/revision1/df_comp_res_wide_old_idea_rev1.RDS"))
+df_comp_res_w <- readRDS(here::here("data/revision1/df_comp_res_wide_old_idea_rev1.RDS"))
 
 # For narrow priors
-file_list <- list.files(path = here("data/revision1/compare_sim_eval"), full.names = TRUE)
+file_list <- list.files(path = here("data/revision1/compare_sim_eval_old_idea"), full.names = TRUE)
 file_list_n <- file_list[grep("_narrow_", file_list)]
 l_comp_res_n <- lapply(file_list_n, readRDS)
 df_comp_res_n <- do.call(rbind, l_comp_res_n)
@@ -1491,8 +1498,8 @@ df_comp_res_n <- do.call(rbind, l_comp_res_n)
 df_comp_res_n <- df_comp_res_n %>%
   filter(mod_a < mod_b)
 
-write_rds(df_comp_res_n, here::here("data/revision1/df_comp_res_narrow_rev1.RDS"))
-df_comp_res_n <- readRDS(here::here("data/revision1/df_comp_res_narrow_rev1.RDS"))
+write_rds(df_comp_res_n, here::here("data/revision1/df_comp_res_narrow_old_idea_rev1.RDS"))
+df_comp_res_n <- readRDS(here::here("data/revision1/df_comp_res_narrow_old_idea_rev1.RDS"))
 
 
 # Combine both 
@@ -1501,8 +1508,8 @@ df_comp_res_n$prior <- rep("narrow", nrow(df_comp_res_n))
 
 df_comp_res <- rbind(df_comp_res_w, df_comp_res_n)
 
-# write_rds(df_comp_res, here::here("output/revision1/df_comp_res_rev1.RDS"))
-df_comp_res <- readRDS(here::here("output/revision1/df_comp_res_rev1.RDS"))
+# write_rds(df_comp_res, here::here("output/revision1/df_comp_res_old_idea_rev1.RDS"))
+df_comp_res <- readRDS(here::here("output/revision1/df_comp_res_old_idea_rev1.RDS"))
 
 
 ```
