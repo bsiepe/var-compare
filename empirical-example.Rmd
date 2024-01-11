@@ -18,6 +18,7 @@ library(imputeTS)
 library(cowplot)
 library(here)
 source("aux_funs.R")
+set.seed(35037)
 ```
 
 
@@ -25,7 +26,7 @@ source("aux_funs.R")
 # Example prior distributions
 Draw 5000 observations for temporal and contemporaneous priors. 
 ```{r}
-set.seed(35037)
+
 prior_samples <- 50000
 
 ## Temporal
@@ -864,20 +865,35 @@ df_comps_match %>%
 # Example Visualizations for the revision
 
 We use individual 12 here to give some example visualizations/calculations. These visualizations are also available in the package `tsnet`. 
+```{r}
+# Load fitted model with moderate prior
+l_fits_c <- readRDS(here::here("output/empirical-example/l_fits.RDS"))
+fit_12 <- l_fits_c[[2]][[12]]
+rm(l_fits_c)
+```
+
 
 ## Centrality Uncertainty
+Obtain centrality without autoregressive effects:
 ```{r}
 source(here::here("revision1/get_centrality.R"))
 source(here::here("revision1/plot_centrality.R"))
 
-cent_12 <- get_centrality(fit_12)
-postcent_12 <- plot_centrality(cent_12, plot_type = "density")
+cent_12 <- get_centrality(fit_12, remove_ar = TRUE)
+postcent_12 <- plot_centrality(cent_12, plot_type = "density")+
+  theme_compare()+
+  labs(y = "")+
+  theme(legend.position = "right")
 
 ```
 
 Combine with an edge uncertainty plot from tsnet: 
 ```{r}
-postmat_12 <- tsnet::posterior_plot(fit_12)
+postmat_12 <- tsnet::posterior_plot(fit_12) + 
+  theme_compare()+
+  labs(x = "Estimate")+
+  theme(axis.ticks.y=element_blank(),
+        axis.text.y=element_blank())
 ```
 
 Combine plots into one: 
