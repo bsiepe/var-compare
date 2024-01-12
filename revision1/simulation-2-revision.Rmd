@@ -1201,8 +1201,9 @@ dgp_names <- c("graph1", "graph2", "graph3", "graph4", "graph5")
 
 
 # Switch between these for narrow vs. wide prior
-dgp_names <- c("narrow_graph3", "narrow_graph4", "narrow_graph5")
-# dgp_names <- c("graph3", "graph4", "graph5")
+dgp_names_n <- c("narrow_graph3", "narrow_graph4", "narrow_graph5")
+dgp_names_w <- c("graph3", "graph4", "graph5")
+dgp_names <- c(dgp_names_n, dgp_names_w)
 
 change_names <- c("noise0.2", "const0.05", "const0.1", "const0.15")
 change_names <- c("truegraph", "change1.4", "change1.6",
@@ -1395,7 +1396,7 @@ Reading the files in again and extracting summary information for each
 file_list <- list.files(path = here::here("data/revision1/compare_sim_res_old_idea"))
 
 time_before_within_eval <- Sys.time()
-ncores = 15
+ncores = 10
 cl = makeCluster(ncores)
 registerDoParallel(cl)
 clusterExport(cl, c("file_list", "within_compare_eval_rev", "post_distance_within", "here"))
@@ -1483,7 +1484,6 @@ file_list <- list.files(path = here("data/revision1/compare_sim_eval_old_idea"),
 file_list_w <- file_list[-grep("_narrow_", file_list)]
 l_comp_res <- lapply(file_list_w, readRDS)
 df_comp_res <- do.call(rbind, l_comp_res)
-#
 
 write_rds(df_comp_res, here::here("data/revision1/df_comp_res_wide_old_idea_rev1.RDS"))
 df_comp_res_w <- readRDS(here::here("data/revision1/df_comp_res_wide_old_idea_rev1.RDS"))
@@ -1493,10 +1493,7 @@ file_list <- list.files(path = here("data/revision1/compare_sim_eval_old_idea"),
 file_list_n <- file_list[grep("_narrow_", file_list)]
 l_comp_res_n <- lapply(file_list_n, readRDS)
 df_comp_res_n <- do.call(rbind, l_comp_res_n)
-# 
-# # Filter out redundant comparisons
-df_comp_res_n <- df_comp_res_n %>%
-  filter(mod_a < mod_b)
+
 
 write_rds(df_comp_res_n, here::here("data/revision1/df_comp_res_narrow_old_idea_rev1.RDS"))
 df_comp_res_n <- readRDS(here::here("data/revision1/df_comp_res_narrow_old_idea_rev1.RDS"))
@@ -1584,7 +1581,7 @@ df_comp_res <- df_comp_res %>%
 # write_rds(df_comp_res, here::here("output/df_comp_res.RDS"))
 
 # Number of combinations
-n_comp <- 4950
+n_comp <- 100
 
 # significance cutoff
 sig_cut <- 0.05
@@ -1597,6 +1594,7 @@ n_draw <- 2000
 #### Posterior Diff > Empirical
 
 Distribution of values under the null for the frobenius norm only.
+TODO has to change
 ```{r}
 plot_test_null_dist <- df_comp_res %>% 
           dplyr::filter(dgp %in% c("graph3", "graph4", "graph5")) %>% 
@@ -1613,8 +1611,8 @@ plot_test_null_dist <- df_comp_res %>%
           pivot_longer(cols = c("beta_a", "beta_b", "pcor_a", "pcor_b"), 
                        names_to = "res", values_to = "value") %>% 
           group_by(comp, tp, change, dgp, res) %>% 
-          # we have 1000 draws, so divide by 1000 for proportion
-          dplyr::summarize(pct_larger = value/1000) %>%  
+          # compute pct larger than empirical 
+          dplyr::summarize(pct_larger = value/n_draw) %>%  
           # ignore model a and b because they are almost identical in distribution
           mutate(res = gsub("_.", "", res)) %>% 
           dplyr::mutate(res = case_match(res,
@@ -1693,12 +1691,14 @@ plot_dec_rule_se <- df_comp_res %>%
                                      1, 0),
                  sig_pcor05 = ifelse(pcor < sig_cut*n_draw, 
                                      1, 0)) %>% 
-          dplyr::group_by(dgp, comp, tp, change, prior) %>% 
+          # for now, only narrow prior
+          dplyr::filter(prior == "narrow") %>%
+          dplyr::group_by(dgp, comp, tp, change) %>% 
           dplyr::summarize(
                     power_beta05 = sum(sig_beta05)/n_comp,
                     power_pcor05 = sum(sig_pcor05)/n_comp,
-                    se_beta05 = sqrt((power_beta05 * (1-power_beta05))/100),
-                    se_pcor05 = sqrt((power_pcor05 * (1-power_pcor05))/100)) %>% 
+                    se_beta05 = sqrt((power_beta05 * (1-power_beta05))/n_comp),
+                    se_pcor05 = sqrt((power_pcor05 * (1-power_pcor05))/n_comp)) %>% 
           tidyr::pivot_longer(cols = c("power_beta05", "power_pcor05"), names_to = "res") %>%
           # attach correct se
           dplyr::mutate(se = ifelse(grepl("beta", res), se_beta05, se_pcor05)) %>% 
@@ -1707,8 +1707,7 @@ plot_dec_rule_se <- df_comp_res %>%
             grepl("beta05", res) ~ "Temporal",
             grepl("pcor05", res) ~ "Contemporaneous")) %>% 
           dplyr::ungroup() %>% 
-          # for now, only narrow prior
-          dplyr::filter(prior == "narrow") %>%
+
           ## uncomment this to include both priors
           # ggplot(aes(x = tp, y = value, col = comp,
           #            group = interaction(comp, prior), linetype = prior)) +
@@ -1764,8 +1763,8 @@ plot_false_positive_se <- df_comp_res %>%
           dplyr::filter(dgp %in% c("graph3", "graph4", "graph5")) %>%
           filter(change == "truegraph") %>%
           # setup decision rule
-          mutate(sig_beta05 = ifelse(beta_a < sig_cut*n_draw | beta_b < sig_cut*n_draw, 1, 0),
-                 sig_pcor05 = ifelse(pcor_a < sig_cut*n_draw | pcor_b < sig_cut*n_draw, 1, 0)) %>%
+          mutate(sig_beta05 = ifelse(beta < sig_cut*n_draw, 1, 0),
+                 sig_pcor05 = ifelse(pcor < sig_cut*n_draw , 1, 0)) %>%
           # mutate tp_ind into factor
           mutate(tp = as.factor(tp)) %>%
           mutate(tp = forcats::fct_relevel(tp, "50", "100", "200", "400", "1000")) %>%
@@ -1775,8 +1774,8 @@ plot_false_positive_se <- df_comp_res %>%
           dplyr::summarize(
                     power_beta05 = sum(sig_beta05)/n_comp,
                     power_pcor05 = sum(sig_pcor05)/n_comp,
-                    se_beta05 = sqrt((power_beta05 * (1-power_beta05))/100),
-                    se_pcor05 = sqrt((power_pcor05 * (1-power_pcor05))/100)) %>% 
+                    se_beta05 = sqrt((power_beta05 * (1-power_beta05))/n_comp),
+                    se_pcor05 = sqrt((power_pcor05 * (1-power_pcor05))/n_comp)) %>% 
           tidyr::pivot_longer(cols = c("power_beta05", "power_pcor05"), names_to = "res") %>%
           # attach correct se
           dplyr::mutate(se = ifelse(grepl("beta", res), se_beta05, se_pcor05)) %>% 
@@ -1825,8 +1824,8 @@ plot_false_positive_se <- df_comp_res %>%
                   axis.title.y = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3)))
 
 plot_false_positive_se
-ggsave(filename = paste0("plot_false_positive_se.svg"),plot_false_positive_se, device = "svg",
-         path = here::here("figures/"), width = 13, height = 6)
+ggsave(filename = paste0("plot_false_positive_se_rev1.svg"),plot_false_positive_se, device = "svg",
+         path = here::here("figures/revision1/"), width = 13, height = 6)
 ```
 
 
@@ -1871,14 +1870,14 @@ plot_dec_rule_prior_sens <- df_comp_res %>%
                                                       "All ± 0.10",
                                                       "All ± 0.15")) %>% 
           # setup decision rule
-          dplyr::mutate(sig_beta05 = ifelse(beta_a < 50 | beta_b < 50, 1, 0),
-                 sig_pcor05 = ifelse(pcor_a < 50 | pcor_b < 50, 1, 0)) %>% 
+          mutate(sig_beta05 = ifelse(beta < sig_cut*n_draw, 1, 0),
+                 sig_pcor05 = ifelse(pcor < sig_cut*n_draw , 1, 0)) %>%
           dplyr::group_by(dgp, comp, prior, tp, change) %>% 
           dplyr::summarize(
                     power_beta05 = sum(sig_beta05)/n_comp,
                     power_pcor05 = sum(sig_pcor05)/n_comp,
-                    se_beta05 = sqrt((power_beta05 * (1-power_beta05))/100),
-                    se_pcor05 = sqrt((power_pcor05 * (1-power_pcor05))/100)) %>% 
+                    se_beta05 = sqrt((power_beta05 * (1-power_beta05))/n_comp),
+                    se_pcor05 = sqrt((power_pcor05 * (1-power_pcor05))/n_comp)) %>% 
           tidyr::pivot_longer(cols = c("power_beta05", "power_pcor05"), names_to = "res") %>%
           # attach correct se
           dplyr::mutate(se = ifelse(grepl("beta", res), se_beta05, se_pcor05)) %>% 
@@ -1920,8 +1919,8 @@ plot_dec_rule_prior_sens <- df_comp_res %>%
 
 
 plot_dec_rule_prior_sens
-ggsave(filename ="plot_dec_rule_prior_sens.svg",plot_dec_rule_prior_sens, device = "svg",
-         path = here::here("figures/"), width = 13, height = 10)
+ggsave(filename ="plot_dec_rule_prior_sens_rev1.svg",plot_dec_rule_prior_sens, device = "svg",
+         path = here::here("figures/revision1/"), width = 13, height = 10)
 ```
 
 
@@ -1932,8 +1931,8 @@ plot_false_positive_se_prior_sens <- df_comp_res %>%
           dplyr::filter(dgp %in% c("graph3", "graph4", "graph5")) %>%
           dplyr::filter(change == "truegraph") %>%
           # setup decision rule
-          dplyr::mutate(sig_beta05 = ifelse(beta_a < sig_cut*n_draw | beta_b < sig_cut*n_draw, 1, 0),
-                 sig_pcor05 = ifelse(pcor_a < sig_cut*n_draw | pcor_b < sig_cut*n_draw, 1, 0)) %>%
+          mutate(sig_beta05 = ifelse(beta < sig_cut*n_draw, 1, 0),
+                 sig_pcor05 = ifelse(pcor < sig_cut*n_draw , 1, 0)) %>%
           # mutate tp_ind into factor
           dplyr::mutate(tp = as.factor(tp)) %>%
           dplyr::mutate(tp = forcats::fct_relevel(tp, "50", "100", "200", "400", "1000")) %>%
@@ -1942,8 +1941,8 @@ plot_false_positive_se_prior_sens <- df_comp_res %>%
           dplyr::summarize(
                     power_beta05 = sum(sig_beta05)/n_comp,
                     power_pcor05 = sum(sig_pcor05)/n_comp,
-                    se_beta05 = sqrt((power_beta05 * (1-power_beta05))/100),
-                    se_pcor05 = sqrt((power_pcor05 * (1-power_pcor05))/100)) %>% 
+                    se_beta05 = sqrt((power_beta05 * (1-power_beta05))/n_comp),
+                    se_pcor05 = sqrt((power_pcor05 * (1-power_pcor05))/n_comp)) %>% 
           dplyr::mutate(change = case_match(
             change,
                   "change1.2" ~ paste("Largest", "\u00D7", "1.2"),
@@ -1998,8 +1997,8 @@ plot_false_positive_se_prior_sens <- df_comp_res %>%
                   axis.title.y = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3)))
 
 plot_false_positive_se_prior_sens
-ggsave(filename = paste0("plot_false_positive_se_prior_sens.svg"),plot_false_positive_se_prior_sens, device = "svg",
-         path = here::here("figures/"), width = 13, height = 6)
+ggsave(filename = paste0("plot_false_positive_se_prior_sens_rev1.svg"),plot_false_positive_se_prior_sens, device = "svg",
+         path = here::here("figures/revision1/"), width = 13, height = 6)
 
 
 ```
