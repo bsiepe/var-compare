@@ -26,7 +26,6 @@ set.seed(35037)
 # Example prior distributions
 Draw 5000 observations for temporal and contemporaneous priors. 
 ```{r}
-
 prior_samples <- 50000
 
 ## Temporal
@@ -353,7 +352,10 @@ max(ind_ess_pcor)
 # Test
 Test across all participants and across different priors. I ran into some memory issues here, so I splitted based on priors.
 We use compare_var instead of within_compare from the simulation study here because I improved the function after having 
-computed all simulation results. The improvements were only for clarity/performance, results are the same. 
+computed all simulation results. The improvements were only for clarity/performance, results are the same.
+
+## Conduct the test
+We now use the `compare_gvar` function from the tsnet package. 
 ```{r}
 l_fits <- l_fits_c
 fit_grid <- expand.grid(fit_a = 1:length(l_fits[[1]]), 
@@ -362,9 +364,10 @@ fit_grid <- expand.grid(fit_a = 1:length(l_fits[[1]]),
                         comp = c("l1", "frob", "maxdiff"))
 l_comps <- list()
 
-cl = makeCluster(14)
+cl = makeCluster(12)
 registerDoParallel(cl)
-clusterExport(cl, c("compare_var", "post_distance_within"))
+# clusterExport(cl, c("compare_var", "post_distance_within"))
+clusterEvalQ(cl, library(tsnet))
 l_fits_1 <- l_fits[[1]]
 fit_grid_1 <- fit_grid %>% 
   filter(priors == 1)
@@ -380,7 +383,10 @@ l_comps_1 <- foreach(i = 1:nrow(fit_grid_1)) %dopar% {
   
   if(is.list(l_fits_1[[a]]) & is.list(l_fits_1[[b]])){
 
-  comp_res  <- compare_var(l_fits_1[[a]],l_fits_1[[b]], comp = compa)
+  comp_res  <- tsnet::compare_gvar(l_fits_1[[a]],
+                                   l_fits_1[[b]], 
+                                   comp = compa,
+                                   dec_rule = "comb")
 
   return(comp_res)
   }
@@ -404,7 +410,10 @@ l_comps_2 <- foreach(i = 1:nrow(fit_grid_2)) %dopar% {
 
   
   if(is.list(l_fits_2[[a]]) & is.list(l_fits_2[[b]])){
-  comp_res  <- compare_var(l_fits_2[[a]],l_fits_2[[b]], comp = compa)
+  comp_res  <- tsnet::compare_gvar(l_fits_2[[a]],
+                           l_fits_2[[b]],
+                           comp = compa,
+                           dec_rule = "comb")
 
   return(comp_res)
   }
@@ -435,7 +444,10 @@ l_comps_3 <- foreach(i = 1:nrow(fit_grid_3)) %dopar% {
   
   if(is.list(l_fits_3[[a]]) & is.list(l_fits_3[[b]])){
 
-  comp_res  <- compare_var(l_fits_3[[a]],l_fits_3[[b]], comp = compa)
+  comp_res  <- tsnet::compare_gvar(l_fits_3[[a]],
+                                   l_fits_3[[b]], 
+                                   comp = compa,
+                                   dec_rule = "comb")
 
   return(comp_res)
   }
@@ -467,9 +479,9 @@ df_comps <- df_compsc %>%
   dplyr::select(-c(larger_beta, larger_pcor)) %>% 
   as.data.frame()
 
-# saveRDS(df_comps, file = here::here("data/empirical_example/df_comps_cubicspline.RDS"))
+saveRDS(df_comps, file = here::here("data/empirical_example/df_comps_cubicspline_rev1.RDS"))
 
-df_comps <- readRDS(here::here("data/empirical_example/df_comps_cubicspline.RDS"))
+df_comps <- readRDS(here::here("data/empirical_example/df_comps_cubicspline_rev1.RDS"))
 ```
 
 
@@ -541,7 +553,8 @@ plot_net <- function(fit_obj){
 
 
 ## Example: No evidence for differences
-8 and 29
+12 and 18, now with new test.
+
 ```{r}
 # Look for examples with no evidence for diffs
 df_comps %>% 
@@ -561,7 +574,10 @@ fit_12 <- l_fits_c[[2]][[12]]
 fit_18 <- l_fits_c[[2]][[18]]
 
 # Compare
-res_emp_comp <- compare_var(fit_12, fit_18, return_all = TRUE)
+res_emp_comp <- tsnet::compare_gvar(fit_12, 
+                                    fit_18, 
+                                    return_all = TRUE,
+                                    dec_rule = "comb")
 
 # calculate median edge difference
 mean(abs(fit_12$beta_mu-fit_18$beta_mu))
@@ -572,7 +588,7 @@ sum(sign(fit_12$beta_mu) != sign(fit_18$beta_mu))
 sum(sign(fit_12$pcor_mu[upper.tri(fit_12$pcor_mu, diag = FALSE)]) != sign(fit_18$pcor_mu[upper.tri(fit_18$pcor_mu, diag = FALSE)]))
 
 # Plot automatically
-plot.compare_var(res_emp_comp, name_a = "ID 12", name_b = "ID 18")
+plot(res_emp_comp, name_a = "ID 12", name_b = "ID 18")
 
 
 ```
@@ -622,7 +638,7 @@ svg(filename = "figures/empirical_network_18t.svg")
 p18_temp <- qgraph::qgraph(fit_18$beta_mu, 
                            theme = "colorblind", 
                            layout = "circle",
-                           color = ggokabeito::palette_okabe_ito()[2], 
+                           color = ggokabeito::palette_okabe_ito()[3], 
                            maximum = max_sc, 
                            negDashed = TRUE)
 dev.off()
@@ -641,7 +657,7 @@ svg(filename = "figures/empirical_network_18c.svg")
 p18_cont <- qgraph::qgraph(fit_18$pcor_mu, 
                            theme = "colorblind", 
                            layout = "circle",
-                           color = ggokabeito::palette_okabe_ito()[2], 
+                           color = ggokabeito::palette_okabe_ito()[3], 
                            maximum = max_sc, 
                            negDashed = TRUE)
 dev.off()
@@ -652,11 +668,13 @@ dev.off()
 plt_beta <- 
   res_emp_comp$res_beta %>%
     mutate(mod = case_match(mod,
-                            "mod_a" ~ "ID 19",
-                            "mod_b" ~ "ID 40")) %>% 
-    ggplot(aes(x = null, fill = mod, linetype = mod))+
-    geom_density(alpha = .7)+
-    ggokabeito::scale_fill_okabe_ito()+
+                            "mod_a" ~ "ID 12",
+                            "mod_b" ~ "ID 18")) %>% 
+    ggplot(aes(x = null, 
+               # fill = mod, 
+               # linetype = mod
+               ))+
+    geom_density(alpha = .9, fill = ggokabeito::palette_okabe_ito()[5])+
     geom_vline(aes(xintercept = res_emp_comp$emp_beta), 
                col = "black", lty = 1, linewidth = .75)+
     scale_y_continuous(expand = c(0,0.05))+
@@ -668,19 +686,22 @@ plt_beta <-
          title = "Test")+
     theme(axis.ticks.y = element_blank(),
           axis.text.y = element_blank(),
-          legend.position = "right",
+          legend.position = "none",
           legend.key.height= unit(0.5, 'cm'),
           legend.key.width= unit(1, 'cm'),
-          plot.title = element_text(face = "plain", family = "news", size = 9, hjust = 0))
+          plot.title = element_text(face = "plain", family = "news", size = 11, hjust = 0))
 plt_beta
 
 plt_pcor <- 
   res_emp_comp$res_pcor %>%
     mutate(mod = case_match(mod,
-                            "mod_a" ~ "ID 19",
-                            "mod_b" ~ "ID 40")) %>% 
-    ggplot(aes(x = null, fill = mod, linetype = mod))+
-    geom_density(alpha = .7)+
+                            "mod_a" ~ "ID 12",
+                            "mod_b" ~ "ID 18")) %>% 
+    ggplot(aes(x = null, 
+               # fill = mod, 
+               # linetype = mod
+               ))+
+    geom_density(alpha = .9, fill = ggokabeito::palette_okabe_ito()[5])+
     ggokabeito::scale_fill_okabe_ito()+
     geom_vline(aes(xintercept = res_emp_comp$emp_pcor), 
                col = "black", lty = 1, linewidth = .75)+
@@ -691,10 +712,10 @@ plt_pcor <-
     theme_compare()+
     theme(axis.ticks.y = element_blank(),
           axis.text.y = element_blank(),
-          legend.position = "right", 
+          legend.position = "none", 
           plot.title = element_text(face = "plain", family = "news", size = 9, hjust = 0))
 
-leg <- cowplot::get_legend(plt_beta)
+# leg <- cowplot::get_legend(plt_beta)
   
 # Plot
 plt_tmp <- cowplot::plot_grid(plt_beta + theme(legend.position = "none"),
@@ -716,13 +737,13 @@ svg_18c <- magick::image_read_svg(here::here("figures/empirical_network_18c.svg"
 
 plt_12t <- ggdraw() + 
   draw_image(svg_12t, scale = 1) +
-  draw_label("ID 12", x = 0.1, y = 0.85, fontfamily = "news", size = 9)
+  draw_label("ID 12", x = 0.1, y = 0.85, fontfamily = "news", size = 11)
 plt_12t
 plt_12c <- ggdraw() + 
   draw_image(svg_12c, scale = 1)
 plt_18t <- ggdraw() + 
   draw_image(svg_18t, scale = 1) + 
-  draw_label("ID 18", x = 0.1, y = 0.85, fontfamily = "news", size = 9)
+  draw_label("ID 18", x = 0.1, y = 0.85, fontfamily = "news", size = 11)
 plt_18c <- ggdraw() + draw_image(svg_18c, scale = 1)
 
 row_12 <- plot_grid(plt_12t, plt_12c, 
@@ -741,8 +762,8 @@ full_plot <- plot_grid(
   rel_heights = c(1,1,0.7)
 )
 
-ggsave("full_plot_empirical_example_dashed.svg", full_plot, device = "svg", height = 8.5, width = 6, 
-       path = here::here("figures/"))
+ggsave("full_plot_empirical_example_rev1.svg", full_plot, device = "svg", height = 8.5, width = 7, 
+       path = here::here("figures/revision1/"))
 
 ```
 
@@ -869,6 +890,7 @@ We use individual 12 here to give some example visualizations/calculations. Thes
 # Load fitted model with moderate prior
 l_fits_c <- readRDS(here::here("output/empirical-example/l_fits.RDS"))
 fit_12 <- l_fits_c[[2]][[12]]
+fit_18 <- l_fits_c[[2]][[18]]
 rm(l_fits_c)
 ```
 
@@ -961,6 +983,5 @@ b41_prior_wide <- rnorm(length(b41_post_wide), 0, 1)
 bf_41_narrow <- bayestestR::bayesfactor_pointnull(b41_post_narrow, b41_prior_narrow, null = 0)
 bf_41_wide <- bayestestR::bayesfactor_pointnull(b41_post_wide, b41_prior_wide, null = 0)
 ``` 
-
 
 
