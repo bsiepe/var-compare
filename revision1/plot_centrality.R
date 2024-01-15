@@ -33,9 +33,9 @@ plot_centrality <- function(obj,
     return(df)
   }
 
-  instrength <- create_centrality_df(obj$instrength, "Instrength")
-  outstrength <- create_centrality_df(obj$outstrength, "Outstrength")
-  strength <- create_centrality_df(obj$strength, "Strength")
+  instrength <- create_centrality_df(obj$instrength, "Temporal\nInstrength")
+  outstrength <- create_centrality_df(obj$outstrength, "Temporal\nOutstrength")
+  strength <- create_centrality_df(obj$strength, "Contemporaneous\nStrength")
 
 
   df_centrality <- cbind(
@@ -80,7 +80,7 @@ plot_centrality <- function(obj,
         xmax = ub
       )) +
       ggdist::theme_ggdist() +
-      ggplot2::facet_grid(. ~ .data$centrality) +
+      ggplot2::facet_wrap(. ~ .data$centrality) +
       ggplot2::labs(
         x = "Centrality",
         y = "Variable"
@@ -123,7 +123,9 @@ plot_centrality <- function(obj,
       ) +
       ggplot2::scale_alpha(guide = "none") +
       ggdist::theme_ggdist() +
-      ggplot2::facet_grid(. ~ .data$centrality) +
+      ggh4x::facet_wrap2(. ~ .data$centrality, 
+                         axes = "all",
+                         remove_labels = "y") +
       ggplot2::scale_fill_brewer() +
       ggplot2::labs(
         x = "Centrality",

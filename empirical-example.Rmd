@@ -18,7 +18,7 @@ library(imputeTS)
 library(cowplot)
 library(here)
 source("aux_funs.R")
-set.seed(35037)
+set.seed(2022)
 ```
 
 
@@ -363,12 +363,14 @@ fit_grid <- expand.grid(fit_a = 1:length(l_fits[[1]]),
                         priors = seq(nrow(df_prior), 1), 
                         comp = c("l1", "frob", "maxdiff"))
 l_comps <- list()
-
-cl = makeCluster(12)
+l_fits_1 <- l_fits[[1]]
+rm(l_fits)
+cl = makeCluster(3)
 registerDoParallel(cl)
 # clusterExport(cl, c("compare_var", "post_distance_within"))
+clusterExport(cl, c("l_fits_1"))
 clusterEvalQ(cl, library(tsnet))
-l_fits_1 <- l_fits[[1]]
+
 fit_grid_1 <- fit_grid %>% 
   filter(priors == 1)
 l_comps_1 <- foreach(i = 1:nrow(fit_grid_1)) %dopar% {
@@ -379,21 +381,18 @@ l_comps_1 <- foreach(i = 1:nrow(fit_grid_1)) %dopar% {
   p_ind <- fit_grid_1$priors[i]
   compa <-  as.character(fit_grid_1$comp[i])
 
-
-  
-  if(is.list(l_fits_1[[a]]) & is.list(l_fits_1[[b]])){
-
   comp_res  <- tsnet::compare_gvar(l_fits_1[[a]],
                                    l_fits_1[[b]], 
                                    comp = compa,
                                    dec_rule = "comb")
 
+  saveRDS(comp_res, file = here::here("output/empirical-example/test-individual-files", paste0("comp_res_", i, ".rds")))
   return(comp_res)
-  }
-  else
-    return(NA)
+  
   
 }
+saveRDS(l_comps_1, file = here::here("output/empirical-example", "l_comps_1.rds"))
+# stopCluster(cl)
 
 
 
@@ -901,12 +900,24 @@ Obtain centrality without autoregressive effects:
 source(here::here("revision1/get_centrality.R"))
 source(here::here("revision1/plot_centrality.R"))
 
+library(ggh4x)
+
 cent_12 <- get_centrality(fit_12, remove_ar = TRUE)
 postcent_12 <- plot_centrality(cent_12, plot_type = "density")+
   theme_compare()+
   labs(y = "")+
-  theme(legend.position = "right")
+  scale_x_continuous(limits = c(0,2.75), 
+                     expand = c(0,0),
+                     breaks = c(0,1,2))+
+  theme(legend.position = "right",
+        axis.line.x = element_line(colour = "#525253"),
+        axis.line.y = element_line(colour = "#525253"),
+        axis.title = element_text(size = rel(1.25)))
 
+postcent_12
+
+ggsave("postcent_12.svg", postcent_12, device = "svg", 
+       path = here::here("figures/revision1"), width = 8.5, height = 4.25)
 ```
 
 Combine with an edge uncertainty plot from tsnet: 
