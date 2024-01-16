@@ -1182,7 +1182,7 @@ ggsave(here::here("figures/revision1/plot_dec_rule_overlap.pdf"), width = 15, he
 
 
 # Old Code Revised: Rerun Simulation 2 with some changes
-
+This is the code for the revised version of the manuscript, in which we combine the reference distributions into a single reference distribution. 
 
 ```{r}
 # Setup list of conditions
@@ -1218,6 +1218,31 @@ model_combs <- data.frame(
   mod_a = seq(1, n_ind, 1),
   mod_b = sample(100, 100, replace = FALSE)
 )
+
+generate_unique_pairs <- function(n, count) {
+  all_combinations <- combn(1:n, 2, simplify = TRUE)
+  
+  # Randomly shuffle columns
+  shuffled_combinations <- all_combinations[, sample(ncol(all_combinations))]
+  
+  # Select the first 'count' columns
+  selected_combinations <- shuffled_combinations[, 1:count]
+  
+  # Create a data frame from the selected combinations
+  model_combs <- data.frame(
+    mod_a = selected_combinations[1, ],
+    mod_b = selected_combinations[2, ]
+  )
+  
+  # Optional: Sort each row
+  model_combs <- t(apply(model_combs, 1, sort))
+  model_combs <- as.data.frame(model_combs)
+  
+  return(model_combs)
+}
+model_combs <- generate_unique_pairs(n = 100, count = 500)
+
+
 
 comp_grid_prep <- expand.grid(
             dgp = dgp_names, 
@@ -1608,13 +1633,11 @@ plot_test_null_dist <- df_comp_res %>%
                                   "graph3" ~ "Empirical Sparse",
                                   "graph4" ~ "Simulated Chain",
                                   "graph5" ~ "Simulated Nonsparse")) %>% 
-          pivot_longer(cols = c("beta_a", "beta_b", "pcor_a", "pcor_b"), 
+          pivot_longer(cols = c("beta", "pcor"), 
                        names_to = "res", values_to = "value") %>% 
           group_by(comp, tp, change, dgp, res) %>% 
           # compute pct larger than empirical 
           dplyr::summarize(pct_larger = value/n_draw) %>%  
-          # ignore model a and b because they are almost identical in distribution
-          mutate(res = gsub("_.", "", res)) %>% 
           dplyr::mutate(res = case_match(res,
                                          "beta" ~ "Temporal",
                                          "pcor" ~ "Contemporaneous")) %>%
@@ -1646,8 +1669,8 @@ plot_test_null_dist <- df_comp_res %>%
           
 
 plot_test_null_dist
-ggsave(filename = "plot_test_null_dist_narrow.svg",plot_test_null_dist, device = "svg",
-         path = here::here("figures/"), width = 14, height = 10)
+ggsave(filename = "plot_test_null_dist_narrow_rev1.svg",plot_test_null_dist, device = "svg",
+         path = here::here("figures/revision1/"), width = 14, height = 10)
 
   
 ```
