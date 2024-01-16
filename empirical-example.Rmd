@@ -357,7 +357,7 @@ computed all simulation results. The improvements were only for clarity/performa
 ## Conduct the test
 We now use the `compare_gvar` function from the tsnet package. 
 ```{r}
-l_fits <- l_fits_c
+l_fits <- readRDS(here::here("output/empirical-example/l_fits.RDS"))
 fit_grid <- expand.grid(fit_a = 1:length(l_fits[[1]]), 
                         fit_b = 1:length(l_fits[[1]]), 
                         priors = seq(nrow(df_prior), 1), 
@@ -365,15 +365,40 @@ fit_grid <- expand.grid(fit_a = 1:length(l_fits[[1]]),
 l_comps <- list()
 l_fits_1 <- l_fits[[1]]
 rm(l_fits)
-cl = makeCluster(3)
-registerDoParallel(cl)
-# clusterExport(cl, c("compare_var", "post_distance_within"))
-clusterExport(cl, c("l_fits_1"))
-clusterEvalQ(cl, library(tsnet))
 
 fit_grid_1 <- fit_grid %>% 
   filter(priors == 1)
-l_comps_1 <- foreach(i = 1:nrow(fit_grid_1)) %dopar% {
+# cl = makeCluster(3)
+# registerDoParallel(cl)
+# # clusterExport(cl, c("compare_var", "post_distance_within"))
+# clusterExport(cl, c("l_fits_1"))
+# clusterEvalQ(cl, library(tsnet))
+
+# l_comps_1 <- foreach(i = 1:nrow(fit_grid_1)) %dopar% {
+#   
+#   # Extract information
+#   a <- fit_grid_1$fit_a[i]
+#   b <- fit_grid_1$fit_b[i]
+#   p_ind <- fit_grid_1$priors[i]
+#   compa <-  as.character(fit_grid_1$comp[i])
+# 
+#   comp_res  <- tsnet::compare_gvar(l_fits_1[[a]],
+#                                    l_fits_1[[b]], 
+#                                    comp = compa,
+#                                    dec_rule = "or")
+# 
+#   saveRDS(comp_res, file = here::here("output/empirical-example/test-individual-files", paste0("comp_res_or_", i, ".rds")))
+#   return(comp_res)
+#   
+#   
+# }
+# saveRDS(l_comps_1, file = here::here("output/empirical-example", "l_comps_1.rds"))
+# # stopCluster(cl)
+
+
+# try it nonparallel
+comp_res <- list()
+for(i in 1:nrow(fit_grid_1)){
   
   # Extract information
   a <- fit_grid_1$fit_a[i]
@@ -381,25 +406,55 @@ l_comps_1 <- foreach(i = 1:nrow(fit_grid_1)) %dopar% {
   p_ind <- fit_grid_1$priors[i]
   compa <-  as.character(fit_grid_1$comp[i])
 
-  comp_res  <- tsnet::compare_gvar(l_fits_1[[a]],
+  comp_res[[i]]  <- tsnet::compare_gvar(l_fits_1[[a]],
                                    l_fits_1[[b]], 
                                    comp = compa,
-                                   dec_rule = "comb")
+                                   dec_rule = "or",
+                                   sampling_method = "random")
 
-  saveRDS(comp_res, file = here::here("output/empirical-example/test-individual-files", paste0("comp_res_", i, ".rds")))
-  return(comp_res)
+  
   
   
 }
-saveRDS(l_comps_1, file = here::here("output/empirical-example", "l_comps_1.rds"))
-# stopCluster(cl)
+saveRDS(comp_res, file = here::here("output/empirical-example/test-individual-files", paste0("comp_res_or_", 1, ".rds")))
+rm(l_fits_1)
 
-
-
+l_fits_c <- readRDS(here::here("output/empirical-example/l_fits.RDS"))
 l_fits_2 <- l_fits_c[[2]]
+rm(l_fits_c)
 fit_grid_2 <- fit_grid %>% 
   filter(priors == 2)
-l_comps_2 <- foreach(i = 1:nrow(fit_grid_2)) %dopar% {
+# l_comps_2 <- foreach(i = 1:nrow(fit_grid_2)) %dopar% {
+#   
+#   # Extract information
+#   a <- fit_grid_2$fit_a[i]
+#   b <- fit_grid_2$fit_b[i]
+#   p_ind <- fit_grid_2$priors[i]
+#   compa <-  as.character(fit_grid_2$comp[i])
+# 
+#   
+#   if(is.list(l_fits_2[[a]]) & is.list(l_fits_2[[b]])){
+#   comp_res  <- tsnet::compare_gvar(l_fits_2[[a]],
+#                            l_fits_2[[b]],
+#                            comp = compa,
+#                            dec_rule = "or",
+#                            sampling_method = "random")
+# 
+#   return(comp_res)
+#   }
+#   else
+#     return(NA)
+#   
+#   
+#     
+#   
+#   
+# }
+
+
+# nonparallel
+comp_res <- list()
+for(i in 1:nrow(fit_grid_2)){
   
   # Extract information
   a <- fit_grid_2$fit_a[i]
@@ -407,32 +462,51 @@ l_comps_2 <- foreach(i = 1:nrow(fit_grid_2)) %dopar% {
   p_ind <- fit_grid_2$priors[i]
   compa <-  as.character(fit_grid_2$comp[i])
 
-  
-  if(is.list(l_fits_2[[a]]) & is.list(l_fits_2[[b]])){
-  comp_res  <- tsnet::compare_gvar(l_fits_2[[a]],
-                           l_fits_2[[b]],
-                           comp = compa,
-                           dec_rule = "comb")
+  comp_res[[i]]  <- tsnet::compare_gvar(l_fits_2[[a]],
+                                   l_fits_2[[b]], 
+                                   comp = compa,
+                                   dec_rule = "or",
+                                   sampling_method = "random")
 
-  return(comp_res)
-  }
-  else
-    return(NA)
   
-  
-    
   
   
 }
-
+saveRDS(comp_res, file = here::here("output/empirical-example/test-individual-files", paste0("comp_res_or_", 2, ".rds")))
 rm(l_fits_2)
 
-
-
+l_fits_c <- readRDS(here::here("output/empirical-example/l_fits.RDS"))
 l_fits_3 <- l_fits_c[[3]]
 fit_grid_3 <- fit_grid %>% 
   filter(priors == 3)
-l_comps_3 <- foreach(i = 1:nrow(fit_grid_3)) %dopar% {
+rm(l_fits_c)
+# l_comps_3 <- foreach(i = 1:nrow(fit_grid_3)) %dopar% {
+#   
+#   # Extract information
+#   a <- fit_grid_3$fit_a[i]
+#   b <- fit_grid_3$fit_b[i]
+#   p_ind <- fit_grid_3$priors[i]
+#   compa <-  as.character(fit_grid_3$comp[i])
+# 
+#   
+#   if(is.list(l_fits_3[[a]]) & is.list(l_fits_3[[b]])){
+# 
+#   comp_res  <- tsnet::compare_gvar(l_fits_3[[a]],
+#                                    l_fits_3[[b]], 
+#                                    comp = compa,
+#                                    dec_rule = "or")
+# 
+#   return(comp_res)
+#   }
+#   else
+#     return(NA)
+#   
+# }
+# stopCluster(cl)
+
+# nonparallel
+comp_res <- list()
+for(i in 1:nrow(fit_grid_3)){
   
   # Extract information
   a <- fit_grid_3$fit_a[i]
@@ -440,46 +514,62 @@ l_comps_3 <- foreach(i = 1:nrow(fit_grid_3)) %dopar% {
   p_ind <- fit_grid_3$priors[i]
   compa <-  as.character(fit_grid_3$comp[i])
 
-  
-  if(is.list(l_fits_3[[a]]) & is.list(l_fits_3[[b]])){
-
-  comp_res  <- tsnet::compare_gvar(l_fits_3[[a]],
+  comp_res[[i]]  <- tsnet::compare_gvar(l_fits_3[[a]],
                                    l_fits_3[[b]], 
                                    comp = compa,
-                                   dec_rule = "comb")
+                                   dec_rule = "or",
+                                   sampling_method = "random")
 
-  return(comp_res)
-  }
-  else
-    return(NA)
+  
+  
   
 }
-stopCluster(cl)
+saveRDS(comp_res, file = here::here("output/empirical-example/test-individual-files", paste0("comp_res_or_", 3, ".rds")))
+
 rm(l_fits_3)
 
-df_comps2_1 <- do.call(rbind, l_comps_1)
-df_comps2_2 <- do.call(rbind, l_comps_2)
-df_comps2_3 <- do.call(rbind, l_comps_3)
+# Load all data sets
+l_comps_1 <- readRDS(here::here("output/empirical-example/test-individual-files", "comp_res_1.rds"))
+l_comps_2 <- readRDS(here::here("output/empirical-example/test-individual-files", "comp_res_2.rds"))
+l_comps_3 <- readRDS(here::here("output/empirical-example/test-individual-files", "comp_res_3.rds"))
+
+df_comps1 <- do.call(rbind, l_comps_1)
+df_comps2 <- do.call(rbind, l_comps_2)
+df_comps3 <- do.call(rbind, l_comps_3)
 
 # Add prior information
-df_comps2_1c <- df_comps2_1 %>% 
-  cbind(fit_grid_1)
-df_comps2_2c <- df_comps2_2 %>% 
-  cbind(fit_grid_2)
-df_comps2_3c <- df_comps2_3 %>% 
-  cbind(fit_grid_3)
+df_comps1c <- df_comps1 %>% 
+  cbind(fit_grid_1) %>%
+  mutate(larger_beta = unlist(larger_beta),
+         larger_pcor = unlist(larger_pcor))
+
+df_comps2c <- df_comps2 %>% 
+  cbind(fit_grid_2) %>%
+  mutate(larger_beta = unlist(larger_beta),
+         larger_pcor = unlist(larger_pcor))
+
+df_comps3c <- df_comps3 %>% 
+  cbind(fit_grid_3) %>%
+  mutate(larger_beta = unlist(larger_beta),
+         larger_pcor = unlist(larger_pcor))
 
 
 
-df_compsc <- as.data.frame(rbind(df_comps2_1c, df_comps2_2c, df_comps2_3c))
+df_compsc <- as.data.frame(rbind(df_comps1c, df_comps2c, df_comps3c))
 
 # delete unnecessary columns
-df_comps <- df_compsc %>% 
-  dplyr::select(-c(larger_beta, larger_pcor)) %>% 
+df_comps <- df_compsc %>%
+  dplyr::select(-c(larger_beta, larger_pcor, arguments)) %>%
   as.data.frame()
 
-saveRDS(df_comps, file = here::here("data/empirical_example/df_comps_cubicspline_rev1.RDS"))
 
+saveRDS(df_comps, file = here::here("data/empirical_example/df_comps_cubicspline_or_rev1.RDS"))
+
+
+# With OR-Rule:
+df_comps <- readRDS(here::here("data/empirical_example/df_comps_cubicspline_or_rev1.RDS"))
+
+# With COMB-Rule
 df_comps <- readRDS(here::here("data/empirical_example/df_comps_cubicspline_rev1.RDS"))
 ```
 
@@ -533,7 +623,7 @@ emp_ex_prior_sensitivity <- df_comps_summary %>%
        fill = "Matrix")
 emp_ex_prior_sensitivity
 
-ggsave("emp_ex_prior_sensitivity_cubicspline.svg", emp_ex_prior_sensitivity, device = "svg", path = here::here("figures/"), width = 7, height = 5)
+ggsave("emp_ex_prior_sensitivity_cubicspline_or_rev1.svg", emp_ex_prior_sensitivity, device = "svg", path = here::here("figures/revision1/"), width = 7, height = 5)
 
 ```
 
