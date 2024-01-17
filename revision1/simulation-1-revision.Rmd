@@ -1087,12 +1087,12 @@ ggsave("plot_eval_both_cor_nonselect_rev1.svg", plot_eval_both_nonselect, height
 
 Create a plot to investigate credible intervals of BGGM with uncertainty. 
 ```{r}
-plot_eval_credible <- df_eval_both %>% 
+plot_eval_credible <- df_eval_bggm %>% 
   # delete older dgps
   filter(dgp_ind > dgp_cut) %>%
   # only take default values for gvar now to filter out redundant information
-  filter(is.na(lambda) & ebic == 0) %>% 
-  dplyr::select(-c(lambda,ebic)) %>% 
+  # filter(is.na(lambda) & ebic == 0) %>% 
+  # dplyr::select(-c(lambda,ebic)) %>% 
   dplyr::select(c(dgp_ind, tp_ind, contains("prior"), contains("width"),contains("cover"))) %>% 
   # mutate tp_ind into factor
   mutate(tp_ind = fct_recode(as_factor(as.character(tp_ind)), !!!tp_levels)) %>% 
@@ -1113,8 +1113,8 @@ plot_eval_credible <- df_eval_both %>%
   pivot_longer(cols = c(contains("width"), contains("cover")),
                         names_to = "stat") %>%
   mutate(mat = case_when(
-    stringr::str_detect(stat, "beta") ~ "Temp.",
-    stringr::str_detect(stat, "pcor") ~ "Contemp."
+    stringr::str_detect(stat, "beta") ~ "Temporal",
+    stringr::str_detect(stat, "pcor") ~ "Contemporaneous"
   )) %>% 
   # add line for coverage
   mutate(intercept = case_when(
@@ -1152,20 +1152,48 @@ plot_eval_credible <- df_eval_both %>%
     stringr::str_detect(prior_comb , "b1") ~ "BGGM wide"
   )) %>% 
   dplyr::filter(!grepl("Width", stat)) %>% 
+  group_by(dgp_ind, tp_ind, prior_comb, stat, mat, intercept) %>%
+  dplyr::summarize(value = mean(value, na.rm = TRUE)) %>%
+  # add new mcse column which contains standard error of proportion from "value"
+  mutate(mcse = sqrt(value *(1-value)/n_rep)) %>%
   ggplot(aes(x = tp_ind, y = value, col = prior_comb, group = prior_comb))+
-  geom_hline(aes(yintercept = intercept, alpha = line_alpha), 
-             col = "#D5D8DC", show.legend = FALSE)+
-  geom_boxplot(outlier.size = 0.5, outlier.alpha = 0.4, outlier.color = "grey")+
-  scale_y_continuous(limits = c(.5,1), breaks = c(.5, .6, .7, .8, .9, 1))+
+  geom_hline(aes(yintercept = intercept), 
+             linetype = "dashed",
+             alpha = .7)+
+  geom_errorbar(aes(ymin = value - 1*mcse,
+                            ymax = value + 1*mcse),
+                        width = .9, 
+                 position = position_dodge(0.7),
+                 show.legend = FALSE)+
+  geom_point(size = 1.2, position = position_dodge(0.7))+
+  scale_y_continuous(limits = c(.80,1))+
   ggh4x::facet_nested(as.factor(dgp_ind) ~ as.factor(stat) + as.factor(mat))+
   scale_color_manual(values = cond_colors)+
   labs(x = "Timepoints",
        col = "Priors",
        y = "")+
-  theme_compare()
+  theme_compare()+
+  # add horizontal line between factors
+  geom_vline(colour = "#F3F4F5", xintercept = seq(1.5, length(tp_levels), 1))+
+  theme(strip.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3), 
+                                           hjust = 0.5),
+        strip.text.x.top = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3),
+                                                 hjust = 0.5),
+        strip.text.y = element_blank(),
+        legend.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2)),
+        legend.title = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2)),
+        axis.line = element_line(colour = "#6d6d6e"),
+        panel.spacing.y = ggplot2::unit(1.6, "lines"),
+        panel.spacing.x = ggplot2::unit(1.6, "lines"),
+        axis.text.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(0.95)),
+        axis.title.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.4)),
+        #remove vertical grid lines
+        panel.grid.major.x = element_blank()
+        )
+  
 
 plot_eval_credible 
-ggsave("plot_eval_credible_rev1.svg", plot_eval_credible, height = 7, width = 12, path = here::here("figures/revision1/"), device = "svg")
+ggsave("plot_eval_credible_rev1.svg", plot_eval_credible, height = 7, width = 14, path = here::here("figures/revision1/"), device = "svg")
 
 ```
 
