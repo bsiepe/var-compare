@@ -1241,8 +1241,16 @@ generate_unique_pairs <- function(n, count) {
   return(model_combs)
 }
 model_combs <- generate_unique_pairs(n = 100, count = 500)
+sort_and_concat <- function(row) {
+  toString(sort(row))
+}
 
+# Applying the function to each row of the data frame
+sorted_df <- apply(model_combs, 1, sort_and_concat)
 
+# Checking for duplicate rows in the sorted data frame
+duplicate_rows <- duplicated(sorted_df) | duplicated(sorted_df, fromLast = TRUE)
+sum(duplicate_rows)
 
 comp_grid_prep <- expand.grid(
             dgp = dgp_names, 
@@ -1288,7 +1296,7 @@ comp_grid <- comp_grid %>%
 
 ############################# NOT MORE THAN 5!!!!!!!!!!!!
 before_comp <- Sys.time()
-ncores <- 5
+ncores <- 6
 cl <- makeCluster(ncores)
 clusterExport(cl, c("comp_grid",  "comp_grid_mod", "within_compare", "post_distance_within", "here"))
 clusterEvalQ(cl, library(tidyverse))
@@ -1421,10 +1429,10 @@ Reading the files in again and extracting summary information for each
 file_list <- list.files(path = here::here("data/revision1/compare_sim_res_old_idea"))
 
 time_before_within_eval <- Sys.time()
-ncores = 5
+ncores = 10
 cl = makeCluster(ncores)
 registerDoParallel(cl)
-clusterExport(cl, c("file_list", "within_compare_eval_rev", "post_distance_within", "here"))
+clusterExport(cl, c("file_list", "within_compare_eval", "post_distance_within", "here"))
 l_comp_res <- foreach(i = 1:length(file_list)) %dopar% {
   comp_res <- readRDS(here::here(paste0("data/revision1/compare_sim_res_old_idea/",file_list[i])))
   
@@ -1455,7 +1463,7 @@ l_comp_res <- foreach(i = 1:length(file_list)) %dopar% {
   eval_res <- list()
   eval_res <- lapply(comp_res, function(x){
     
-    res <- tryCatch({within_compare_eval_rev(x)}, error = function(e) NA)
+    res <- tryCatch({within_compare_eval(x)}, error = function(e) NA)
     res$dgp <- dgp_it
     res$change <- change_it
     res$tp <- tp_it
@@ -1475,7 +1483,7 @@ l_comp_res <- foreach(i = 1:length(file_list)) %dopar% {
   print(paste0("File ", i, " done!"))
   
   # Save output
-  saveRDS(df_eval_res, file = here::here(paste0("data/revision1/compare_sim_eval_old_idea/eval_res_",dgp_it, "_",change_it,"_", tp_it, "_",comp_it, ".RDS")))
+  saveRDS(df_eval_res, file = here::here(paste0("data/revision1/compare_sim_eval/eval_res_",dgp_it, "_",change_it,"_", tp_it, "_",comp_it, ".RDS")))
   
 }
 stopCluster(cl)
@@ -1505,23 +1513,23 @@ file_list <- gsub("eval_res", "comp",desired_files)
 Read in results again, they were saved as individual files. 
 ```{r}
 # For wide priors
-file_list <- list.files(path = here("data/revision1/compare_sim_eval_old_idea"), full.names = TRUE)
+file_list <- list.files(path = here("data/revision1/compare_sim_eval"), full.names = TRUE)
 file_list_w <- file_list[-grep("_narrow_", file_list)]
 l_comp_res <- lapply(file_list_w, readRDS)
 df_comp_res <- do.call(rbind, l_comp_res)
 
-write_rds(df_comp_res, here::here("data/revision1/df_comp_res_wide_old_idea_rev1.RDS"))
-df_comp_res_w <- readRDS(here::here("data/revision1/df_comp_res_wide_old_idea_rev1.RDS"))
+write_rds(df_comp_res, here::here("data/revision1/df_comp_res_wide_rev1.RDS"))
+df_comp_res_w <- readRDS(here::here("data/revision1/df_comp_res_wide_rev1.RDS"))
 
 # For narrow priors
-file_list <- list.files(path = here("data/revision1/compare_sim_eval_old_idea"), full.names = TRUE)
+file_list <- list.files(path = here("data/revision1/compare_sim_eval"), full.names = TRUE)
 file_list_n <- file_list[grep("_narrow_", file_list)]
 l_comp_res_n <- lapply(file_list_n, readRDS)
 df_comp_res_n <- do.call(rbind, l_comp_res_n)
 
 
-write_rds(df_comp_res_n, here::here("data/revision1/df_comp_res_narrow_old_idea_rev1.RDS"))
-df_comp_res_n <- readRDS(here::here("data/revision1/df_comp_res_narrow_old_idea_rev1.RDS"))
+# write_rds(df_comp_res_n, here::here("data/revision1/df_comp_res_narrow_old_idea_rev1.RDS"))
+# df_comp_res_n <- readRDS(here::here("data/revision1/df_comp_res_narrow_old_idea_rev1.RDS"))
 
 
 # Combine both 
@@ -1530,19 +1538,16 @@ df_comp_res_n$prior <- rep("narrow", nrow(df_comp_res_n))
 
 df_comp_res <- rbind(df_comp_res_w, df_comp_res_n)
 
-# write_rds(df_comp_res, here::here("output/revision1/df_comp_res_old_idea_rev1.RDS"))
-df_comp_res <- readRDS(here::here("output/revision1/df_comp_res_old_idea_rev1.RDS"))
+write_rds(df_comp_res, here::here("output/revision1/df_comp_res_rev1.RDS"))
+df_comp_res <- readRDS(here::here("output/revision1/df_comp_res_rev1.RDS"))
 
 
 ```
 
 
-
-What do we change: 
-- look at different cutoff for significance
-- combine reference distributions for evaluation
-  - we also have 2000 reference samples instead of 1000 now because we combine reference distributions!
-- change PCOR to only look at upper.tri (not done yet)
+Dataset explanation:
+- df_comp_res_rev1 is with the OR rule
+- df_comp_res_rev1_old_idea is with the COMB rule
   
 
 
@@ -1606,13 +1611,13 @@ df_comp_res <- df_comp_res %>%
 # write_rds(df_comp_res, here::here("output/df_comp_res.RDS"))
 
 # Number of combinations
-n_comp <- 100
+n_comp <- 500
 
 # significance cutoff
 sig_cut <- 0.05
 
 # number of posterior draws
-n_draw <- 2000
+n_draw <- 1000
 
 ```
 
@@ -1643,18 +1648,15 @@ plot_test_null_dist <- df_comp_res %>%
                                          "pcor" ~ "Contemporaneous")) %>%
           ggplot(aes(x = pct_larger)) + 
           # geom_text(aes(label = round(pct_larger,1)), size = 4)+
-          geom_histogram(bins = 100, fill = ggokabeito::palette_okabe_ito()[2])+
+          geom_histogram(bins = 30, fill = ggokabeito::palette_okabe_ito()[2])+
           ggh4x::facet_nested(tp ~ dgp + res,
                               scales = TRUE,
-                              remove_labels = TRUE,
                               independent = "y")+
           theme_compare()+
           ggokabeito::scale_color_okabe_ito()+ 
           labs(x = "Test Value",
                y = "")+
           # scale_y_continuous(labels = NULL)+
-          # add horizontal line between factors
-          geom_vline(colour = "#F3F4F5", xintercept = seq(1.5, length(tp_levels), 1))+
           theme(
                   strip.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2),
                   hjust = 0.5),
@@ -1668,8 +1670,7 @@ plot_test_null_dist <- df_comp_res %>%
                   axis.line = element_line(colour = "#6d6d6e"),
                   axis.text.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(0.95)),
                   axis.title.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3)),
-                  axis.title.y = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3)),
-                  panel.grid.major.x = element_blank())
+                  axis.title.y = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3)))
           
 
 plot_test_null_dist
@@ -1713,10 +1714,18 @@ plot_dec_rule_se <- df_comp_res %>%
                                                       "All ± 0.15")) %>% 
           # mutate(change = fct_recode(as_factor(as.character(change)), !!!change_names)) %>% 
           # setup decision rule
+          # dplyr::mutate(
+          #        sig_beta05 = ifelse(beta < sig_cut*n_draw, 
+          #                            1, 0),
+          #        sig_pcor05 = ifelse(pcor < sig_cut*n_draw, 
+          #                            1, 0)) %>% 
+          # decision rule "OR"
           dplyr::mutate(
-                 sig_beta05 = ifelse(beta < sig_cut*n_draw, 
+                 sig_beta05 = ifelse(beta_a < sig_cut*n_draw |
+                                       beta_b < sig_cut*n_draw, 
                                      1, 0),
-                 sig_pcor05 = ifelse(pcor < sig_cut*n_draw, 
+                 sig_pcor05 = ifelse(pcor_a < sig_cut*n_draw |
+                                       pcor_b < sig_cut*n_draw, 
                                      1, 0)) %>% 
           # for now, only narrow prior
           dplyr::filter(prior == "narrow") %>%
@@ -1759,8 +1768,6 @@ plot_dec_rule_se <- df_comp_res %>%
                col = "Norm",
                linetype = "Norm")+
           scale_y_continuous(limits = c(0,1), expand = c(0,0))+
-          # add horizontal line between factors
-          geom_vline(colour = "#F3F4F5", xintercept = seq(1.5, length(tp_levels), 1))+
             theme(
                   strip.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2),
                   hjust = 0.5),
@@ -1774,8 +1781,7 @@ plot_dec_rule_se <- df_comp_res %>%
                   axis.line = element_line(colour = "#6d6d6e"),
                   axis.text.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(0.95)),
                   axis.title.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3)),
-                  axis.title.y = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3)),
-                  panel.grid.major.x = element_blank())
+                  axis.title.y = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3)))
 
 plot_dec_rule_se
 ggsave(filename = "plot_dec_rule_se_rev1.svg",plot_dec_rule_se, device = "svg", path = here::here("figures/revision1/"), width = 14, height = 12)
@@ -1793,8 +1799,16 @@ plot_false_positive_se <- df_comp_res %>%
           dplyr::filter(dgp %in% c("graph3", "graph4", "graph5")) %>%
           filter(change == "truegraph") %>%
           # setup decision rule
-          mutate(sig_beta05 = ifelse(beta < sig_cut*n_draw, 1, 0),
-                 sig_pcor05 = ifelse(pcor < sig_cut*n_draw , 1, 0)) %>%
+          # mutate(sig_beta05 = ifelse(beta < sig_cut*n_draw, 1, 0),
+          #        sig_pcor05 = ifelse(pcor < sig_cut*n_draw , 1, 0)) %>%
+          # setup decision rule "OR"
+          dplyr::mutate(
+                 sig_beta05 = ifelse(beta_a < sig_cut*n_draw |
+                                       beta_b < sig_cut*n_draw, 
+                                     1, 0),
+                 sig_pcor05 = ifelse(pcor_a < sig_cut*n_draw |
+                                       pcor_b < sig_cut*n_draw, 
+                                     1, 0)) %>% 
           # mutate tp_ind into factor
           mutate(tp = as.factor(tp)) %>%
           mutate(tp = forcats::fct_relevel(tp, "50", "100", "200", "400", "1000")) %>%
@@ -1838,9 +1852,7 @@ plot_false_positive_se <- df_comp_res %>%
                col = "Norm",
                linetype = "Norm",
                y = "Proportion of false positives")+
-          # add horizontal line between factors
-          geom_vline(colour = "#F3F4F5", xintercept = seq(1.5, length(tp_levels), 1))+
-          theme(
+              theme(
                   strip.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2),
                   hjust = 0.5),
                   strip.text.x.top = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2),
@@ -1853,8 +1865,7 @@ plot_false_positive_se <- df_comp_res %>%
                   axis.line = element_line(colour = "#6d6d6e"),
                   axis.text.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(0.95)),
                   axis.title.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3)),
-                  axis.title.y = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3)),
-                  panel.grid.major.x = element_blank())
+                  axis.title.y = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3)))
 
 plot_false_positive_se
 ggsave(filename = paste0("plot_false_positive_se_rev1.svg"),plot_false_positive_se, device = "svg",
@@ -1903,8 +1914,16 @@ plot_dec_rule_prior_sens <- df_comp_res %>%
                                                       "All ± 0.10",
                                                       "All ± 0.15")) %>% 
           # setup decision rule
-          mutate(sig_beta05 = ifelse(beta < sig_cut*n_draw, 1, 0),
-                 sig_pcor05 = ifelse(pcor < sig_cut*n_draw , 1, 0)) %>%
+          # mutate(sig_beta05 = ifelse(beta < sig_cut*n_draw, 1, 0),
+          #        sig_pcor05 = ifelse(pcor < sig_cut*n_draw , 1, 0)) %>%
+          # setup decision rule OR
+          dplyr::mutate(
+                 sig_beta05 = ifelse(beta_a < sig_cut*n_draw |
+                                       beta_b < sig_cut*n_draw, 
+                                     1, 0),
+                 sig_pcor05 = ifelse(pcor_a < sig_cut*n_draw |
+                                       pcor_b < sig_cut*n_draw, 
+                                     1, 0)) %>% 
           dplyr::group_by(dgp, comp, prior, tp, change) %>% 
           dplyr::summarize(
                     power_beta05 = sum(sig_beta05)/n_comp,
@@ -1935,8 +1954,6 @@ plot_dec_rule_prior_sens <- df_comp_res %>%
           labs(x = "Timepoints",
                y = "Power",
                col = "Prior")+
-          # add horizontal line between factors
-          geom_vline(colour = "#F3F4F5", xintercept = seq(1.5, length(tp_levels), 1))+
           theme(
                   strip.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2),
                   hjust = 0.5),
@@ -1950,8 +1967,7 @@ plot_dec_rule_prior_sens <- df_comp_res %>%
                   axis.line = element_line(colour = "#6d6d6e"),
                   axis.text.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(0.95)),
                   axis.title.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3)),
-                  axis.title.y = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3)),
-                  panel.grid.major.x = element_blank())
+                  axis.title.y = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3)))
 
 
 plot_dec_rule_prior_sens
@@ -2017,8 +2033,6 @@ plot_false_positive_se_prior_sens <- df_comp_res %>%
           labs(x = "Timepoints", 
                col = "Prior",
                y = "Proportion of false positives")+
-          # add horizontal line between factors
-          geom_vline(colour = "#F3F4F5", xintercept = seq(1.5, length(tp_levels), 1))+
               theme(
                   strip.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2),
                   hjust = 0.5),
@@ -2032,8 +2046,7 @@ plot_false_positive_se_prior_sens <- df_comp_res %>%
                   axis.line = element_line(colour = "#6d6d6e"),
                   axis.text.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(0.95)),
                   axis.title.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3)),
-                  axis.title.y = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3)),
-                  panel.grid.major.x = element_blank())
+                  axis.title.y = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3)))
 
 plot_false_positive_se_prior_sens
 ggsave(filename = paste0("plot_false_positive_se_prior_sens_rev1.svg"),plot_false_positive_se_prior_sens, device = "svg",
