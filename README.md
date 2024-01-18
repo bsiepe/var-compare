@@ -8,7 +8,7 @@ Start the .Rproj **var-compare.Rproj** prior to running the scripts.
 Full simulation results are too large (multiple GBs) and can be requested from the corresponding author. We try to provide intermediate simulation results where possible. 
 
 ## main folder
-This folder contains the relevant main scripts to reproduce the analyses.
+This folder contains the relevant main scripts to reproduce the analyses. 
 
 All auxiliary functions used in the project can be found in **aux_funs.R**. 
 The data-generating true networks can be obtained using **true-networks.Rmd**.
@@ -16,6 +16,10 @@ Simulation Study 1 can be reproduced using **simulation-1.Rmd**.
 Simulation Study 2 can be reproduced using **simulation-2.Rmd**.
 The empirical example can be reproduced using **empirical-example.Rmd**.
 Session information can be found in **session_info.txt**.
+
+The scripts for the first revision of the paper can be found in the folder **revision-1**. 
+Attempts to create tests that obtain evidence for the Null can be found under **between-compare-testing.Rmd**, 
+**simulation-2-revision-diffpost-both.Rmd**, **simulation-2-revision-diffpost.Rmd**, and **simulation-2-revision-meanpost.Rmd**.
 
 
 ### data
