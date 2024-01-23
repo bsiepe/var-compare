@@ -1240,7 +1240,7 @@ generate_unique_pairs <- function(n, count) {
   
   return(model_combs)
 }
-model_combs <- generate_unique_pairs(n = 100, count = 500)
+model_combs <- generate_unique_pairs(n = 100, count = 1000)
 sort_and_concat <- function(row) {
   toString(sort(row))
 }
@@ -1429,7 +1429,7 @@ Reading the files in again and extracting summary information for each
 file_list <- list.files(path = here::here("data/revision1/compare_sim_res_old_idea"))
 
 time_before_within_eval <- Sys.time()
-ncores = 10
+ncores = 8
 cl = makeCluster(ncores)
 registerDoParallel(cl)
 clusterExport(cl, c("file_list", "within_compare_eval", "post_distance_within", "here"))
@@ -1515,11 +1515,11 @@ Read in results again, they were saved as individual files.
 # For wide priors
 file_list <- list.files(path = here("data/revision1/compare_sim_eval"), full.names = TRUE)
 file_list_w <- file_list[-grep("_narrow_", file_list)]
-l_comp_res <- lapply(file_list_w, readRDS)
-df_comp_res <- do.call(rbind, l_comp_res)
+l_comp_res_w <- lapply(file_list_w, readRDS)
+df_comp_res_w <- do.call(rbind, l_comp_res_w)
 
-write_rds(df_comp_res, here::here("data/revision1/df_comp_res_wide_rev1.RDS"))
-df_comp_res_w <- readRDS(here::here("data/revision1/df_comp_res_wide_rev1.RDS"))
+# write_rds(df_comp_res_w, here::here("data/revision1/df_comp_res_wide_rev1.RDS"))
+# df_comp_res_w <- readRDS(here::here("data/revision1/df_comp_res_wide_rev1.RDS"))
 
 # For narrow priors
 file_list <- list.files(path = here("data/revision1/compare_sim_eval"), full.names = TRUE)
@@ -1528,8 +1528,8 @@ l_comp_res_n <- lapply(file_list_n, readRDS)
 df_comp_res_n <- do.call(rbind, l_comp_res_n)
 
 
-# write_rds(df_comp_res_n, here::here("data/revision1/df_comp_res_narrow_old_idea_rev1.RDS"))
-# df_comp_res_n <- readRDS(here::here("data/revision1/df_comp_res_narrow_old_idea_rev1.RDS"))
+# write_rds(df_comp_res_n, here::here("data/revision1/df_comp_res_narrow_rev1.RDS"))
+# df_comp_res_n <- readRDS(here::here("data/revision1/df_comp_res_narrow_rev1.RDS"))
 
 
 # Combine both 
@@ -1611,7 +1611,7 @@ df_comp_res <- df_comp_res %>%
 # write_rds(df_comp_res, here::here("output/df_comp_res.RDS"))
 
 # Number of combinations
-n_comp <- 500
+n_comp <- 1000
 
 # significance cutoff
 sig_cut <- 0.05
@@ -1638,11 +1638,13 @@ plot_test_null_dist <- df_comp_res %>%
                                   "graph3" ~ "Empirical Sparse",
                                   "graph4" ~ "Simulated Chain",
                                   "graph5" ~ "Simulated Nonsparse")) %>% 
-          pivot_longer(cols = c("beta", "pcor"), 
+          pivot_longer(cols = c("beta_a", "beta_b", "pcor_a", "pcor_b"), 
                        names_to = "res", values_to = "value") %>% 
           group_by(comp, tp, change, dgp, res) %>% 
           # compute pct larger than empirical 
           dplyr::summarize(pct_larger = value/n_draw) %>%  
+          # ignore model a and b because they are almost identical in distribution
+          mutate(res = gsub("_.", "", res)) %>% 
           dplyr::mutate(res = case_match(res,
                                          "beta" ~ "Temporal",
                                          "pcor" ~ "Contemporaneous")) %>%
@@ -1983,8 +1985,13 @@ plot_false_positive_se_prior_sens <- df_comp_res %>%
           dplyr::filter(dgp %in% c("graph3", "graph4", "graph5")) %>%
           dplyr::filter(change == "truegraph") %>%
           # setup decision rule
-          mutate(sig_beta05 = ifelse(beta < sig_cut*n_draw, 1, 0),
-                 sig_pcor05 = ifelse(pcor < sig_cut*n_draw , 1, 0)) %>%
+          dplyr::mutate(
+                 sig_beta05 = ifelse(beta_a < sig_cut*n_draw |
+                                       beta_b < sig_cut*n_draw, 
+                                     1, 0),
+                 sig_pcor05 = ifelse(pcor_a < sig_cut*n_draw |
+                                       pcor_b < sig_cut*n_draw, 
+                                     1, 0)) %>% 
           # mutate tp_ind into factor
           dplyr::mutate(tp = as.factor(tp)) %>%
           dplyr::mutate(tp = forcats::fct_relevel(tp, "50", "100", "200", "400", "1000")) %>%
