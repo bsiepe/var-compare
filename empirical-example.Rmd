@@ -1050,10 +1050,12 @@ b41_post <- fit_12$fit$beta[4,1,500:50000]
 b41_post_q <- quantile(b41_post, c(0.025, 0.975))
 
 # Samples from prior
-b41_prior <- rnorm(length(b41_post), 0, 0.5)
+b41_prior <- rnorm(length(b41_post), 0, .5)
 
 # Compute Bayes Factor against 0
 bf_41 <- bayestestR::bayesfactor_pointnull(b41_post, b41_prior, null = 0)
+bf_41
+plot(bf_41)
 ```
 
 
