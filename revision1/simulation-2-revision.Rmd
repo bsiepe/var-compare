@@ -1630,7 +1630,7 @@ plot_test_null_dist <- df_comp_res %>%
           dplyr::filter(dgp %in% c("graph3", "graph4", "graph5")) %>% 
           dplyr::filter(change == "truegraph") %>% 
           dplyr::filter(comp == "frob") %>% 
-          dplyr::filter(prior == "narrow") %>% 
+          dplyr::filter(prior == "wide") %>% 
           # mutate tp into factor
           mutate(tp = as.factor(tp)) %>% 
           mutate(tp = forcats::fct_relevel(tp, "50", "100", "200", "400", "1000")) %>% 
@@ -1676,7 +1676,7 @@ plot_test_null_dist <- df_comp_res %>%
           
 
 plot_test_null_dist
-ggsave(filename = "plot_test_null_dist_narrow_rev1.svg",plot_test_null_dist, device = "svg",
+ggsave(filename = "plot_test_null_dist_wide_rev1.svg",plot_test_null_dist, device = "svg",
          path = here::here("figures/revision1/"), width = 14, height = 10)
 
   
@@ -2044,7 +2044,8 @@ plot_false_positive_se_prior_sens <- df_comp_res %>%
           theme_compare()+
           geom_hline(yintercept = 0.05, col = "#D5D8DC")+ 
           geom_vline(colour = "#F3F4F5", xintercept = seq(1.5, length(tp_levels), 1))+
-          labs(color = "Prior",
+          labs(x = "Timepoints",
+               color = "Prior",
                group = "Prior")+
           theme(
                   strip.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2),

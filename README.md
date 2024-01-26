@@ -17,9 +17,13 @@ Simulation Study 2 can be reproduced using **simulation-2.Rmd**.
 The empirical example can be reproduced using **empirical-example.Rmd**.
 Session information can be found in **session_info.txt**.
 
+### Revision 1
+
 The scripts for the first revision of the paper can be found in the folder **revision-1**. 
 Attempts to create tests that obtain evidence for the Null can be found under **between-compare-testing.Rmd**, 
 **simulation-2-revision-diffpost-both.Rmd**, **simulation-2-revision-diffpost.Rmd**, and **simulation-2-revision-meanpost.Rmd**.
+
+Code which tests the implementation of the model in Stan, including code for the simulation study, can be found in the repository [stan-gvar](https://github.com/bsiepe/stan-gvar). 
 
 
 ### data
