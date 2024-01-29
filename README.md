@@ -23,7 +23,7 @@ The scripts for the first revision of the paper can be found in the folder **rev
 Attempts to create tests that obtain evidence for the Null can be found under **between-compare-testing.Rmd**, 
 **simulation-2-revision-diffpost-both.Rmd**, **simulation-2-revision-diffpost.Rmd**, and **simulation-2-revision-meanpost.Rmd**.
 
-Code which tests the implementation of the model in Stan, including code for the simulation study, can be found in the repository [stan-gvar](https://github.com/bsiepe/stan-gvar). 
+Code which tests the implementation of the model in Stan, including code for the simulation study, can be found in the repository [stan-gvar](https://github.com/bsiepe/stan-gvar). This repository also contains example code and a light wrapper to fit a Bayesian GVAR model in MPlus.
 
 
 ### data
