@@ -2108,7 +2108,14 @@ for(g in v_graphs){
 ```
 
 
+Write session info to .txt
+```{r}
+sink(file = "session_info.txt")
+sessionInfo()
+sink()
 
+
+```
 
 
 
