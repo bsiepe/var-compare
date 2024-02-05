@@ -11,7 +11,6 @@
 *.csv
 *.xlsx
 *.Rproj.user
-*.pdf
 .Rproj.user
 bayes-factors.Rmd
 concatenate-var.Rmd
