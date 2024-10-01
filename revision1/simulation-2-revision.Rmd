@@ -124,7 +124,8 @@ Then, generate raw data from data-generating processes. We create more posterior
 
 ```{r generate-rawdata-parallel}
 # Changed: instead of n_ind, we create n_postds datasets 
-# because some models don't converge
+# because some models don't converged previously
+# now there is no longer any nonconvergence
 before_simraw <- Sys.time()
 ncores = 40
 cl = makeCluster(ncores)
@@ -1624,7 +1625,6 @@ n_draw <- 1000
 #### Posterior Diff > Empirical
 
 Distribution of values under the null for the frobenius norm only.
-TODO has to change
 ```{r}
 plot_test_null_dist <- df_comp_res %>% 
           dplyr::filter(dgp %in% c("graph3", "graph4", "graph5")) %>% 
@@ -1690,105 +1690,140 @@ We combine the reference distribution, and look at the cutoff.
 
 With uncertainty in the form of standard errors. 
 ```{r}
-plot_dec_rule_se <- df_comp_res %>% 
-          dplyr::filter(dgp %in% c("graph3", "graph4", "graph5")) %>% 
-          dplyr::filter(change != "change1.2") %>% 
-          dplyr::filter(change != "truegraph") %>% 
-          # mutate tp_ind into factor
-          dplyr::mutate(tp = as.factor(tp)) %>% 
-          dplyr::mutate(tp = forcats::fct_relevel(tp, "50", "100", "200", "400", "1000")) %>% 
-          dplyr::mutate(dgp = fct_recode(as_factor(as.character(dgp)), !!!graph_names)) %>% 
-          dplyr::mutate(change = case_match(
-            change,
-                  "change1.2" ~ paste("Largest", "\u00D7", "1.2"),
-                  "change1.4" ~ paste("Largest", "\u00D7", "1.4"),
-                  "change1.6" ~ paste("Largest", "\u00D7", "1.6"),
-                  "const0.05" ~ paste("All", "\u00b1", "0.05"),
-                  "const0.1" ~ paste("All", "\u00b1", "0.10"),
-                  "const0.15" ~ paste("All", "\u00b1", "0.15"),
-                  "permute" ~ "Permute"
-          )) %>% 
-          dplyr::mutate(change = as.factor(change)) %>% 
-          dplyr::mutate(change = forcats::fct_relevel(change, "Largest × 1.4", 
-                                                      "Largest × 1.6",
-                                                      "All ± 0.05",
-                                                      "All ± 0.10",
-                                                      "All ± 0.15")) %>% 
-          # mutate(change = fct_recode(as_factor(as.character(change)), !!!change_names)) %>% 
-          # setup decision rule
-          # dplyr::mutate(
-          #        sig_beta05 = ifelse(beta < sig_cut*n_draw, 
-          #                            1, 0),
-          #        sig_pcor05 = ifelse(pcor < sig_cut*n_draw, 
-          #                            1, 0)) %>% 
-          # decision rule "OR"
-          dplyr::mutate(
-                 sig_beta05 = ifelse(beta_a < sig_cut*n_draw |
-                                       beta_b < sig_cut*n_draw, 
-                                     1, 0),
-                 sig_pcor05 = ifelse(pcor_a < sig_cut*n_draw |
-                                       pcor_b < sig_cut*n_draw, 
-                                     1, 0)) %>% 
-          # for now, only narrow prior
-          dplyr::filter(prior == "narrow") %>%
-          dplyr::group_by(dgp, comp, tp, change) %>% 
-          dplyr::summarize(
-                    power_beta05 = sum(sig_beta05)/n_comp,
-                    power_pcor05 = sum(sig_pcor05)/n_comp,
-                    se_beta05 = sqrt((power_beta05 * (1-power_beta05))/n_comp),
-                    se_pcor05 = sqrt((power_pcor05 * (1-power_pcor05))/n_comp)) %>% 
-          tidyr::pivot_longer(cols = c("power_beta05", "power_pcor05"), names_to = "res") %>%
-          # attach correct se
-          dplyr::mutate(se = ifelse(grepl("beta", res), se_beta05, se_pcor05)) %>% 
-          dplyr::select(!c(se_beta05, se_pcor05)) %>% 
-          dplyr::mutate(mat = case_when(
-            grepl("beta05", res) ~ "Temporal",
-            grepl("pcor05", res) ~ "Contemporaneous")) %>% 
-          dplyr::ungroup() %>% 
-
-          ## uncomment this to include both priors
-          # ggplot(aes(x = tp, y = value, col = comp,
-          #            group = interaction(comp, prior), linetype = prior)) +
-          ggplot(aes(x = tp, y = value, col = comp,
-                      group = comp)) +
-          geom_errorbar(aes(ymin = value - 1*se,
-                            ymax = value + 1*se),
-                        width = .8, 
-                 position = position_dodge(0.7),
-                 show.legend = FALSE)+
-          # geom_line()+
-          geom_point(size = 1.2, position = position_dodge(0.7))+
-          theme_compare()+
-          # scale_linetype_manual(values = cond_lty)+
-          ggh4x::facet_nested(change ~ dgp + mat,
-                              axes = "all",
-                              remove_labels = "all"
-                              )+
-          ggokabeito::scale_colour_okabe_ito()+
-          labs(x = "Timepoints",
-               y = "Power",
-               col = "Norm",
-               linetype = "Norm")+
-          scale_y_continuous(limits = c(0,1), expand = c(0,0))+
-          geom_vline(colour = "#F3F4F5", xintercept = seq(1.5, length(tp_levels), 1))+
-            theme(
-                  strip.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2),
-                  hjust = 0.5),
-                  strip.text.x.top = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2),
-                  hjust = 0.5),
-                  legend.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2)),
-                  legend.title = ggplot2::element_text(face = "bold", size = ggplot2::rel(1.2)),
-                  # panel.border = element_rect(color = "#D5D8DC", fill = NA, size = 1),
-                  panel.spacing.y = ggplot2::unit(1.6, "lines"),
-                  panel.spacing.x = ggplot2::unit(1.6, "lines"),
-                  axis.line = element_line(colour = "#6d6d6e"),
-                  axis.text.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(0.95)),
-                  axis.title.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3)),
-                  axis.title.y = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3)),
-                  panel.grid.major.x = element_blank())
+plot_dec_rule_se <- df_comp_res %>%
+  dplyr::filter(dgp %in% c("graph3", "graph4", "graph5")) %>%
+  dplyr::filter(change != "change1.2") %>%
+  dplyr::filter(change != "truegraph") %>%
+  # mutate tp_ind into factor
+  dplyr::mutate(tp = as.factor(tp)) %>%
+  dplyr::mutate(tp = forcats::fct_relevel(tp, "50", "100", "200", "400", "1000")) %>%
+  dplyr::mutate(dgp = fct_recode(as_factor(as.character(dgp)),!!!graph_names)) %>%
+  dplyr::mutate(
+    change = case_match(
+      change,
+      "change1.2" ~ paste("Largest", "\u00D7", "1.2"),
+      "change1.4" ~ paste("Largest", "\u00D7", "1.4"),
+      "change1.6" ~ paste("Largest", "\u00D7", "1.6"),
+      "const0.05" ~ paste("All", "\u00b1", "0.05"),
+      "const0.1" ~ paste("All", "\u00b1", "0.10"),
+      "const0.15" ~ paste("All", "\u00b1", "0.15"),
+      "permute" ~ "Permute"
+    )
+  ) %>%
+  dplyr::mutate(change = as.factor(change)) %>%
+  dplyr::mutate(
+    change = forcats::fct_relevel(
+      change,
+      "Largest × 1.4",
+      "Largest × 1.6",
+      "All ± 0.05",
+      "All ± 0.10",
+      "All ± 0.15"
+    )
+  ) %>%
+  # mutate(change = fct_recode(as_factor(as.character(change)), !!!change_names)) %>%
+  # setup decision rule
+  # dplyr::mutate(
+  #        sig_beta05 = ifelse(beta < sig_cut*n_draw,
+  #                            1, 0),
+  #        sig_pcor05 = ifelse(pcor < sig_cut*n_draw,
+  #                            1, 0)) %>%
+  # decision rule "OR"
+  dplyr::mutate(
+    sig_beta05 = ifelse(beta_a < sig_cut * n_draw |
+                          beta_b < sig_cut * n_draw,
+                        1, 0),
+    sig_pcor05 = ifelse(pcor_a < sig_cut * n_draw |
+                          pcor_b < sig_cut * n_draw,
+                        1, 0)
+  ) %>%
+  # for now, only narrow prior
+  dplyr::filter(prior == "narrow") %>%
+  dplyr::group_by(dgp, comp, tp, change) %>%
+  dplyr::summarize(
+    power_beta05 = sum(sig_beta05) / n_comp,
+    power_pcor05 = sum(sig_pcor05) / n_comp,
+    se_beta05 = sqrt((power_beta05 * (1 - power_beta05)) /
+                       n_comp),
+    se_pcor05 = sqrt((power_pcor05 * (1 - power_pcor05)) /
+                       n_comp)
+  ) %>%
+  tidyr::pivot_longer(cols = c("power_beta05", "power_pcor05"),
+                      names_to = "res") %>%
+  # attach correct se
+  dplyr::mutate(se = ifelse(grepl("beta", res), se_beta05, se_pcor05)) %>%
+  dplyr::select(!c(se_beta05, se_pcor05)) %>%
+  dplyr::mutate(mat = case_when(
+    grepl("beta05", res) ~ "Temporal",
+    grepl("pcor05", res) ~ "Contemporaneous"
+  )) %>%
+  dplyr::ungroup() %>%
+  
+  ## uncomment this to include both priors
+  # ggplot(aes(x = tp, y = value, col = comp,
+  #            group = interaction(comp, prior), linetype = prior)) +
+  ggplot(aes(
+    x = tp,
+    y = value,
+    col = comp,
+    group = comp
+  )) +
+  geom_errorbar(
+    aes(ymin = value - 1 * se,
+        ymax = value + 1 * se),
+    width = .8,
+    position = position_dodge(0.7),
+    show.legend = FALSE
+  ) +
+  # geom_line()+
+  geom_point(size = 1.2, position = position_dodge(0.7)) +
+  theme_compare() +
+  # scale_linetype_manual(values = cond_lty)+
+  ggh4x::facet_nested(change ~ dgp + mat,
+                      axes = "all",
+                      remove_labels = "all") +
+  ggokabeito::scale_colour_okabe_ito() +
+  labs(
+    x = "Timepoints",
+    y = "Power",
+    col = "Norm",
+    linetype = "Norm"
+  ) +
+  scale_y_continuous(limits = c(0, 1), 
+                     expand = c(0, 0),
+                     breaks = c(0, 0.25, 0.5, 0.75, 1),
+                     labels = c(0, "", 0.5, "", 1)) +
+  scale_x_discrete()+
+  geom_vline(colour = "#F3F4F5",
+             xintercept = seq(1.5, length(tp_levels), 1)) +
+  theme(
+    strip.text.x.top = ggplot2::element_text(
+      face = "plain",
+      size = ggplot2::rel(1.5),
+      hjust = 0.5
+    ),
+    strip.text.y.right = ggplot2::element_text(
+      face = "plain",
+      size = ggplot2::rel(1.3),
+      hjust = 0.5
+    ),
+    legend.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.5)),
+    legend.title = ggplot2::element_text(face = "bold", size = ggplot2::rel(1.5)),
+    panel.spacing.y = ggplot2::unit(1.6, "lines"),
+    panel.spacing.x = ggplot2::unit(1.6, "lines"),
+    axis.line = element_line(colour = "#6d6d6e"),
+    axis.text.x = ggplot2::element_text(face = "plain", 
+                                        angle = 45,
+                                        hjust = 1,
+                                        size = ggplot2::rel(1.2)),
+    axis.text.y = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2)),
+    axis.title.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.5)),
+    axis.title.y = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.5)),
+    panel.grid.major.x = element_blank()
+  )
 
 plot_dec_rule_se
-ggsave(filename = "plot_dec_rule_se_rev1.svg",plot_dec_rule_se, device = "svg", path = here::here("figures/revision1/"), width = 14, height = 12)
+ggsave(filename = "plot_dec_rule_se_rev2.svg",plot_dec_rule_se, device = "svg", path = here::here("figures/revision2"), width = 14, height = 12)
 
 ```
 
@@ -1857,25 +1892,36 @@ plot_false_positive_se <- df_comp_res %>%
                linetype = "Norm",
                y = "Proportion of false positives")+
           geom_vline(colour = "#F3F4F5", xintercept = seq(1.5, length(tp_levels), 1))+
-          theme(
-                  strip.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2),
-                  hjust = 0.5),
-                  strip.text.x.top = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2),
-                  hjust = 0.5),
-                  legend.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2)),
-                  legend.title = ggplot2::element_text(face = "bold", size = ggplot2::rel(1.2)),
-                  # panel.border = element_rect(color = "#D5D8DC", fill = NA, size = 1),
-                  panel.spacing.y = ggplot2::unit(1.6, "lines"),
-                  panel.spacing.x = ggplot2::unit(1.6, "lines"),
-                  axis.line = element_line(colour = "#6d6d6e"),
-                  axis.text.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(0.95)),
-                  axis.title.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3)),
-                  axis.title.y = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3)),
-                  panel.grid.major.x = element_blank())
+  theme(
+    strip.text.x.top = ggplot2::element_text(
+      face = "plain",
+      size = ggplot2::rel(1.5),
+      hjust = 0.5
+    ),
+    strip.text.y.right = ggplot2::element_text(
+      face = "plain",
+      size = ggplot2::rel(1.3),
+      hjust = 0.5
+    ),
+    legend.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.5)),
+    legend.title = ggplot2::element_text(face = "bold", size = ggplot2::rel(1.5)),
+    panel.spacing.y = ggplot2::unit(1.6, "lines"),
+    panel.spacing.x = ggplot2::unit(1.6, "lines"),
+    axis.line = element_line(colour = "#6d6d6e"),
+    axis.text.x = ggplot2::element_text(face = "plain", 
+                                        angle = 45,
+                                        hjust = 1,
+                                        size = ggplot2::rel(1.2)),
+    axis.text.y = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2)),
+    axis.title.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.5)),
+    axis.title.y = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.5)),
+    panel.grid.major.x = element_blank()
+  )
+
 
 plot_false_positive_se
-ggsave(filename = paste0("plot_false_positive_se_rev1.svg"),plot_false_positive_se, device = "svg",
-         path = here::here("figures/revision1/"), width = 13, height = 6)
+ggsave(filename = paste0("plot_false_positive_se_rev2.svg"),plot_false_positive_se, device = "svg",
+         path = here::here("figures/revision2/"), width = 13, height = 6)
 ```
 
 
@@ -1961,26 +2007,41 @@ plot_dec_rule_prior_sens <- df_comp_res %>%
                y = "Power",
                col = "Prior")+
           geom_vline(colour = "#F3F4F5", xintercept = seq(1.5, length(tp_levels), 1))+
-          theme(
-                  strip.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2),
-                  hjust = 0.5),
-                  strip.text.x.top = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2),
-                  hjust = 0.5),
-                  legend.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2)),
-                  legend.title = ggplot2::element_text(face = "bold", size = ggplot2::rel(1.2)),
-                  # panel.border = element_rect(color = "#D5D8DC", fill = NA, size = 1),
-                  panel.spacing.y = ggplot2::unit(1.6, "lines"),
-                  panel.spacing.x = ggplot2::unit(1.6, "lines"),
-                  axis.line = element_line(colour = "#6d6d6e"),
-                  axis.text.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(0.95)),
-                  axis.title.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3)),
-                  axis.title.y = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3)),
-                  panel.grid.major.x = element_blank())
+    scale_y_continuous(limits = c(0, 1), 
+                     expand = c(0, 0),
+                     breaks = c(0, 0.25, 0.5, 0.75, 1),
+                     labels = c(0, "", 0.5, "", 1)) +
+  theme(
+    strip.text.x.top = ggplot2::element_text(
+      face = "plain",
+      size = ggplot2::rel(1.5),
+      hjust = 0.5
+    ),
+    strip.text.y.right = ggplot2::element_text(
+      face = "plain",
+      size = ggplot2::rel(1.15),
+      hjust = 0.5
+    ),
+    legend.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.5)),
+    legend.title = ggplot2::element_text(face = "bold", size = ggplot2::rel(1.5)),
+    panel.spacing.y = ggplot2::unit(1.6, "lines"),
+    panel.spacing.x = ggplot2::unit(1.6, "lines"),
+    axis.line = element_line(colour = "#6d6d6e"),
+    axis.text.x = ggplot2::element_text(face = "plain", 
+                                        angle = 45,
+                                        hjust = 1,
+                                        size = ggplot2::rel(1.2)),
+    axis.text.y = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2)),
+    axis.title.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.5)),
+    axis.title.y = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.5)),
+    panel.grid.major.x = element_blank()
+  )
+
 
 
 plot_dec_rule_prior_sens
-ggsave(filename ="plot_dec_rule_prior_sens_rev1.svg",plot_dec_rule_prior_sens, device = "svg",
-         path = here::here("figures/revision1/"), width = 13, height = 10)
+ggsave(filename ="plot_dec_rule_prior_sens_rev2.svg",plot_dec_rule_prior_sens, device = "svg",
+         path = here::here("figures/revision2/"), width = 13, height = 10)
 ```
 
 
@@ -2046,26 +2107,37 @@ plot_false_positive_se_prior_sens <- df_comp_res %>%
           geom_vline(colour = "#F3F4F5", xintercept = seq(1.5, length(tp_levels), 1))+
           labs(x = "Timepoints",
                color = "Prior",
-               group = "Prior")+
-          theme(
-                  strip.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2),
-                  hjust = 0.5),
-                  strip.text.x.top = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2),
-                  hjust = 0.5),
-                  legend.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2)),
-                  legend.title = ggplot2::element_text(face = "bold", size = ggplot2::rel(1.2)),
-                  # panel.border = element_rect(color = "#D5D8DC", fill = NA, size = 1),
-                  panel.spacing.y = ggplot2::unit(1.6, "lines"),
-                  panel.spacing.x = ggplot2::unit(1.6, "lines"),
-                  axis.line = element_line(colour = "#6d6d6e"),
-                  axis.text.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(0.95)),
-                  axis.title.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3)),
-                  axis.title.y = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.3)),
-                  panel.grid.major.x = element_blank())
+               group = "Prior",
+               y = "Proportion of false positives")+
+  theme(
+    strip.text.x.top = ggplot2::element_text(
+      face = "plain",
+      size = ggplot2::rel(1.5),
+      hjust = 0.5
+    ),
+    strip.text.y.right = ggplot2::element_text(
+      face = "plain",
+      size = ggplot2::rel(1.3),
+      hjust = 0.5
+    ),
+    legend.text = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.5)),
+    legend.title = ggplot2::element_text(face = "bold", size = ggplot2::rel(1.5)),
+    panel.spacing.y = ggplot2::unit(1.6, "lines"),
+    panel.spacing.x = ggplot2::unit(1.6, "lines"),
+    axis.line = element_line(colour = "#6d6d6e"),
+    axis.text.x = ggplot2::element_text(face = "plain", 
+                                        angle = 45,
+                                        hjust = 1,
+                                        size = ggplot2::rel(1.2)),
+    axis.text.y = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.2)),
+    axis.title.x = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.5)),
+    axis.title.y = ggplot2::element_text(face = "plain", size = ggplot2::rel(1.5)),
+    panel.grid.major.x = element_blank()
+  )
 
 plot_false_positive_se_prior_sens
-ggsave(filename = paste0("plot_false_positive_se_prior_sens_rev1.svg"),plot_false_positive_se_prior_sens, device = "svg",
-         path = here::here("figures/revision1/"), width = 13, height = 6)
+ggsave(filename = paste0("plot_false_positive_se_prior_sens_rev2.svg"),plot_false_positive_se_prior_sens, device = "svg",
+         path = here::here("figures/revision2/"), width = 13, height = 6)
 
 
 ```
