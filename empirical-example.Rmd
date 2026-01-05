@@ -1011,6 +1011,14 @@ ggsave("postcent_12.svg", postcent_12, device = "svg",
        path = here::here("figures/revision1"), width = 8.5, height = 4.25)
 ```
 
+
+For my dissertation cumulus, I am saving the centrality data:
+```{r}
+saveRDS(cent_12, here::here("data", "empirical_example", "cent_12_rev1.RDS"))
+```
+
+
+
 Combine with an edge uncertainty plot from tsnet: 
 ```{r}
 postmat_12 <- tsnet::posterior_plot(fit_12) + 
