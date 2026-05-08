@@ -24,3 +24,11 @@ posterior-distance-sampling-comparison.Rmd
 norm-exploration.Rmd
 posterior-predictive-var.R
 l_raw1000.RDS
+
+# Irrelevant folders
+**figures/gif
+output/empirical-example/test-individual-files
+presentations
+submissions
+
+
