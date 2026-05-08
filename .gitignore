@@ -1,17 +1,18 @@
 *.Rproj.user
+.Rproj.user
 *.Renviron
 *.Rhistory
 *.RData
 *.Ruserdata
-
 
 *.svg
 *.docx
 *.pptx
 *.csv
 *.xlsx
-*.Rproj.user
-.Rproj.user
+
+# Make sentinel directory
+.make/
 bayes-factors.Rmd
 concatenate-var.Rmd
 mlgraphicalVAR.R
@@ -30,5 +31,6 @@ l_raw1000.RDS
 output/empirical-example/test-individual-files
 presentations
 submissions
+manuscript
 
 

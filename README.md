@@ -21,6 +21,37 @@ The freely available preprint is available at PsyArXiv.
 
 Start the .Rproj file 'var-compare.Rproj' before running the scripts.
 
+## Reproducing with Docker and Make
+
+A `Dockerfile` and `Makefile` are provided for reproducible execution.
+
+**Build the Docker image** (R 4.3.2 + all dependencies; first build is slow because `rstan`/`BGGM` compile C++ code):
+```bash
+make docker-build
+```
+
+**Run the full pipeline inside the container:**
+```bash
+make docker-make
+```
+
+Output files and figures are written to your local directory via a bind mount.
+
+**Run individual scripts locally** (requires R 4.3.2 and all packages installed):
+```bash
+make true-networks       # must run before simulations
+make simulation-1
+make simulation-2
+make empirical-example
+make revision            # revision1/ scripts
+```
+
+`make clean` removes the sentinel files used to track completed targets but does not delete any output or figures.
+
+### Simulation study 1 — using preloaded results
+
+`simulation-1.Rmd` (and `revision1/simulation-1-revision.Rmd`) ship with intermediate results (`output/df_eval_bggm_0705.RDS`, `output/df_eval_gvar_0705.RDS`) that allow reproducing all figures without rerunning the full simulation. Open the file in RStudio and run only the chunks from the section titled **"IF RESULTS PRELOADED"** onwards.
+
 Full simulation results are too large (multiple GBs) and can be requested from the corresponding author. Intermediate simulation results will be provided when possible.
 
 Code to test the implementation of the model in Stan, including code for the simulation study, is available in the repository [`stan-gvar`](https://github.com/bsiepe/stan-gvar). 
